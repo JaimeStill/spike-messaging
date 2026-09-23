@@ -119,28 +119,63 @@ func TestShutdownDeadlineCancelsHandler(t *testing.T) {
 	}
 }
 
-func TestDrainTimeoutBudget(t *testing.T) {
+func TestGraceCancelsThenWaits(t *testing.T) {
 	started := make(chan struct{}, 1)
-	cancelled := make(chan struct{})
+	unwound := make(chan struct{})
 	r := reactor.New(reactor.Every(time.Millisecond), func(ctx context.Context, _ time.Time) error {
 		started <- struct{}{}
 		<-ctx.Done()
-		close(cancelled)
-		return nil
-	}, reactor.DrainTimeout(20*time.Millisecond))
+		time.Sleep(20 * time.Millisecond) // the handler takes time to unwind
+		close(unwound)
+		return ctx.Err()
+	}, reactor.Grace(20*time.Millisecond))
 	if err := r.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	recvOrFail(t, started, "the handler")
-	begin := time.Now()
 	err := shutdown(t, r, failsafe)
-	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "drain timeout after 20ms") {
-		t.Fatalf("Shutdown = %v, want the drain budget's timeout", err)
+	select {
+	case <-unwound:
+	default:
+		t.Fatal("Shutdown returned before the handler unwound")
 	}
-	if elapsed := time.Since(begin); elapsed > failsafe/2 {
-		t.Errorf("Shutdown waited %v, past its budget", elapsed)
+	if err == nil || !strings.Contains(err.Error(), "handlers cancelled after grace 20ms") {
+		t.Fatalf("Shutdown = %v, want the grace report", err)
 	}
-	recvOrFail(t, cancelled, "the handler's cancellation")
+	if errors.Is(err, context.Canceled) {
+		t.Errorf("Shutdown = %v, reports the handler's own cancellation", err)
+	}
+}
+
+func TestGraceStillBoundedByContext(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	defer close(release)
+	r := reactor.New(reactor.Every(time.Millisecond), func(context.Context, time.Time) error {
+		started <- struct{}{}
+		<-release // ignores cancellation
+		return nil
+	}, reactor.Grace(10*time.Millisecond))
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	recvOrFail(t, started, "the handler")
+	if err := shutdown(t, r, 50*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown = %v, want DeadlineExceeded", err)
+	}
+}
+
+func TestGraceUnusedIsClean(t *testing.T) {
+	r := reactor.New(reactor.Every(time.Millisecond), func(context.Context, time.Time) error {
+		return nil
+	}, reactor.Grace(time.Second))
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, r.Ready, "readiness")
+	if err := shutdown(t, r, failsafe); err != nil {
+		t.Fatalf("Shutdown = %v", err)
+	}
 }
 
 func TestHandlerErrorOnErr(t *testing.T) {

@@ -35,16 +35,17 @@ const (
 type Option func(*options)
 
 type options struct {
-	drain time.Duration
+	grace time.Duration
 }
 
-// DrainTimeout bounds how long Shutdown waits for the handling in flight,
-// whatever its context allows. Set it below the coordinator's drain timeout:
-// the coordinator stops waiting at its own deadline and drops any error that
-// arrives after it, so without a shorter budget a reactor's drain failure
-// never reaches Run's result.
-func DrainTimeout(d time.Duration) Option {
-	return func(o *options) { o.drain = d }
+// Grace bounds how long Shutdown lets the handling in flight run before it
+// cancels the handlers' contexts. Shutdown then waits for them to unwind,
+// until its own context ends. Set it below the coordinator's drain timeout,
+// so a reactor that had to cancel its handlers says so in Run's result; the
+// coordinator drops any error that arrives after its own deadline. Without
+// Grace, the handlers are cancelled only when Shutdown's context ends.
+func Grace(d time.Duration) Option {
+	return func(o *options) { o.grace = d }
 }
 
 // Reactor runs a Source into a Func. It is single use: Start once, Shutdown
@@ -114,11 +115,12 @@ func (r *Reactor[T]) Start(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown stops the source and waits for the handling in flight. If ctx
-// ends first, or the [DrainTimeout] budget runs out, it cancels the
-// handlers' contexts and returns the deadline's error without waiting
-// further. Otherwise it returns Receive's error, unless that error was
-// already sent on Err.
+// Shutdown drains the reactor in two phases. It stops the source and waits
+// for the handling in flight; once the [Grace] period passes, it cancels the
+// handlers' contexts and waits for them to unwind. It returns once Receive
+// returns, or when ctx ends, which cancels the handlers and stops waiting.
+// The error reports a grace that ran out, or ctx's error, or else Receive's
+// error unless that error was already sent on Err.
 func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
 	switch r.state {
@@ -130,28 +132,43 @@ func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 
-	errBudget := fmt.Errorf("reactor: drain timeout after %v", r.opts.drain)
-	if r.opts.drain > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeoutCause(ctx, r.opts.drain, errBudget)
-		defer cancel()
-	}
-
 	r.stop()
 	defer r.abort()
-	select {
-	case <-r.done:
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.err != nil {
-			return fmt.Errorf("reactor: %w", r.err)
+
+	var grace <-chan time.Time
+	if r.opts.grace > 0 {
+		t := time.NewTimer(r.opts.grace)
+		defer t.Stop()
+		grace = t.C
+	}
+	cancelled := false
+	for {
+		select {
+		case <-grace:
+			r.abort()
+			cancelled, grace = true, nil
+		case <-ctx.Done():
+			return fmt.Errorf("reactor: drain: %w", ctx.Err())
+		case <-r.done:
+			r.mu.Lock()
+			err := r.err
+			r.mu.Unlock()
+			if cancelled {
+				// A handler that unwinds returns its cancellation; that is
+				// the expected outcome, not a second failure.
+				if errors.Is(err, context.Canceled) {
+					err = nil
+				}
+				return errors.Join(
+					fmt.Errorf("reactor: handlers cancelled after grace %v", r.opts.grace),
+					err,
+				)
+			}
+			if err != nil {
+				return fmt.Errorf("reactor: %w", err)
+			}
+			return nil
 		}
-		return nil
-	case <-ctx.Done():
-		if cause := context.Cause(ctx); cause == errBudget {
-			return fmt.Errorf("%w: %w", errBudget, ctx.Err())
-		}
-		return fmt.Errorf("reactor: drain: %w", ctx.Err())
 	}
 }
 

@@ -1,7 +1,8 @@
 // Command every is step 1's checkpoint: an Every reactor on go-core's
 // lifecycle coordinator, adapted by hand into a lifecycle.Service at the
-// root stage and monitored through its Err channel. Its drain budget sits
-// below the coordinator's so a drain timeout is reported by name. Interrupt it during a
+// root stage and monitored through its Err channel. Its grace sits below the
+// coordinator's drain timeout, so a cancelled tick unwinds, and is reported
+// by name, before the coordinator's deadline. Interrupt it during a
 // tick to watch the drain.
 package main
 
@@ -30,7 +31,7 @@ func run(args []string, stderr io.Writer) int {
 	interval := fs.Duration("interval", 500*time.Millisecond, "tick interval")
 	work := fs.Duration("work", time.Second, "how long each tick's handling takes")
 	drain := fs.Duration("drain", 5*time.Second, "the coordinator's drain timeout")
-	reactorDrain := fs.Duration("reactor-drain", 4*time.Second, "the reactor's drain budget, below -drain")
+	grace := fs.Duration("grace", 4*time.Second, "how long a tick runs into the drain before it is cancelled, below -drain")
 	failAfter := fs.Int("fail-after", 0, "fail on this tick (0 never fails)")
 	if err := fs.Parse(args); err != nil {
 		return process.ExitUsage
@@ -57,7 +58,7 @@ func run(args []string, stderr io.Writer) int {
 		}
 	}
 
-	r := reactor.New(reactor.Every(*interval), tick, reactor.DrainTimeout(*reactorDrain))
+	r := reactor.New(reactor.Every(*interval), tick, reactor.Grace(*grace))
 
 	lc := lifecycle.New()
 	lc.Add(lifecycle.Service{

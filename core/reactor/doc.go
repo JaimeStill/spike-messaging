@@ -12,8 +12,9 @@
 //
 // Start detaches the reactor from the context it is given, so cancelling the
 // run context at a signal does not interrupt handling before the reactor's
-// stage drains. Shutdown stops the source from taking new occurrences and
-// waits for the handling in flight. A handler's context stays live through
-// that wait and is cancelled only when Shutdown's own context ends, which is
-// the drain deadline.
+// stage drains. Shutdown drains in two phases: it stops the source from
+// taking new occurrences and waits for the handling in flight, then, once
+// the [Grace] period passes, cancels the handlers' contexts and waits for
+// them to unwind. Without Grace, a handler's context is cancelled only when
+// Shutdown's own context ends, which is the drain deadline.
 package reactor
