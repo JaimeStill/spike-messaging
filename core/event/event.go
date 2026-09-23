@@ -12,7 +12,7 @@ const SpecVersion = "1.0"
 
 // Event is one CloudEvents 1.0 event. ID, Source, and Type are required; the
 // specversion is always [SpecVersion] and is not a field. A zero Time and an
-// empty Subject or DataContentType are absent attributes. Extensions holds
+// empty Subject, DataContentType, or DataSchema are absent attributes. Extensions holds
 // the extension attributes, such as traceparent, keyed by name.
 type Event struct {
 	ID              string
@@ -20,6 +20,7 @@ type Event struct {
 	Type            string
 	Subject         string
 	DataContentType string
+	DataSchema      string
 	Time            time.Time
 	Data            []byte
 	Extensions      map[string]string
@@ -33,8 +34,9 @@ var reserved = map[string]bool{
 }
 
 // Validate reports every way e breaks the specification: a missing required
-// attribute, or an extension name that is not lowercase alphanumeric, is
-// longer than 20 characters, or shadows a context attribute.
+// attribute, or an extension name that is empty, is not lowercase
+// alphanumeric, or shadows a context attribute. The specification's
+// 20-character limit on names is a recommendation, so it is not enforced.
 func (e Event) Validate() error {
 	var errs []error
 	if e.ID == "" {
@@ -58,8 +60,8 @@ func (e Event) Validate() error {
 }
 
 func validName(name string) error {
-	if name == "" || len(name) > 20 {
-		return fmt.Errorf("extension %q: name must be 1 to 20 characters", name)
+	if name == "" {
+		return errors.New("extension: name must not be empty")
 	}
 	for _, r := range name {
 		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {

@@ -7,7 +7,9 @@ import (
 )
 
 // Header is a message's headers in binary content mode. Its shape matches
-// nats.Header and http.Header, so a provider converts it directly.
+// nats.Header and http.Header. Values are written as given: a provider whose
+// protocol binding requires encoding them, such as HTTP's percent-encoding,
+// encodes them itself.
 type Header map[string][]string
 
 const (
@@ -26,6 +28,9 @@ func Encode(e Event) (Header, []byte, error) {
 		prefix + "source":      {e.Source},
 		prefix + "type":        {e.Type},
 	}
+	if e.DataSchema != "" {
+		h[prefix+"dataschema"] = []string{e.DataSchema}
+	}
 	if e.Subject != "" {
 		h[prefix+"subject"] = []string{e.Subject}
 	}
@@ -42,7 +47,8 @@ func Encode(e Event) (Header, []byte, error) {
 }
 
 // Decode reads an event from binary content mode. Header names match
-// case-insensitively, so a canonicalized HTTP header decodes too; any
+// case-insensitively, so a canonicalized HTTP header decodes too, and a
+// lowercase name wins over another spelling of it; any
 // ce-prefixed header that is not a context attribute is an extension. The
 // result must carry specversion 1.0 and pass [Event.Validate].
 func Decode(h Header, body []byte) (Event, error) {
@@ -52,7 +58,13 @@ func Decode(h Header, body []byte) (Event, error) {
 		if len(vs) == 0 {
 			continue
 		}
-		key, v := strings.ToLower(key), vs[0]
+		lower, v := strings.ToLower(key), vs[0]
+		if lower != key {
+			if _, ok := h[lower]; ok {
+				continue
+			}
+		}
+		key = lower
 		if key == contentType {
 			e.DataContentType = v
 			continue
@@ -70,6 +82,8 @@ func Decode(h Header, body []byte) (Event, error) {
 			e.Source = v
 		case "type":
 			e.Type = v
+		case "dataschema":
+			e.DataSchema = v
 		case "subject":
 			e.Subject = v
 		case "time":

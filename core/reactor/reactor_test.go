@@ -48,7 +48,7 @@ func shutdown(t *testing.T, r interface{ Shutdown(context.Context) error }, d ti
 func TestShutdownDrainsInFlight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	var calls atomic.Int32
-	var ended atomic.Bool
+	var ended, finished atomic.Bool
 	r := reactor.New(reactor.Every(5*time.Millisecond), func(ctx context.Context, _ time.Time) error {
 		calls.Add(1)
 		select {
@@ -57,6 +57,7 @@ func TestShutdownDrainsInFlight(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 		ended.Store(ctx.Err() != nil)
+		finished.Store(true)
 		return nil
 	})
 
@@ -69,6 +70,9 @@ func TestShutdownDrainsInFlight(t *testing.T) {
 
 	if err := shutdown(t, r, failsafe); err != nil {
 		t.Fatalf("Shutdown: %v", err)
+	}
+	if !finished.Load() {
+		t.Error("Shutdown returned before the in-flight handler finished")
 	}
 	if ended.Load() {
 		t.Error("the handler's context ended before the drain finished")
@@ -200,6 +204,47 @@ func TestHandlerErrorOnErr(t *testing.T) {
 	}
 }
 
+func TestUnreadErrReachesShutdown(t *testing.T) {
+	boom := errors.New("boom")
+	src := failing{err: boom, failed: make(chan struct{})}
+	r := reactor.New[int](src, func(context.Context, int) error { return nil })
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing reads Err, as when the coordinator stopped monitoring at the
+	// signal just before the source failed. Let the failure land on Err
+	// while the reactor is still running.
+	recvOrFail(t, src.failed, "the source's failure")
+	time.Sleep(20 * time.Millisecond)
+	if err := shutdown(t, r, failsafe); !errors.Is(err, boom) {
+		t.Fatalf("Shutdown = %v, want the unread failure", err)
+	}
+}
+
+func TestEveryDropsStaleTicks(t *testing.T) {
+	const interval = 20 * time.Millisecond
+	lags := make(chan time.Duration, 3)
+	r := reactor.New(reactor.Every(interval), func(_ context.Context, at time.Time) error {
+		select {
+		case lags <- time.Since(at):
+		default:
+		}
+		time.Sleep(3 * interval) // outlast several ticks
+		return nil
+	})
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if lag := recvOrFail(t, lags, "a tick"); lag > interval {
+			t.Errorf("tick delivered %v late; a stale tick was kept", lag)
+		}
+	}
+	if err := shutdown(t, r, failsafe); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestErrorWhileDrainingGoesToShutdown(t *testing.T) {
 	boom := errors.New("boom")
 	src := &stub{err: boom}
@@ -251,6 +296,12 @@ func TestShutdownBeforeStart(t *testing.T) {
 	if err := shutdown(t, r, failsafe); err != nil {
 		t.Errorf("Shutdown before Start = %v", err)
 	}
+	if err := r.Start(context.Background()); err == nil {
+		t.Error("Start after Shutdown succeeded")
+	}
+	if _, open := <-r.Err(); open {
+		t.Error("Err is open on a retired reactor")
+	}
 }
 
 func TestEveryRejectsNonPositive(t *testing.T) {
@@ -276,3 +327,16 @@ func (s *stub) Receive(ctx context.Context, _ reactor.Func[int]) error {
 }
 
 func (s *stub) Ready() bool { return s.ready.Load() }
+
+// failing is a source that fails as soon as it starts, closing failed as it
+// returns.
+type failing struct {
+	err    error
+	failed chan struct{}
+}
+
+func (f failing) Receive(context.Context, reactor.Func[int]) error {
+	defer close(f.failed)
+	return f.err
+}
+func (failing) Ready() bool { return false }

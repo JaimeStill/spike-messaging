@@ -7,10 +7,11 @@ import (
 )
 
 // Every returns a source that delivers the time on every tick of d. The
-// handler runs synchronously, so a tick that arrives while it runs is
-// dropped. A handler error ends the source, and so the reactor, which
-// reports it on Err; a handler that tolerates a failure returns nil. Every panics if d is not
-// positive, as time.NewTicker does.
+// handler runs synchronously, and a tick that comes due while it runs is
+// dropped, so the handler never receives a stale time. A handler error ends
+// the source, and so the reactor, which reports it on Err; a handler that
+// tolerates a failure returns nil. Every panics if d is not positive, as
+// time.NewTicker does.
 func Every(d time.Duration) Source[time.Time] {
 	if d <= 0 {
 		panic("reactor: Every needs a positive interval")
@@ -38,6 +39,10 @@ func (s *every) Receive(ctx context.Context, fn Func[time.Time]) error {
 			}
 			if err := fn(ctx, now); err != nil {
 				return err
+			}
+			select {
+			case <-t.C: // drop the tick that came due during fn
+			default:
 			}
 		}
 	}

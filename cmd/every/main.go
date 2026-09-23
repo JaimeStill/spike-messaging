@@ -36,6 +36,9 @@ func run(args []string, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return process.ExitUsage
 	}
+	if *grace >= *drain {
+		return process.Usage(stderr, "every: -grace must be below -drain, or the coordinator's timeout hides the reactor's report")
+	}
 
 	ctx, stop := process.SignalContext()
 	defer stop()

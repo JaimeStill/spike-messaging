@@ -119,12 +119,16 @@ func (r *Reactor[T]) Start(ctx context.Context) error {
 // for the handling in flight; once the [Grace] period passes, it cancels the
 // handlers' contexts and waits for them to unwind. It returns once Receive
 // returns, or when ctx ends, which cancels the handlers and stops waiting.
-// The error reports a grace that ran out, or ctx's error, or else Receive's
-// error unless that error was already sent on Err.
+// The error reports a failure sent on Err that nothing read, a grace that
+// ran out, or ctx's error, or else Receive's error. Shutdown before Start
+// retires the reactor, so it never starts.
 func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
 	switch r.state {
 	case idle:
+		r.state = stopped
+		close(r.errs)
+		close(r.done)
 		r.mu.Unlock()
 		return nil
 	case running:
@@ -145,11 +149,22 @@ func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	for {
 		select {
 		case <-grace:
+			grace = nil
+			select {
+			case <-r.done:
+				continue // the drain finished as the grace ran out
+			default:
+			}
 			r.abort()
-			cancelled, grace = true, nil
+			cancelled = true
 		case <-ctx.Done():
 			return fmt.Errorf("reactor: drain: %w", ctx.Err())
 		case <-r.done:
+			// An error sent on Err after the coordinator stopped monitoring
+			// has no other reader; report it here rather than lose it.
+			if err, ok := <-r.errs; ok {
+				return err
+			}
 			r.mu.Lock()
 			err := r.err
 			r.mu.Unlock()

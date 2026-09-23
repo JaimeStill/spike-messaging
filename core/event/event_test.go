@@ -20,6 +20,7 @@ func sample() event.Event {
 		Type:            "lab.grant.approved",
 		Subject:         "grant/42",
 		DataContentType: "application/json",
+		DataSchema:      "https://example.com/schemas/grant.json",
 		Time:            time.Date(2026, 9, 23, 13, 0, 0, 123456789, time.UTC),
 		Data:            []byte(`{"id":42}`),
 		Extensions:      map[string]string{"traceparent": "00-abc-def-01"},
@@ -61,6 +62,7 @@ func TestEncodeHeaders(t *testing.T) {
 		"ce-subject":     {"grant/42"},
 		"ce-time":        {"2026-09-23T13:00:00.123456789Z"},
 		"content-type":   {"application/json"},
+		"ce-dataschema":  {"https://example.com/schemas/grant.json"},
 		"ce-traceparent": {"00-abc-def-01"},
 	}
 	if !reflect.DeepEqual(h, want) {
@@ -129,16 +131,16 @@ func TestValidate(t *testing.T) {
 		want []string
 	}{
 		"empty": {event.Event{}, []string{"id is required", "source is required", "type is required"}},
-		"long extension": {
-			event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"abcdefghijklmnopqrstu": "x"}},
-			[]string{"1 to 20 characters"},
+		"empty extension": {
+			event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"": "x"}},
+			[]string{"must not be empty"},
 		},
 		"uppercase extension": {
 			event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"traceParent": "x"}},
 			[]string{"lowercase alphanumeric"},
 		},
 		"reserved extension": {
-			event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"dataschema": "x"}},
+			event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"subject": "x"}},
 			[]string{"context attribute"},
 		},
 	}
@@ -160,6 +162,29 @@ func TestValidate(t *testing.T) {
 	}
 	if err := sample().Validate(); err != nil {
 		t.Errorf("sample: %v", err)
+	}
+}
+
+func TestValidateAllowsLongExtensionName(t *testing.T) {
+	e := event.Event{ID: "1", Source: "/s", Type: "t", Extensions: map[string]string{"averylongextensionname": "x"}}
+	if err := e.Validate(); err != nil {
+		t.Errorf("a name over 20 characters is a SHOULD, not a MUST: %v", err)
+	}
+}
+
+func TestDecodePrefersLowercase(t *testing.T) {
+	h := event.Header{
+		"ce-specversion": {"1.0"}, "ce-source": {"/s"}, "ce-type": {"t"},
+		"ce-id": {"lower"}, "Ce-Id": {"canonical"},
+	}
+	for range 20 { // map order varies between iterations
+		e, err := event.Decode(h, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.ID != "lower" {
+			t.Fatalf("ID = %q, want the lowercase header's value", e.ID)
+		}
 	}
 }
 
