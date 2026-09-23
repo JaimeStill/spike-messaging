@@ -1,0 +1,27 @@
+[tools]
+go = "1.27"
+golangci-lint = "2.13.2"
+
+[tasks.build]
+description = "Build the module"
+run = "go build ./..."
+
+[tasks.test]
+description = "Run tests"
+run = "go test -race ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.fmt]
+description = "Format all Go source"
+run = "gofmt -w ."
+
+[tasks.tidy]
+description = "Run go mod tidy"
+run = "go mod tidy"
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./..."
