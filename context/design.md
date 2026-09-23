@@ -8,6 +8,12 @@ here, this note is the spike's own.
 
 - **The envelope is CloudEvents 1.0**, in binary mode, with its attributes carried as message
   headers under the CloudEvents NATS protocol binding.
+- **The envelope type is the spike's own**, in `core/event`, on the standard library alone.
+  Rejected: `github.com/cloudevents/sdk-go/v2/event`. Its event package imports json-iterator,
+  and sdk-go is one module, so importing it brings zap, testify, and x/time into the module
+  graph. go-core depends on nothing outside the standard library.
+- **`reactor` is its own package**, not part of `lifecycle`. It imports neither `lifecycle` nor
+  `messaging`, and the composition root registers it.
 - **Emission goes through a transactional outbox.** The event row is written in the mutation's
   own transaction, and a relay publishes it afterward. Delivery is at least once. A reactor is
   idempotent, keyed on the event's `id`.
@@ -43,15 +49,36 @@ reactor is a component, and the composition root adapts it with today's `lifecyc
 often that adapter recurs, and whether anything wants more than the three methods, is the evidence
 for the go-core change.
 
+The evidence from `cmd/every`:
+
+- **One adapter.** It is hand-written, at `StageRoot`.
+- **More than three methods.** The reactor also needs `Err`, which the root passes to `Monitor`.
+  Registering a reactor takes two calls (`Add` and `Monitor`) and a rule tying `reactor.Grace`
+  to the coordinator's drain timeout. A single registration could carry all of it.
+- **Readiness lags `Start`.** The coordinator marks the process ready as soon as `Start`
+  returns, before the reactor's source is receiving, so a probe of the component's check can
+  briefly read not ready.
+- **The coordinator drops errors in two windows.** It stops reading monitored channels at the
+  signal, and it drops a drain error that arrives at its deadline. The reactor covers both
+  itself: `Shutdown` returns a failure that was sent on `Err` but never read, and `Grace`, set
+  below the drain timeout, reports cancelled handlers before the deadline. A coordinator that
+  gave participants a short window to report late errors would make both unnecessary.
+
 ## Open questions
 
-- Adopt `github.com/cloudevents/sdk-go/v2/event`, or write a spec-conformant type. Weigh the
-  existing solution first, and record the loser as a rejected alternative.
-- Whether `reactor` is its own package or part of go-core's `lifecycle`.
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration"),
   and which stage a reactor takes. A reactor is an entry point like the HTTP server, so it may
   belong at `StageRoot`, drained before the infrastructure it depends on, or at a stage of its own
-  between the domains and the root.
+  between the domains and the root. `cmd/every` uses `StageRoot`, which a lone reactor doesn't
+  test.
+- What a handler error means for each source: for a subscription, redeliver, or terminate under
+  `event.Permanent`; for `Every`, the end of the source. The `messaging` step settles the rule,
+  and whether the reactor's handler wrapper keeps a per-message deadline the source sets, such as
+  `AckWait`, which `context.WithoutCancel` currently strips.
+- `event.Tx` names the transaction an event is written in, but a pool satisfies it too. The
+  outbox step decides whether the outbox can enforce the transaction.
+- `event.Encode` writes header values as given, and `Decode` doesn't detect structured mode. The
+  provider steps decide where percent-encoding and structured mode belong.
 - Where the outbox writer lives, whether the relay polls or listens for notifications, and
   whether a consumer-side inbox table backs idempotency.
 - Who provisions a stream, and how readiness and drain run through the coordinator.
