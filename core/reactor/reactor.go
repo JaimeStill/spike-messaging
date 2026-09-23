@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Func handles one occurrence. Its context carries the source's values and
@@ -30,11 +31,28 @@ const (
 	stopped
 )
 
+// Option configures a Reactor.
+type Option func(*options)
+
+type options struct {
+	drain time.Duration
+}
+
+// DrainTimeout bounds how long Shutdown waits for the handling in flight,
+// whatever its context allows. Set it below the coordinator's drain timeout:
+// the coordinator stops waiting at its own deadline and drops any error that
+// arrives after it, so without a shorter budget a reactor's drain failure
+// never reaches Run's result.
+func DrainTimeout(d time.Duration) Option {
+	return func(o *options) { o.drain = d }
+}
+
 // Reactor runs a Source into a Func. It is single use: Start once, Shutdown
 // once.
 type Reactor[T any] struct {
-	src Source[T]
-	fn  Func[T]
+	src  Source[T]
+	fn   Func[T]
+	opts options
 
 	mu    sync.Mutex
 	state state
@@ -46,13 +64,17 @@ type Reactor[T any] struct {
 }
 
 // New returns a reactor that runs src into fn.
-func New[T any](src Source[T], fn Func[T]) *Reactor[T] {
-	return &Reactor[T]{
+func New[T any](src Source[T], fn Func[T], opts ...Option) *Reactor[T] {
+	r := &Reactor[T]{
 		src:  src,
 		fn:   fn,
 		done: make(chan struct{}),
 		errs: make(chan error, 1),
 	}
+	for _, opt := range opts {
+		opt(&r.opts)
+	}
+	return r
 }
 
 // Start launches the source and returns. The reactor keeps ctx's values but
@@ -93,8 +115,9 @@ func (r *Reactor[T]) Start(ctx context.Context) error {
 }
 
 // Shutdown stops the source and waits for the handling in flight. If ctx
-// ends first, it cancels the handlers' contexts and returns ctx's error
-// without waiting further. It returns Receive's error, unless that error was
+// ends first, or the [DrainTimeout] budget runs out, it cancels the
+// handlers' contexts and returns the deadline's error without waiting
+// further. Otherwise it returns Receive's error, unless that error was
 // already sent on Err.
 func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
@@ -107,6 +130,13 @@ func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 
+	errBudget := fmt.Errorf("reactor: drain timeout after %v", r.opts.drain)
+	if r.opts.drain > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(ctx, r.opts.drain, errBudget)
+		defer cancel()
+	}
+
 	r.stop()
 	defer r.abort()
 	select {
@@ -118,6 +148,9 @@ func (r *Reactor[T]) Shutdown(ctx context.Context) error {
 		}
 		return nil
 	case <-ctx.Done():
+		if cause := context.Cause(ctx); cause == errBudget {
+			return fmt.Errorf("%w: %w", errBudget, ctx.Err())
+		}
 		return fmt.Errorf("reactor: drain: %w", ctx.Err())
 	}
 }

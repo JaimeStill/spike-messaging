@@ -3,6 +3,7 @@ package reactor_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -116,6 +117,30 @@ func TestShutdownDeadlineCancelsHandler(t *testing.T) {
 	if got := recvOrFail(t, cancelled, "the handler's cancellation"); !errors.Is(got, context.Canceled) {
 		t.Errorf("handler context error = %v", got)
 	}
+}
+
+func TestDrainTimeoutBudget(t *testing.T) {
+	started := make(chan struct{}, 1)
+	cancelled := make(chan struct{})
+	r := reactor.New(reactor.Every(time.Millisecond), func(ctx context.Context, _ time.Time) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		close(cancelled)
+		return nil
+	}, reactor.DrainTimeout(20*time.Millisecond))
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	recvOrFail(t, started, "the handler")
+	begin := time.Now()
+	err := shutdown(t, r, failsafe)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "drain timeout after 20ms") {
+		t.Fatalf("Shutdown = %v, want the drain budget's timeout", err)
+	}
+	if elapsed := time.Since(begin); elapsed > failsafe/2 {
+		t.Errorf("Shutdown waited %v, past its budget", elapsed)
+	}
+	recvOrFail(t, cancelled, "the handler's cancellation")
 }
 
 func TestHandlerErrorOnErr(t *testing.T) {
