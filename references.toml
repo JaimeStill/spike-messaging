@@ -1,0 +1,40 @@
+# Repository references: the repositories this spike reads, and never writes to.
+#
+# Each key maps to the repository's canonical remote. references.local.toml (not committed) maps
+# the same key to its directory on this machine. The keys match the served workspace's catalog
+# (standards-lab/org's references.toml).
+
+# The served project and the architecture it builds toward.
+[repos.org]
+remote = "https://github.com/standards-lab/org.git"
+
+[repos.architecture]
+remote = "https://github.com/standards-lab/architecture.git"
+
+# Libraries whose published versions the spike builds on.
+[repos.go-core]
+remote = "https://github.com/standards-lab/go-core.git"
+
+[repos.sqlate]
+remote = "https://github.com/standards-lab/sqlate.git"
+
+[repos.go-database]
+remote = "https://github.com/standards-lab/go-database.git"
+
+[repos.go-observability]
+remote = "https://github.com/standards-lab/go-observability.git"
+
+[repos.go-storage]
+remote = "https://github.com/standards-lab/go-storage.git"
+
+# The reference service, whose internal/app/reactors.go is the seam this layer fills.
+[repos.go-web-service]
+remote = "https://github.com/standards-lab/go-web-service.git"
+
+# Prior work: signal-lab's NATS research, and spike-blobfs's two-step protocol, which the outbox
+# follows.
+[repos.signal-lab]
+remote = "https://github.com/JaimeStill/signal-lab.git"
+
+[repos.spike-blobfs]
+remote = "https://github.com/JaimeStill/spike-blobfs.git"

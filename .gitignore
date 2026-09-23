@@ -1,0 +1,17 @@
+# marathon working files.
+.claude/plans/
+.claude/report.md
+
+# The per-machine map of reference checkouts.
+references.local.toml
+
+# Build and coverage artifacts.
+bin/
+*.test
+coverage.out
+coverage.html
+
+# Local workspace files.
+go.work
+go.work.sum
+tmp/

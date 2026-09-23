@@ -1,0 +1,13 @@
+# Project kind: this repository holds Go source with a build-and-test loop.
+[project]
+kind = "code"
+
+# Remote platform and the command that publishes a finished branch.
+[remote]
+platform = "github"
+publish = "gh pr create"
+
+# The experiment serves the Standards Lab workspace coordinator, standards-lab/org, keyed `org`
+# in references.toml. A plan session there reads this spike's result.
+[experiment]
+serves = "org"
