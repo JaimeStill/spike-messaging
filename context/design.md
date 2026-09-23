@@ -29,11 +29,29 @@ The rule under test: **an event is enqueued in the transaction that makes the st
 true.** For a composite operation, that is the complete step's transaction, never the begin
 step's.
 
+## Lifecycle registration
+
+Infrastructure already joins the lifecycle through the same three methods, `Start`, `Shutdown`,
+and `Ready`, and every composition root copies them into a `lifecycle.Service` by hand. The
+reactor is the next thing that needs them. The hypothesis: go-core's `lifecycle` gains a component
+interface and registration by name and stage (`Register(name, stage, comp)`), with a `Stage` type.
+The stage stays at the call site, because it is the process's dependency order, which a library
+can't know. A library constant such as go-database's `admin.Stage` is the smell this removes.
+
+The spike builds against published go-core, so it tests the hypothesis without changing it. The
+reactor is a component, and the composition root adapts it with today's `lifecycle.Service`. How
+often that adapter recurs, and whether anything wants more than the three methods, is the evidence
+for the go-core change.
+
 ## Open questions
 
 - Adopt `github.com/cloudevents/sdk-go/v2/event`, or write a spec-conformant type. Weigh the
   existing solution first, and record the loser as a rejected alternative.
 - Whether `reactor` is its own package or part of go-core's `lifecycle`.
+- Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration"),
+  and which stage a reactor takes. A reactor is an entry point like the HTTP server, so it may
+  belong at `StageRoot`, drained before the infrastructure it depends on, or at a stage of its own
+  between the domains and the root.
 - Where the outbox writer lives, whether the relay polls or listens for notifications, and
   whether a consumer-side inbox table backs idempotency.
 - Who provisions a stream, and how readiness and drain run through the coordinator.

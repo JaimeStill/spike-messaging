@@ -31,6 +31,23 @@ Each package sits in a directory named for its intended home:
 - **The demonstration service**: a composition root, a domain that emits, a reactor, and the
   import check.
 
+## Path
+
+The steps in dependency order. Each is one `start` session, and each session may revise the steps
+after it:
+
+1. **`core/event` and `core/reactor`**: the module and toolchain, the `sdk-go` decision, and the
+   reactor as a lifecycle component. Checkpoint: `Every` runs and drains on the coordinator.
+2. **`messaging`, `messaging/memory`, and the conformance suite**: publish, subscribe, delivery
+   groups, and acknowledge, redeliver, and terminate. Proves 1 on memory, and 3.
+3. **`messaging/outbox` on Postgres**: the emitter, the relay, the migration set, and a compose
+   stack. Proves 2.
+4. **`messaging/nats`**: conformance on JetStream, deduplication, stream provisioning, and the
+   native request and reply. Proves 1 on NATS, and 8.
+5. **The demonstration service**: two replicas, drain, the import check, and a composite
+   two-step operation. Proves 4 through 7. Its validation is the final validation, and its close
+   states the answer.
+
 ## Notes
 
 - `design.md`: the decisions the spike starts from, the outbox-sequencing rule, and the open
