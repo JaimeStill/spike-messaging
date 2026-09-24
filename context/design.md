@@ -32,13 +32,53 @@ here, this note is the spike's own.
   delivery rules that follow.
 - **The scope is the standard tier plus one native use**: request and reply through the `nats`
   provider's handle.
+- **The transaction an event is written in is enforced at compile time.** `event.Tx` requires
+  `Commit` and `Rollback` beside a `database/sql` session's methods, so a pool is not one, and
+  `*sql.Tx` and sqlate's `*Tx` are. Rejected: sqlate's runtime assertion on its own `*Tx`, which
+  refuses a `*sql.Tx`, and a documented rule nothing enforces.
+- **The outbox is engine-agnostic, and an engine is required.** `messaging/outbox` holds no SQL
+  and imports no driver. An `outbox.Engine` is the four statements the outbox runs, and
+  `outbox.New` checks that each is defined with exactly its parameters and that the two a caller
+  runs on its own `event.Tx` do not declare a transaction required. Each engine is a module of its
+  own that defines every statement and ships the tables as a migration set;
+  `messaging/outbox/postgres` is the first. Rejected: a Postgres-only package, which puts pgx in
+  every consumer of go-messaging, as sqlate and go-database avoid with engine sub-modules; and
+  standard fallbacks for the native statements, which no second engine here could test.
+- **The outbox's SQL is authored statement files run through sqlate's `query` package**, with
+  `Verify` for a consumer's verify stage and sqlint in the lint task. `transaction: required`
+  marks only the statements the relay runs on sqlate's `*Tx`.
+- **The relay polls, and is a `reactor.Source`.** Its pass is the primary path and its own
+  sweeper, and the composition root runs it into a reactor whose handler is the broker's
+  `Publish`. Rejected: LISTEN/NOTIFY, which needs a pinned connection outside `database/sql` and
+  only lowers latency.
+- **An inbox table backs idempotency.** `Outbox.Claim` inserts the consumer and event in the
+  handler's own transaction, and a repeat changes no row. The table is in the outbox's migration
+  set, so both shipped in one released migration.
+- **The spike is a Go workspace.** A committed `go.work` layers the root library module, the
+  Postgres engine module, and courier, with no `require` for a workspace sibling and no
+  `replace`. In workspace mode a sibling's requirements satisfy the root's imports, so the build
+  cannot hold the root's boundary; `mise run split-check` does, as an allow-list of the standard
+  library and sqlate's engine-agnostic packages.
 
 ## Outbox sequencing
 
-The outbox follows spike-blobfs's two-step protocol. The emitter writes the row in the
-mutation's transaction. The relay publishes outside any transaction, marks the row published,
-and republishes on retry under the event `id` (`Nats-Msg-Id` on JetStream). An unpublished row
-stays unpublished until the relay succeeds, and the relay's pass is its own sweeper.
+The emitter writes the row in the mutation's transaction. The relay handles each row in a
+transaction of its own: it claims the oldest unpublished row with `FOR UPDATE SKIP LOCKED`,
+publishes the event while holding the row, and marks it published in the same transaction. A
+handler error, a stop, a timeout, or a failed commit leaves the row unpublished, and a later pass
+republishes it under the event `id` (`Nats-Msg-Id` on JetStream), so delivery is at least once.
+The transaction is bounded at twice the relay's handler timeout.
+
+This departs from spike-blobfs's two-step, which publishes and then marks in separate steps.
+Holding the claim across the publish lets several relays share the outbox without publishing a
+row concurrently. The cost is a row lock and a connection held for the length of the publish.
+
+One relay publishes in `seq` order, which is insertion order among committed rows, not commit
+order, and holds the outbox back behind a row that fails. Several relays publish in no particular
+order.
+
+Evidence 2 holds: `TestStopBetweenCommitAndPublishLosesNoEvent` in `messaging/outbox/postgres`,
+and courier's `outbox` scenario on a scratch database. Marking before the publish fails that test.
 
 The rule under test: **an event is enqueued in the transaction that makes the state it reports
 true.** For a composite operation, that is the complete step's transaction, never the begin
@@ -75,11 +115,12 @@ The evidence from step 1's `cmd/every`, now courier's `every` scenario:
 
 The evidence from courier's scenarios:
 
-- **One adapter serves every reactor.** `scenario/coordinator.go` adapts a component with
+- **One adapter serves every reactor.** `courier/scenario/coordinator.go` adapts a component with
   `Start`, `Shutdown`, `Ready`, and `Err` into a `lifecycle.Service` and monitors its `Err`. That
   interface is the proposed component interface, with `Err` as its fourth member.
 - **Stages order the drain.** In `group`, the publisher sits at `StageRoot` and the workers at
-  stage 0, so the drain stops publishing before the workers drain. A reactor that consumes sits
+  stage 0, so the drain stops publishing before the workers drain. In `outbox`, the relay sits at
+  `StageRoot` for the same reason. A reactor that consumes sits
   below the root, and one that produces work sits at the root, as the HTTP server does.
 
 ## Open questions
@@ -87,12 +128,8 @@ The evidence from courier's scenarios:
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration").
   courier's `group` puts consuming reactors at a numbered stage below a producing one at
   `StageRoot`. The demonstration service decides where a reactor sits beside the HTTP server.
-- `event.Tx` names the transaction an event is written in, but a pool satisfies it too. The
-  outbox step decides whether the outbox can enforce the transaction.
 - `event.Encode` writes header values as given, and `Decode` doesn't detect structured mode. The
   provider steps decide where percent-encoding and structured mode belong.
-- Where the outbox writer lives, whether the relay polls or listens for notifications, and
-  whether a consumer-side inbox table backs idempotency.
 - Who provisions a stream, and how readiness and drain run through the coordinator.
 - How the nats provider meets the contract where JetStream differs from memory:
   - JetStream accepts an ack that arrives after `AckWait` if no redelivery has happened yet,
@@ -101,7 +138,22 @@ The evidence from courier's scenarios:
   - `Subscription.Types` entries need a subject-token rule.
 - Deduplication on the event `id` joins the conformance suite with the nats provider.
 - The import check in the final validation must let a `_test.go` file import the memory
-  provider, its test double.
+  provider, its test double. `split-check`'s allow-list over `go list -deps -test` is a starting
+  shape for it.
+- How the relay reports the errors it survives. A database error only makes it not ready, and a
+  handler error, such as a broker that is down, reaches nothing. It needs an error hook or the
+  observability layer.
+- A row that can never be published needs a quarantine or dead-letter mark. A corrupt row ends
+  the relay on every start, and a handler that always fails holds the outbox back behind its row.
+- Retention: published outbox rows and inbox rows are never purged.
+- The nats step: a redelivery that arrives while a handler still runs makes the second
+  `Outbox.Claim` wait on the first handler's transaction, which interacts with `AckWait`. Under
+  `REPEATABLE READ` or `SERIALIZABLE`, it fails with a serialization error instead.
+- Whether `Outbox.Claim` moves to a sibling inbox package. It sits in `messaging/outbox` because
+  its table is in the same migration set.
+- The relay's 10s default `Timeout` is untested against a slow broker.
+- At promotion, the engine module and any other sibling module need real `require` lines. They
+  build today only through `go.work`.
 - How trace context propagates as the CloudEvents `traceparent` extension alongside
   go-observability.
 

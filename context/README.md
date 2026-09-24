@@ -16,7 +16,10 @@ The answer decides go-messaging's module API, which primitives go-core gains, an
 
 ## Capabilities
 
-Each package sits in a directory named for its intended home:
+Each package sits in a directory named for its intended home. A committed `go.work` layers three
+modules: the root module holds the libraries, `messaging/outbox/postgres` is the outbox's Postgres
+engine, and `courier` is the application. `mise run split-check` holds the root to the standard
+library and sqlate's engine-agnostic packages.
 
 - **`core/event`**: the CloudEvents 1.0 type, its codec, the emitter interface a domain depends
   on, and `Permanent`.
@@ -24,11 +27,12 @@ Each package sits in a directory named for its intended home:
   the interval source.
 - **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
   delivery groups.
-- **`messaging/outbox`**: the emitter over an outbox table, the relay, and the table shipped as a
-  migration set.
+- **`messaging/outbox`**: the engine-agnostic emitter, relay, and inbox, over an `Engine` of
+  statements that an engine's module supplies. `messaging/outbox/postgres` is the Postgres engine:
+  its statements and the `messaging` migration set.
 - **`messaging/memory` and `messaging/nats`**: the providers. Both pass the conformance suite,
   `messaging/messagingtest`.
-- **courier** (`cmd/courier`): the spike's CLI, in the Elemental CLI layout. Its narrated
+- **courier** (`courier/cmd/courier`, its own module): the spike's CLI, in the Elemental CLI layout. Its narrated
   scenarios each show one capability on a broker. Each step's checkpoint adds its scenarios.
 - **The demonstration service**: a composition root, a domain that emits, a reactor, and the
   import check.
@@ -38,11 +42,9 @@ Each package sits in a directory named for its intended home:
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **`messaging/outbox` on Postgres**: the emitter, the relay, the migration set, and a compose
-   stack. Proves 2.
-2. **`messaging/nats`**: conformance on JetStream, deduplication, stream provisioning, and the
+1. **`messaging/nats`**: conformance on JetStream, deduplication, stream provisioning, and the
    native request and reply. Proves 1 on NATS, and 8.
-3. **The demonstration service**: two replicas, drain, the import check, and a composite
+2. **The demonstration service**: two replicas, drain, the import check, and a composite
    two-step operation. Proves 4 through 7. Its validation is the final validation, and its close
    states the answer.
 
