@@ -66,11 +66,7 @@ func everyScenario(needs []Need) Scenario {
 						}
 						r := reactor.New(reactor.Every(interval), tick, reactor.Grace(grace))
 						c.add("ticker", lifecycle.StageRoot, r)
-						if err := c.start(ctx); err != nil {
-							return err
-						}
-						rep.Note("ready")
-						return nil
+						return c.start(ctx, rep)
 					},
 				},
 				{
@@ -82,10 +78,10 @@ func everyScenario(needs []Need) Scenario {
 				{
 					Intent: "Signal the drain and wait for the coordinator",
 					Action: func(_ context.Context, rep *Reporter) error {
-						if err := c.stop(); err != nil {
+						if err := c.stop(rep); err != nil {
 							return err
 						}
-						rep.Note("drained cleanly after %d ticks", done.Load())
+						rep.Note("%d ticks handled", done.Load())
 						return nil
 					},
 				},

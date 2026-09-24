@@ -51,7 +51,7 @@ func (c *coordinator) add(name string, stage int, r component) {
 
 // start runs the coordinator under ctx, so an interrupt drains it, and
 // returns once it is ready.
-func (c *coordinator) start(ctx context.Context) error {
+func (c *coordinator) start(ctx context.Context, rep *Reporter) error {
 	c.lc.OnReady(func() { close(c.ready) })
 	runCtx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
@@ -59,7 +59,11 @@ func (c *coordinator) start(ctx context.Context) error {
 		c.err = c.lc.Run(runCtx, c.drain)
 		close(c.ended)
 	}()
-	return c.await(ctx, c.ready, "the coordinator to be ready")
+	if err := c.await(ctx, c.ready, "the coordinator to be ready"); err != nil {
+		return err
+	}
+	rep.Note("ready")
+	return nil
 }
 
 // await waits for ch to close. It fails if the coordinator ends first, with
@@ -81,13 +85,17 @@ func (c *coordinator) await(ctx context.Context, ch <-chan struct{}, what string
 	}
 }
 
-// stop signals the drain and returns Run's result: nil for a clean drain.
-func (c *coordinator) stop() error {
+// stop signals the drain and returns Run's result: nil for a clean drain,
+// which it notes.
+func (c *coordinator) stop(rep *Reporter) error {
 	if c.cancel == nil {
 		return errors.New("the coordinator never started")
 	}
 	c.cancel()
 	<-c.ended
+	if c.err == nil {
+		rep.Note("drained cleanly")
+	}
 	return c.err
 }
 

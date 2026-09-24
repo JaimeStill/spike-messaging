@@ -80,11 +80,7 @@ func groupScenario(brokers Brokers, needs []Need) Scenario {
 							}
 							c.add(name, 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
 						}
-						if err := c.start(ctx); err != nil {
-							return err
-						}
-						rep.Note("ready")
-						return nil
+						return c.start(ctx, rep)
 					},
 				},
 				{
@@ -95,13 +91,7 @@ func groupScenario(brokers Brokers, needs []Need) Scenario {
 				},
 				{
 					Intent: "Signal the drain: the publisher stops first, then the workers",
-					Action: func(_ context.Context, rep *Reporter) error {
-						if err := c.stop(); err != nil {
-							return err
-						}
-						rep.Note("drained cleanly")
-						return nil
-					},
+					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
 				},
 				{
 					Intent: "Check that each event was handled once and both workers shared the work",

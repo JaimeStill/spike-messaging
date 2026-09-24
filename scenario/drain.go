@@ -57,7 +57,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 							return nil
 						}
 						c.add("worker", 0, reactor.New(src, handle, reactor.Grace(grace)))
-						return c.start(ctx)
+						return c.start(ctx, rep)
 					},
 				},
 				{
@@ -72,11 +72,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 				{
 					Intent: "Signal the drain while the event is in flight",
 					Action: func(_ context.Context, rep *Reporter) error {
-						if err := c.stop(); err != nil {
-							return err
-						}
-						rep.Note("drained cleanly: the in-flight handling finished")
-						return nil
+						return c.stop(rep)
 					},
 				},
 				{

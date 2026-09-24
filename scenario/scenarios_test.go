@@ -35,7 +35,7 @@ func TestScenariosOnMemory(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"every", []string{"--interval", "20ms", "--work", "5ms"}, []string{"tick 3 done", "drained cleanly"}},
+		{"every", []string{"--interval", "20ms", "--work", "5ms"}, []string{"tick 3 done", "drained cleanly", "3 ticks handled"}},
 		{"group", []string{"--events", "8", "--interval", "5ms", "--work", "20ms"}, []string{"worker-a handled", "worker-b handled", "drained cleanly"}},
 		{"retry", []string{"--retry", "50ms"}, []string{"attempt 1 failed", "attempt 2 handled", "two deliveries"}},
 		{"permanent", []string{"--quiet", "150ms"}, []string{"fails permanently", "event 2 handled", "delivered once and terminated"}},

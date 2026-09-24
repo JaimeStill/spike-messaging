@@ -62,7 +62,7 @@ func retryScenario(brokers Brokers, needs []Need) Scenario {
 							return fmt.Errorf("event %s: transient failure", e.ID)
 						}
 						c.add("worker", 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
-						return c.start(ctx)
+						return c.start(ctx, rep)
 					},
 				},
 				{
@@ -76,7 +76,7 @@ func retryScenario(brokers Brokers, needs []Need) Scenario {
 				},
 				{
 					Intent: "Signal the drain and wait for the coordinator",
-					Action: func(context.Context, *Reporter) error { return c.stop() },
+					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
 				},
 				{
 					Intent: fmt.Sprintf("Check the event was handled twice, the redelivery no sooner than %v", retry),
