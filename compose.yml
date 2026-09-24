@@ -1,0 +1,23 @@
+# The spike's Postgres, for messaging/outbox's integration tests and courier's
+# outbox scenario. Port 5435 lets it run beside sqlate (5433), spike-blobfs
+# (5434), and go-web-service (5432).
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: messaging-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - messaging-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  messaging-postgres:

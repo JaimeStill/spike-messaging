@@ -2,6 +2,9 @@
 go = "1.27"
 golangci-lint = "2.13.2"
 
+[env]
+MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
+
 [tasks.build]
 description = "Build the module"
 run = "go build ./..."
@@ -25,3 +28,19 @@ run = "go mod tidy"
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run ./..."
+
+[tasks.integration]
+description = "Run tests, including those against the compose stack's Postgres"
+run = "go test -race -tags integration -count=1 ./..."
+
+[tasks.up]
+description = "Start the compose stack and wait until it is healthy"
+run = "docker compose up -d --wait"
+
+[tasks.down]
+description = "Stop the compose stack"
+run = "docker compose down"
+
+[tasks.reset]
+description = "Stop the compose stack and delete its volume"
+run = "docker compose down -v"
