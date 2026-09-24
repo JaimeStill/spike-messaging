@@ -67,9 +67,9 @@ func (c *coordinator) start(ctx context.Context, rep *Reporter) error {
 	return nil
 }
 
-// await waits for ch to close. It fails if the coordinator ends first, with
-// the coordinator's error when there is one, or if ctx ends or patience
-// runs out.
+// await waits for ch to close. It fails if the coordinator ends first,
+// wrapping its error when there is one, if ctx ends, or once patience runs
+// out.
 func (c *coordinator) await(ctx context.Context, ch <-chan struct{}, what string) error {
 	select {
 	case <-ch:
