@@ -3,9 +3,9 @@ go = "1.27"
 golangci-lint = "2.13.2"
 
 [env]
-# Every module in go.work, as package patterns: ./... at the root lists only the root module's
-# packages. A module that imports a workspace sibling carries no require line for it, so
-# go mod tidy cannot run there; its go.mod is edited by hand.
+# MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
+# root module's packages. A module that imports a workspace sibling carries no require line for
+# it, so go mod tidy cannot run there; its go.mod is edited by hand.
 MODULES = "./... ./courier/... ./messaging/outbox/postgres/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 

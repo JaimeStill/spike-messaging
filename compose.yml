@@ -1,6 +1,6 @@
-# The spike's Postgres, for messaging/outbox's integration tests and courier's
-# outbox scenario. Port 5435 lets it run beside sqlate (5433), spike-blobfs
-# (5434), and go-web-service (5432).
+# This stack runs the spike's Postgres, for messaging/outbox's integration
+# tests and courier's outbox scenario. Port 5435 lets it run beside sqlate
+# (5433), spike-blobfs (5434), and go-web-service (5432).
 services:
   postgres:
     image: postgres:18-alpine

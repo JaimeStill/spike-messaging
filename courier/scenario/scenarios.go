@@ -30,8 +30,8 @@ func Scenarios(brokers Brokers, needs []Need, outboxes Outboxes, outboxNeeds []N
 	}
 }
 
-// The drain timeout and grace of the scenarios that do not demonstrate the
-// drain itself.
+// defaultDrain and defaultGrace are the drain timeout and grace used by the
+// scenarios that do not themselves demonstrate the drain.
 const (
 	defaultDrain = 5 * time.Second
 	defaultGrace = 4 * time.Second

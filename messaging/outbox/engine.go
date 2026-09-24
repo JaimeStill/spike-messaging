@@ -17,10 +17,10 @@ type Engine struct {
 	// header (event.Encode's headers as JSON), and data. An event whose
 	// source and id are already in the outbox must fail.
 	Emit query.Statement
-	// ClaimRow locks the oldest unpublished row that no other transaction
-	// holds, skipping held rows, for the rest of the transaction. It takes
-	// no parameters and returns seq, header, and data, in that order, or no
-	// row.
+	// ClaimRow locks the oldest unpublished row not already held by another
+	// transaction, skipping held rows, for the rest of the transaction. It
+	// takes no parameters and returns seq, header, and data, in that order,
+	// or no row.
 	ClaimRow query.Statement
 	// MarkPublished marks the claimed row published. Parameter: seq.
 	MarkPublished query.Statement

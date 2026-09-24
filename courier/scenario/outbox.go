@@ -23,7 +23,7 @@ import (
 // the messaging tables are migrated and the outbox's statements verified.
 type OutboxStore struct {
 	Name   string          // the database, for the narration
-	DB     sqlate.Beginner // the session the emits and the relay run on
+	DB     sqlate.Beginner // the session the emit calls and the relay run on
 	Outbox *outbox.Outbox
 	// Pending counts the outbox rows the relay has not yet published. The
 	// count is the engine's SQL, so the composition root supplies it.
@@ -61,7 +61,7 @@ func outboxScenario(brokers Brokers, outboxes Outboxes, needs []Need) Scenario {
 			var store *OutboxStore
 			var storeRep *Reporter
 			var mu sync.Mutex
-			delivered := map[string]int{} // event to its deliveries
+			delivered := map[string]int{} // event id to its delivery count
 			cleanup := func() error {
 				err := c.cleanup()
 				if store != nil {

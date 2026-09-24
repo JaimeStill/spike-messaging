@@ -5,15 +5,15 @@ engine = "github.com/standards-lab/sqlate/postgres"
 [sources]
 sql = "github.com/standards-lab/sqlate"
 
-# The Postgres engine's statements: named for their operation, the delimiter kept out of comments
-# and literals, and no native form in a standard-tier file.
+# The Postgres engine's statements must be named for their operation, keep the delimiter out of
+# comments and literals, and use no native form in a standard-tier file.
 [statements]
 dirs = ["statements"]
 verb_named = true
 delimiter = true
 native_forms = true
 
-# The messaging migration set's DDL, which is Postgres by design.
+# The messaging migration set's DDL is Postgres by design.
 [migrations]
 dirs = ["migrations"]
 single_statement = true
