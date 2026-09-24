@@ -1,6 +1,6 @@
 //go:build integration
 
-package outbox_test
+package postgres_test
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func (r *recorder) record(_ context.Context, e event.Event) error {
 // test ends, unless the test stops it first.
 func relay(t *testing.T, db *sqlate.DB, fn reactor.Func[event.Event], opts ...reactor.Option) *reactor.Reactor[event.Event] {
 	t.Helper()
-	r := reactor.New(outbox.NewRelay(db, outbox.Poll(poll)), fn, opts...)
+	r := reactor.New(ob.Relay(db, outbox.Poll(poll)), fn, opts...)
 	if err := r.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}

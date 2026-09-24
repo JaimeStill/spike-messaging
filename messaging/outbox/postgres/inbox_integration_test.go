@@ -1,6 +1,6 @@
 //go:build integration
 
-package outbox_test
+package postgres_test
 
 import (
 	"errors"
@@ -9,7 +9,6 @@ import (
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox"
 )
 
 // claim claims e for consumer in a transaction of its own, rolling it back
@@ -22,7 +21,7 @@ func claim(t *testing.T, db *sqlate.DB, consumer string, e event.Event, rollback
 	var first bool
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
 		var err error
-		if first, err = outbox.Claim(t.Context(), tx, consumer, e); err != nil {
+		if first, err = ob.Claim(t.Context(), tx, consumer, e); err != nil {
 			return struct{}{}, err
 		}
 		if rollback {
@@ -82,7 +81,7 @@ func TestClaimRequiresAConsumer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := outbox.Claim(t.Context(), tx, "", tick("1")); err == nil {
+	if _, err := ob.Claim(t.Context(), tx, "", tick("1")); err == nil {
 		t.Fatal("a claim without a consumer succeeded")
 	}
 }

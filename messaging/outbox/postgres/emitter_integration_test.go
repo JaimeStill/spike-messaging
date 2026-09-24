@@ -1,6 +1,6 @@
 //go:build integration
 
-package outbox_test
+package postgres_test
 
 import (
 	"errors"
@@ -10,9 +10,19 @@ import (
 	"github.com/standards-lab/sqlate/migrate"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
-	"github.com/JaimeStill/spike-messaging/internal/pgtest"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
+	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
+	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres/internal/pgtest"
 )
+
+// ob is the outbox on the Postgres engine, which every test runs.
+var ob = func() *outbox.Outbox {
+	o, err := outbox.New(postgres.Engine())
+	if err != nil {
+		panic(err)
+	}
+	return o
+}()
 
 // migrated returns a throwaway database with the messaging set applied.
 func migrated(t *testing.T) *sqlate.DB {
@@ -26,7 +36,7 @@ func migrated(t *testing.T) *sqlate.DB {
 
 func migrator(t *testing.T, db *sqlate.DB) *migrate.Migrator {
 	t.Helper()
-	set, err := outbox.Migrations()
+	set, err := postgres.Migrations()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +63,7 @@ func transact(t *testing.T, db *sqlate.DB, events ...event.Event) error {
 	t.Helper()
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
 		for _, e := range events {
-			if err := outbox.NewEmitter().Emit(t.Context(), tx, e); err != nil {
+			if err := ob.Emitter().Emit(t.Context(), tx, e); err != nil {
 				return struct{}{}, err
 			}
 		}
@@ -99,7 +109,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	for _, table := range []string{"messaging_outbox", "messaging_inbox", outbox.Table} {
+	for _, table := range []string{"messaging_outbox", "messaging_inbox", postgres.Table} {
 		if !exists(t, db, table) {
 			t.Errorf("after up, %s is missing", table)
 		}
@@ -116,10 +126,10 @@ func TestMigrationsUpAndDown(t *testing.T) {
 
 func TestVerifyNeedsTheMigratedSchema(t *testing.T) {
 	bare := pgtest.Open(t)
-	if err := outbox.Verify(t.Context(), bare); err == nil {
+	if err := postgres.Verify(t.Context(), bare); err == nil {
 		t.Fatal("Verify passed on a database without the messaging set")
 	}
-	if err := outbox.Verify(t.Context(), migrated(t)); err != nil {
+	if err := postgres.Verify(t.Context(), migrated(t)); err != nil {
 		t.Fatalf("Verify on the migrated schema: %v", err)
 	}
 }
@@ -130,7 +140,7 @@ func TestEmitIsVisibleOnlyAfterCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := outbox.NewEmitter().Emit(t.Context(), tx, tick("1")); err != nil {
+	if err := ob.Emitter().Emit(t.Context(), tx, tick("1")); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
 	if total, _ := rows(t, db); total != 0 {
@@ -148,7 +158,7 @@ func TestRollbackLeavesNoRow(t *testing.T) {
 	db := migrated(t)
 	boom := errors.New("mutation failed")
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
-		if err := outbox.NewEmitter().Emit(t.Context(), tx, tick("1")); err != nil {
+		if err := ob.Emitter().Emit(t.Context(), tx, tick("1")); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, boom

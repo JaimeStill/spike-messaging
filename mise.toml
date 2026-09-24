@@ -6,7 +6,7 @@ golangci-lint = "2.13.2"
 # Every module in go.work, as package patterns: ./... at the root lists only the root module's
 # packages. A module that imports a workspace sibling carries no require line for it, so
 # go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/..."
+MODULES = "./... ./courier/... ./messaging/outbox/postgres/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 
 [tasks.build]
@@ -31,7 +31,7 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint"
-run = "golangci-lint run --build-tags integration $MODULES && go tool sqlint"
+run = "golangci-lint run --build-tags integration $MODULES && cd messaging/outbox/postgres && go tool sqlint"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres"
@@ -48,3 +48,13 @@ run = "docker compose down"
 [tasks.reset]
 description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
+
+[tasks.split-check]
+description = "Check that the root module's packages reach no SQL engine or driver"
+run = """
+found=$(go list -deps -test ./... | grep -E '^github.com/(jackc/|standards-lab/sqlate/postgres)' || true)
+if [ -n "$found" ]; then
+  echo "the root module reaches an engine or a driver:"; echo "$found"; exit 1
+fi
+echo "split-check: the root module reaches no engine or driver"
+"""

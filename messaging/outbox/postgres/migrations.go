@@ -1,4 +1,4 @@
-package outbox
+package postgres
 
 import (
 	"embed"
@@ -26,7 +26,7 @@ var migrationFiles embed.FS
 func Migrations() (migrate.Set, error) {
 	files, err := migrate.Files(migrationFiles, "migrations")
 	if err != nil {
-		return migrate.Set{}, fmt.Errorf("outbox: %w", err)
+		return migrate.Set{}, fmt.Errorf("outbox/postgres: %w", err)
 	}
 	return migrate.Set{Name: Source, Table: Table, Migrations: files}, nil
 }

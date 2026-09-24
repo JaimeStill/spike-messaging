@@ -18,11 +18,11 @@ import (
 //
 // consumer names the handler, typically its subscription's Name: consumers
 // claim an event independently.
-func Claim(ctx context.Context, tx event.Tx, consumer string, e event.Event) (first bool, err error) {
+func (o *Outbox) Claim(ctx context.Context, tx event.Tx, consumer string, e event.Event) (first bool, err error) {
 	if consumer == "" {
 		return false, errors.New("outbox: claim: consumer is required")
 	}
-	n, err := claimInboxStmt.Exec(ctx, tx, query.Args{"consumer": consumer, "source": e.Source, "id": e.ID})
+	n, err := o.eng.ClaimInbox.Exec(ctx, tx, query.Args{"consumer": consumer, "source": e.Source, "id": e.ID})
 	if err != nil {
 		return false, fmt.Errorf("outbox: claim %s for %s: %w", e.ID, consumer, err)
 	}

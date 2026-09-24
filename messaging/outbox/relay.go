@@ -57,6 +57,7 @@ func Timeout(d time.Duration) RelayOption {
 // back behind a row that fails. Several relays share the rows and publish
 // each one once, but not in order.
 type Relay struct {
+	o       *Outbox
 	db      sqlate.Beginner
 	poll    time.Duration
 	timeout time.Duration
@@ -65,9 +66,8 @@ type Relay struct {
 
 var _ reactor.Source[event.Event] = (*Relay)(nil)
 
-// NewRelay returns a relay over the outbox in db.
-func NewRelay(db sqlate.Beginner, opts ...RelayOption) *Relay {
-	r := &Relay{db: db, poll: DefaultPoll, timeout: DefaultTimeout}
+func newRelay(o *Outbox, db sqlate.Beginner, opts ...RelayOption) *Relay {
+	r := &Relay{o: o, db: db, poll: DefaultPoll, timeout: DefaultTimeout}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -141,7 +141,7 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 		}
 	}()
 
-	claimed, err := claimRowStmt.One(ctx, tx, nil)
+	claimed, err := r.o.eng.ClaimRow.Scan(scanRow).One(ctx, tx, nil)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -165,7 +165,7 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 	if err != nil {
 		return false, handlerError{fmt.Errorf("outbox: relay: event %s: %w", e.ID, err)}
 	}
-	if _, err := markStmt.Exec(settle, tx, query.Args{"seq": seq}); err != nil {
+	if _, err := r.o.eng.MarkPublished.Exec(settle, tx, query.Args{"seq": seq}); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -177,3 +177,17 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 // Ready reports whether the relay is receiving and its last pass reached
 // the database.
 func (r *Relay) Ready() bool { return r.ready.Load() }
+
+// row is one claimed outbox row.
+type row struct {
+	seq    int64
+	header []byte
+	data   []byte
+}
+
+// scanRow reads ClaimRow's columns in the order [Engine] fixes.
+func scanRow(r query.Row) (row, error) {
+	var v row
+	err := r.Scan(&v.seq, &v.header, &v.data)
+	return v, err
+}

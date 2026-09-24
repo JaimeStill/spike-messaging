@@ -1,4 +1,4 @@
-package outbox
+package postgres
 
 import (
 	"crypto/sha256"
