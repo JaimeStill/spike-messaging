@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,11 +59,8 @@ func (sub Subscription) Validate() error {
 	case strings.ContainsAny(sub.Name, ".*> \t\r\n"):
 		errs = append(errs, fmt.Errorf("name %q must not contain whitespace, '.', '*', or '>'", sub.Name))
 	}
-	for _, t := range sub.Types {
-		if t == "" {
-			errs = append(errs, errors.New("types: an empty type matches nothing"))
-			break
-		}
+	if slices.Contains(sub.Types, "") {
+		errs = append(errs, errors.New("types: an empty type matches nothing"))
 	}
 	if sub.MaxDeliver < 0 {
 		errs = append(errs, errors.New("max deliver must not be negative"))
@@ -84,10 +82,5 @@ func (sub Subscription) Matches(t string) bool {
 	if len(sub.Types) == 0 {
 		return true
 	}
-	for _, want := range sub.Types {
-		if want == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(sub.Types, t)
 }
