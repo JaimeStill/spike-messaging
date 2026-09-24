@@ -66,7 +66,7 @@ func Run(ctx context.Context, s Scenario, r *Reporter) (err error) {
 	}
 	for i, step := range steps {
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("%s: %w", s.Name, err)
 		}
 		r.Intent(i+1, len(steps), step.Intent)
 		if err := step.Action(ctx, r); err != nil {

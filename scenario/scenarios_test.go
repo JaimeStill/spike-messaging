@@ -130,8 +130,8 @@ func TestInterruptDrainsAndReports(t *testing.T) {
 			cancel()
 		}()
 		err := cmd.ExecuteContext(ctx)
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("err = %v, want the interrupt", err)
+		if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "every: ") {
+			t.Errorf("err = %v, want the interrupt, named by the scenario", err)
 		}
 		if err == nil || !strings.Contains(err.Error(), "handlers cancelled after grace 100ms") {
 			t.Errorf("err = %v: the interrupted drain's report was lost", err)

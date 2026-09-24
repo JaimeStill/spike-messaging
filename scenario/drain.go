@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -86,9 +87,13 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 	}
 }
 
-// checkAcknowledged runs a fresh member of sub until it handles a new event,
-// and fails if event 1 reaches it first.
-func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Subscription, rep *Reporter) error {
+// ackQuiet is how long checkAcknowledged watches, after the new member's
+// first event, for a redelivery of the drained one.
+const ackQuiet = 250 * time.Millisecond
+
+// checkAcknowledged runs a fresh member of sub until it handles a new event
+// and a quiet window passes, and fails if event 1 reaches it.
+func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Subscription, rep *Reporter) (err error) {
 	src, err := b.Subscribe(sub)
 	if err != nil {
 		return err
@@ -108,7 +113,9 @@ func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Su
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.Background(), defaultDrain)
 		defer cancel()
-		_ = r.Shutdown(sctx)
+		if serr := r.Shutdown(sctx); serr != nil {
+			err = errors.Join(err, fmt.Errorf("the new member's shutdown: %w", serr))
+		}
 	}()
 	if err := publish(ctx, b, rep, numbered(2)); err != nil {
 		return err
@@ -118,11 +125,14 @@ func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Su
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(patience):
-		return fmt.Errorf("timed out waiting for the new member")
+		return errors.New("timed out waiting for the new member")
+	}
+	if !sleep(ctx, ackQuiet) {
+		return ctx.Err()
 	}
 	if redelivered.Load() {
-		return fmt.Errorf("event 1 was redelivered: its acknowledgement was lost")
+		return errors.New("event 1 was redelivered: its acknowledgement was lost")
 	}
-	rep.Note("the new member received event 2 first: event 1's acknowledgement held")
+	rep.Note("the new member received event 2 and, over %v, never event 1: its acknowledgement held", ackQuiet)
 	return nil
 }

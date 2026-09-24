@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -62,9 +63,7 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
-	if sub.AckWait == 0 {
-		sub.AckWait = DefaultAckWait
-	}
+	sub = normalize(sub)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c, ok := b.consumers[sub.Name]
@@ -75,4 +74,20 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 		return nil, fmt.Errorf("memory: subscription %q exists with a different configuration", sub.Name)
 	}
 	return &source{b: b, c: c}, nil
+}
+
+// normalize gives sub the form its consumer keeps and compares: the default
+// AckWait filled in, and Types copied, sorted, and nil when empty, so the
+// caller cannot change the filter afterward and configurations that mean
+// the same thing compare equal.
+func normalize(sub messaging.Subscription) messaging.Subscription {
+	if sub.AckWait == 0 {
+		sub.AckWait = DefaultAckWait
+	}
+	if len(sub.Types) == 0 {
+		sub.Types = nil
+	} else {
+		sub.Types = slices.Sorted(slices.Values(sub.Types))
+	}
+	return sub
 }

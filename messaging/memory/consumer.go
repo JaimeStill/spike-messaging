@@ -15,7 +15,10 @@ import (
 //	                  │   ▲
 //	settle(error) or  │   │ take, once due
 //	expire (AckWait)  ▼   │
-//	                 retries ──MaxDeliver reached──▶ done (terminated)
+//	                 retries
+//
+// An event that leaves pending by settle(error) or expire is terminated
+// instead of retried once MaxDeliver deliveries have been made.
 type consumer struct {
 	sub     messaging.Subscription
 	cursor  int              // the next sequence never delivered

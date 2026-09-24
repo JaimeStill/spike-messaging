@@ -21,13 +21,23 @@ type Publisher interface {
 // Broker publishes events and subscribes reactors to them.
 type Broker interface {
 	Publisher
-	// Subscribe validates sub and returns a source of its events. The
-	// handler's return is the delivery's outcome: nil acknowledges it; an
-	// error redelivers it after sub.RetryDelay, until sub.MaxDeliver
-	// deliveries have been made; an error marked by [event.Permanent]
-	// terminates it, so it is never delivered again. A handler error never
-	// ends the source. A provider sets up the consumer either here or when
-	// the source starts receiving.
+	// Subscribe validates sub and returns a source of its events: a member
+	// of the durable consumer sub.Name names.
+	//
+	// The first subscription under a Name creates its consumer, which starts
+	// at the beginning of the stream, so it receives every event, including
+	// those published before it subscribed. A later subscription under the
+	// same Name binds that consumer and must match its configuration; a
+	// mismatch fails Subscribe, or the source's Receive when the provider
+	// binds there.
+	//
+	// A member claims one delivery at a time, and the next only once the
+	// handler's outcome is settled, so members of one Name share the work
+	// rather than one member taking a batch. The outcome is the handler's
+	// return: nil acknowledges the delivery; an error redelivers it after
+	// sub.RetryDelay, until sub.MaxDeliver deliveries have been made; an
+	// error marked by [event.Permanent] terminates it, so it is never
+	// delivered again. A handler error never ends the source.
 	Subscribe(sub Subscription) (reactor.Source[event.Event], error)
 }
 
@@ -46,7 +56,7 @@ type Subscription struct {
 	// the late outcome is ignored. 0 is the provider's default.
 	AckWait time.Duration
 	// RetryDelay is how long an event whose handler returned an error waits
-	// before it is redelivered.
+	// before it is redelivered; 0 redelivers it at once.
 	RetryDelay time.Duration
 }
 

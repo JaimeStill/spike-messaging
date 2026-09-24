@@ -19,19 +19,6 @@ func TestConformance(t *testing.T) {
 	messagingtest.Run(t, func(*testing.T) messaging.Broker { return memory.New() })
 }
 
-func TestSubscribeMismatchedDurable(t *testing.T) {
-	b := memory.New()
-	if _, err := b.Subscribe(messaging.Subscription{Name: "d"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.Subscribe(messaging.Subscription{Name: "d"}); err != nil {
-		t.Errorf("a matching subscription must bind: %v", err)
-	}
-	if _, err := b.Subscribe(messaging.Subscription{Name: "d", MaxDeliver: 2}); err == nil {
-		t.Error("a different configuration under an existing name must fail")
-	}
-}
-
 // A late error, after another member has already handled the redelivery,
 // must not schedule a third delivery.
 func TestLateOutcomeIgnored(t *testing.T) {
@@ -82,5 +69,23 @@ func TestLateOutcomeIgnored(t *testing.T) {
 			t.Errorf("Shutdown: %v", err)
 		}
 		cancel()
+	}
+}
+
+func TestBindingComparesMeaning(t *testing.T) {
+	b := memory.New()
+	types := []string{"b", "a"}
+	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: types}); err != nil {
+		t.Fatal(err)
+	}
+	types[0] = "changed" // the consumer must keep its own copy
+	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: memory.DefaultAckWait}); err != nil {
+		t.Errorf("the same types in another order, with the default AckWait spelled out, must bind: %v", err)
+	}
+	if _, err := b.Subscribe(messaging.Subscription{Name: "empty", Types: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Subscribe(messaging.Subscription{Name: "empty"}); err != nil {
+		t.Errorf("nil and empty Types mean the same filter: %v", err)
 	}
 }

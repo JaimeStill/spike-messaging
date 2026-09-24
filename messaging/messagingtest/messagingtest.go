@@ -41,16 +41,19 @@ func Run(t *testing.T, newBroker func(t *testing.T) messaging.Broker) {
 	}{
 		{"RoundTrip", testRoundTrip},
 		{"TypeFilter", testTypeFilter},
+		{"StartsAtStreamBeginning", testStartsAtStreamBeginning},
 		{"NamesEachReceiveAll", testNamesEachReceiveAll},
 		{"GroupSplitsWork", testGroupSplitsWork},
 		{"ErrorRedelivers", testErrorRedelivers},
 		{"PermanentTerminates", testPermanentTerminates},
 		{"MaxDeliverBounds", testMaxDeliverBounds},
+		{"MaxDeliverBoundsExpiry", testMaxDeliverBoundsExpiry},
 		{"AckWaitRedelivers", testAckWaitRedelivers},
 		{"DurableResumes", testDurableResumes},
 		{"DrainKeepsAck", testDrainKeepsAck},
 		{"Ready", testReady},
 		{"SubscribeRejectsInvalid", testSubscribeRejectsInvalid},
+		{"BindingMustMatch", testBindingMustMatch},
 		{"PublishRejectsInvalid", testPublishRejectsInvalid},
 	}
 	for _, c := range cases {
@@ -180,10 +183,23 @@ func testRoundTrip(t *testing.T, b messaging.Broker) {
 
 func testTypeFilter(t *testing.T, b messaging.Broker) {
 	var d deliveries
-	member(t, b, messaging.Subscription{Name: "filtered", Types: []string{"want"}}, d.record("m"))
-	publish(t, b, ev("a", "skip"), ev("b", "want"), ev("c", "skip"), ev("d", "want"), ev("end", "want"))
+	member(t, b, messaging.Subscription{Name: "filtered", Types: []string{"want", "also"}}, d.record("m"))
+	publish(t, b, ev("a", "skip"), ev("b", "want"), ev("c", "also"), ev("d", "skip"), ev("end", "want"))
 	eventually(t, d.has("end"), "the last matching event")
-	if got, want := d.seen(), []string{"b", "d", "end"}; !reflect.DeepEqual(got, want) {
+	if got, want := d.seen(), []string{"b", "c", "end"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("delivered %v, want %v", got, want)
+	}
+}
+
+// A new Name starts at the beginning of the stream, so events published
+// before anything subscribed still reach it.
+func testStartsAtStreamBeginning(t *testing.T, b messaging.Broker) {
+	publish(t, b, ev("early-1", "t"), ev("early-2", "t"))
+	var d deliveries
+	member(t, b, messaging.Subscription{Name: "late"}, d.record("m"))
+	publish(t, b, ev("after", "t"))
+	eventually(t, d.has("after"), "the event published after subscribing")
+	if got, want := d.seen(), []string{"early-1", "early-2", "after"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
 }
@@ -291,6 +307,22 @@ func testMaxDeliverBounds(t *testing.T, b messaging.Broker) {
 	time.Sleep(quiet)
 	if c := d.count("m"); c != 3 {
 		t.Errorf("delivered %d times, want MaxDeliver 3", c)
+	}
+}
+
+// Deliveries that expire count toward MaxDeliver like those that fail.
+func testMaxDeliverBoundsExpiry(t *testing.T, b messaging.Broker) {
+	var d deliveries
+	member(t, b, messaging.Subscription{Name: "overrun", MaxDeliver: 2, AckWait: 50 * time.Millisecond}, func(ctx context.Context, e event.Event) error {
+		d.add("m", e)
+		<-ctx.Done()
+		return nil // always late, so ignored
+	})
+	publish(t, b, ev("o", "t"))
+	eventually(t, func() bool { return d.count("o") >= 2 }, "two deliveries")
+	time.Sleep(quiet)
+	if c := d.count("o"); c != 2 {
+		t.Errorf("delivered %d times, want MaxDeliver 2", c)
 	}
 }
 
@@ -427,5 +459,26 @@ func testSubscribeRejectsInvalid(t *testing.T, b messaging.Broker) {
 func testPublishRejectsInvalid(t *testing.T, b messaging.Broker) {
 	if err := b.Publish(context.Background(), event.Event{ID: "no-source"}); err == nil {
 		t.Error("Publish accepted an invalid event")
+	}
+}
+
+// A later subscription under an existing Name binds its consumer: the same
+// configuration binds, and a different one fails at Subscribe or at Receive.
+func testBindingMustMatch(t *testing.T, b messaging.Broker) {
+	sub := messaging.Subscription{Name: "bound", MaxDeliver: 3}
+	var d deliveries
+	member(t, b, sub, d.record("1"))
+	member(t, b, sub, d.record("2"))
+
+	other := sub
+	other.MaxDeliver = 5
+	src, err := b.Subscribe(other)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), failsafe)
+	defer cancel()
+	if err := src.Receive(ctx, func(context.Context, event.Event) error { return nil }); err == nil {
+		t.Error("a different configuration under an existing Name bound the consumer")
 	}
 }
