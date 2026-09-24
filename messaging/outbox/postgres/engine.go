@@ -29,6 +29,16 @@ func Engine() outbox.Engine {
 	}
 }
 
+// countPending is outside the Engine contract: the outbox itself never
+// counts its rows.
+var countPending = statements.Statement("count_pending").Scan(query.Scalar[int])
+
+// Pending counts the outbox rows the relay has not yet published, for a
+// consumer that reports or monitors the outbox's lag.
+func Pending(ctx context.Context, sess sqlate.Session) (int, error) {
+	return countPending.One(ctx, sess, nil)
+}
+
 // Statements returns the compiled statements in name order, for a consumer
 // that lists the SQL its program runs.
 func Statements() []query.Statement { return statements.Statements() }

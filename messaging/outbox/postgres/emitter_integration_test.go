@@ -189,3 +189,18 @@ func TestEmitRejectsAnInvalidEvent(t *testing.T) {
 		t.Fatal("emit of an event without source or type succeeded")
 	}
 }
+
+func TestPendingCountsUnpublishedRows(t *testing.T) {
+	db := migrated(t)
+	emit(t, db, tick("1"), tick("2"))
+	if _, err := db.ExecContext(t.Context(), `UPDATE messaging_outbox SET published_at = now() WHERE id = '1'`); err != nil {
+		t.Fatal(err)
+	}
+	n, err := postgres.Pending(t.Context(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("Pending = %d, want 1", n)
+	}
+}

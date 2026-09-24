@@ -18,7 +18,7 @@ func execute(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return a.Run(t.Context()), out.String(), errs.String()
 }
 
-var names = []string{"every", "group", "retry", "permanent", "drain"}
+var names = []string{"every", "group", "retry", "permanent", "drain", "outbox"}
 
 func TestListNamesEveryScenario(t *testing.T) {
 	code, out, _ := execute(t, "list")
@@ -60,6 +60,7 @@ func TestUsageErrors(t *testing.T) {
 		"unknown flag":          {[]string{"scenario", "every", "--nope"}, "unknown flag"},
 		"unknown scenario":      {[]string{"scenario", "nope"}, "unknown command"},
 		"unknown broker":        {[]string{"--broker", "nope", "list"}, `unknown broker "nope"`},
+		"no outbox events":      {[]string{"scenario", "outbox", "--events", "0"}, "--events must be at least 1"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -82,5 +83,25 @@ func TestScenarioExitCodes(t *testing.T) {
 	code, _, errs = execute(t, "scenario", "every", "--interval", "10ms", "--work", "1ms", "--ticks", "5", "--fail-after", "2")
 	if code != process.ExitFailure || !strings.Contains(errs, "tick 2 failed") {
 		t.Errorf("every --fail-after: exit %d, stderr %q", code, errs)
+	}
+}
+
+// unreachable is a DSN no server answers, which fails fast.
+const unreachable = "postgres://nobody@127.0.0.1:1/x?sslmode=disable&connect_timeout=1"
+
+func TestOutboxFailsOnItsNeedFirst(t *testing.T) {
+	code, out, errs := execute(t, "scenario", "outbox", "--dsn", unreachable)
+	if code != process.ExitFailure || !strings.Contains(errs, "outbox: need Postgres") {
+		t.Errorf("exit %d, stderr %q, want exit %d on the Postgres need", code, errs, process.ExitFailure)
+	}
+	if strings.Contains(out, "[1/") {
+		t.Errorf("a step ran before the need was checked:\n%s", out)
+	}
+}
+
+func TestOnlyTheOutboxNeedsPostgres(t *testing.T) {
+	code, out, _ := execute(t, "--dsn", unreachable, "scenario", "retry", "--retry", "20ms")
+	if code != process.ExitOK {
+		t.Errorf("retry with an unreachable --dsn: exit %d\n%s", code, out)
 	}
 }

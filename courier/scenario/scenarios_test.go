@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JaimeStill/spike-messaging/messaging"
-	"github.com/JaimeStill/spike-messaging/messaging/memory"
 	"github.com/JaimeStill/spike-messaging/courier/output"
 	"github.com/JaimeStill/spike-messaging/courier/scenario"
+	"github.com/JaimeStill/spike-messaging/messaging"
+	"github.com/JaimeStill/spike-messaging/messaging/memory"
 )
 
 func memoryBrokers() (messaging.Broker, error) { return memory.New(), nil }
@@ -20,7 +20,7 @@ func memoryBrokers() (messaging.Broker, error) { return memory.New(), nil }
 // execute runs the named scenario's command with args on the memory broker.
 func execute(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
-	for _, s := range scenario.Scenarios(memoryBrokers, nil) {
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil) {
 		if s.Name != name {
 			continue
 		}
@@ -114,7 +114,7 @@ func (b *syncBuffer) String() string {
 // An interrupt while a step waits drains the coordinator in the cleanup,
 // which narrates the drain and reports its failure alongside the interrupt.
 func TestInterruptDrainsAndReports(t *testing.T) {
-	for _, s := range scenario.Scenarios(memoryBrokers, nil) {
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil) {
 		if s.Name != "every" {
 			continue
 		}

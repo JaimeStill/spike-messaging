@@ -29,6 +29,7 @@ func TestMigrationsName(t *testing.T) {
 func TestStatementsDeclareTheirTransaction(t *testing.T) {
 	want := map[string]bool{
 		"claim_inbox":    false,
+		"count_pending":  false,
 		"claim_row":      true,
 		"emit":           false,
 		"mark_published": true,

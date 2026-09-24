@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -16,14 +17,16 @@ import (
 type Brokers func() (messaging.Broker, error)
 
 // Scenarios returns every scenario in presentation order. Each run builds its
-// broker from brokers and checks needs first.
-func Scenarios(brokers Brokers, needs []Need) []Scenario {
+// broker from brokers and checks needs first. The outbox scenario also builds
+// its store from outboxes, and checks outboxNeeds after needs.
+func Scenarios(brokers Brokers, needs []Need, outboxes Outboxes, outboxNeeds []Need) []Scenario {
 	return []Scenario{
 		everyScenario(needs),
 		groupScenario(brokers, needs),
 		retryScenario(brokers, needs),
 		permanentScenario(brokers, needs),
 		drainScenario(brokers, needs),
+		outboxScenario(brokers, outboxes, slices.Concat(needs, outboxNeeds)),
 	}
 }
 

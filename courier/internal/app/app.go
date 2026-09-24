@@ -28,7 +28,7 @@ func New(stdout, stderr io.Writer) *App {
 	cfg := &Config{}
 	out := output.New(stdout, stderr)
 	infra := newInfrastructure(cfg)
-	scenarios := scenario.Scenarios(infra.Broker, infra.Needs())
+	scenarios := scenario.Scenarios(infra.Broker, infra.Needs(), infra.Outbox, infra.OutboxNeeds())
 
 	root := newRoot(cfg, infra, scenarios)
 	root.SetOut(stdout)
@@ -84,7 +84,7 @@ func newRoot(cfg *Config, infra *Infrastructure, scenarios []scenario.Scenario) 
 		Short: "Run the event and reactor layer's scenarios on a broker",
 		Long: "courier runs narrated scenarios that each show one capability of the spike's event\n" +
 			"and reactor layer on a broker: an interval reactor, a delivery group, retry, a\n" +
-			"permanent failure, and the drain.",
+			"permanent failure, the drain, and the transactional outbox on Postgres.",
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
