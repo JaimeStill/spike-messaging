@@ -114,6 +114,16 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	}
 }
 
+func TestVerifyNeedsTheMigratedSchema(t *testing.T) {
+	bare := pgtest.Open(t)
+	if err := outbox.Verify(t.Context(), bare); err == nil {
+		t.Fatal("Verify passed on a database without the messaging set")
+	}
+	if err := outbox.Verify(t.Context(), migrated(t)); err != nil {
+		t.Fatalf("Verify on the migrated schema: %v", err)
+	}
+}
+
 func TestEmitIsVisibleOnlyAfterCommit(t *testing.T) {
 	db := migrated(t)
 	tx, err := db.Begin(t.Context())

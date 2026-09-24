@@ -9,5 +9,7 @@
 //
 // The tables ship as a migration set, [Migrations], which a consumer declares
 // ahead of its own. Every object the set creates is prefixed messaging_, and
-// its history is recorded in [Table].
+// its history is recorded in [Table]. The SQL the package runs is authored
+// statement files compiled through sqlate's query package; [Verify] prepares
+// them against the live schema, for a consumer's verify stage.
 package outbox

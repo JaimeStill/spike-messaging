@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,20 +10,10 @@ import (
 	"time"
 
 	"github.com/standards-lab/sqlate"
+	"github.com/standards-lab/sqlate/query"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
-)
-
-const (
-	// claim locks the oldest unpublished row no other relay holds.
-	claim = `SELECT seq, header, data FROM messaging_outbox
-WHERE published_at IS NULL
-ORDER BY seq
-LIMIT 1
-FOR UPDATE SKIP LOCKED`
-
-	mark = `UPDATE messaging_outbox SET published_at = now() WHERE seq = $1`
 )
 
 const (
@@ -150,32 +141,20 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 		}
 	}()
 
-	var (
-		seq    int64
-		header []byte
-		data   []byte
-	)
-	rows, err := tx.QueryContext(ctx, claim)
+	claimed, err := claimRowStmt.One(ctx, tx, nil)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	if !rows.Next() {
-		_ = rows.Close()
-		return false, rows.Err()
-	}
-	if err := rows.Scan(&seq, &header, &data); err != nil {
-		_ = rows.Close()
-		return false, err
-	}
-	if err := rows.Close(); err != nil {
-		return false, err
-	}
+	seq := claimed.seq
 
 	var h event.Header
-	if err := json.Unmarshal(header, &h); err != nil {
+	if err := json.Unmarshal(claimed.header, &h); err != nil {
 		return false, fmt.Errorf("outbox: relay: row %d: %w: %w", seq, errCorrupt, err)
 	}
-	e, err := event.Decode(h, data)
+	e, err := event.Decode(h, claimed.data)
 	if err != nil {
 		return false, fmt.Errorf("outbox: relay: row %d: %w: %w", seq, errCorrupt, err)
 	}
@@ -186,7 +165,7 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 	if err != nil {
 		return false, handlerError{fmt.Errorf("outbox: relay: event %s: %w", e.ID, err)}
 	}
-	if _, err := tx.ExecContext(settle, mark, seq); err != nil {
+	if _, err := markStmt.Exec(settle, tx, query.Args{"seq": seq}); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

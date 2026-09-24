@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/standards-lab/sqlate/query"
+
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
-
-const claimInbox = `INSERT INTO messaging_inbox (consumer, source, id) VALUES ($1, $2, $3)
-ON CONFLICT DO NOTHING`
 
 // Claim records that consumer is handling e, in the handler's transaction
 // tx, and reports whether this is the first time. A handler that gets false
@@ -23,11 +22,7 @@ func Claim(ctx context.Context, tx event.Tx, consumer string, e event.Event) (fi
 	if consumer == "" {
 		return false, errors.New("outbox: claim: consumer is required")
 	}
-	res, err := tx.ExecContext(ctx, claimInbox, consumer, e.Source, e.ID)
-	if err != nil {
-		return false, fmt.Errorf("outbox: claim %s for %s: %w", e.ID, consumer, err)
-	}
-	n, err := res.RowsAffected()
+	n, err := claimInboxStmt.Exec(ctx, tx, query.Args{"consumer": consumer, "source": e.Source, "id": e.ID})
 	if err != nil {
 		return false, fmt.Errorf("outbox: claim %s for %s: %w", e.ID, consumer, err)
 	}

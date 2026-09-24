@@ -26,8 +26,8 @@ description = "Run go mod tidy"
 run = "go mod tidy"
 
 [tasks.lint]
-description = "Run golangci-lint"
-run = "golangci-lint run ./..."
+description = "Run golangci-lint, including the integration-tagged files, and sqlint"
+run = "golangci-lint run --build-tags integration ./... && go tool sqlint"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres"

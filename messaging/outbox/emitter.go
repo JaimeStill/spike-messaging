@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/standards-lab/sqlate/query"
+
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
-
-const insert = `INSERT INTO messaging_outbox (source, id, header, data) VALUES ($1, $2, $3, $4)`
 
 // Emitter writes each event as an outbox row in the caller's transaction.
 // The event becomes visible to the relay when that transaction commits, and
@@ -31,7 +31,8 @@ func (Emitter) Emit(ctx context.Context, tx event.Tx, e event.Event) error {
 	if err != nil {
 		return fmt.Errorf("outbox: emit %s: %w", e.ID, err)
 	}
-	if _, err := tx.ExecContext(ctx, insert, e.Source, e.ID, header, data); err != nil {
+	args := query.Args{"source": e.Source, "id": e.ID, "header": header, "data": data}
+	if _, err := emitStmt.Exec(ctx, tx, args); err != nil {
 		return fmt.Errorf("outbox: emit %s: %w", e.ID, err)
 	}
 	return nil

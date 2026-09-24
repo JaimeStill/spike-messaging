@@ -1,0 +1,19 @@
+# sqlint configuration. The engine names the native forms a standard-tier file may not use, and
+# the sources name the pattern catalogs the linter resolves includes against: sqlate's own.
+engine = "github.com/standards-lab/sqlate/postgres"
+
+[sources]
+sql = "github.com/standards-lab/sqlate"
+
+# messaging/outbox's statements: named for their operation, the delimiter kept out of comments and
+# literals, and no native form in a standard-tier file.
+[statements]
+dirs = ["messaging/outbox/statements"]
+verb_named = true
+delimiter = true
+native_forms = true
+
+# The messaging migration set's DDL, which is Postgres by design.
+[migrations]
+dirs = ["messaging/outbox/migrations"]
+single_statement = true
