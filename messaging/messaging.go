@@ -26,8 +26,8 @@ type Broker interface {
 	// error redelivers it after sub.RetryDelay, until sub.MaxDeliver
 	// deliveries have been made; an error marked by [event.Permanent]
 	// terminates it, so it is never delivered again. A handler error never
-	// ends the source. The provider sets up the consumer when the source
-	// starts receiving.
+	// ends the source. A provider sets up the consumer either here or when
+	// the source starts receiving.
 	Subscribe(sub Subscription) (reactor.Source[event.Event], error)
 }
 

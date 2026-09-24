@@ -4,7 +4,7 @@
 // reactors at stage 0 share one subscription, so they split the events. Each
 // reactor is adapted by hand into a lifecycle.Service and monitored through
 // its Err channel. The drain stops the publisher first, then lets the
-// workers finish; interrupt it during a handling to watch.
+// workers finish; interrupt it during a handling to watch the drain.
 package main
 
 import (

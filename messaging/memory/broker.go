@@ -54,10 +54,10 @@ func (b *Broker) Publish(_ context.Context, e event.Event) error {
 	return nil
 }
 
-// Subscribe returns a source on the durable consumer sub names, creating it
-// on first use. Sources under one Name share its position and split its
-// work. A later subscription under an existing Name must match the first,
-// as binding to a JetStream durable must.
+// Subscribe returns a source on the durable consumer that sub names,
+// creating it on first use. Sources under one Name share its position and
+// split its work. A later subscription under an existing Name must match
+// the first, as binding to a JetStream durable must.
 func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Event], error) {
 	if err := sub.Validate(); err != nil {
 		return nil, err

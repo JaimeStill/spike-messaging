@@ -90,8 +90,8 @@ func (c *consumer) take(log []message, now time.Time) (seq int, d delivery, ok b
 
 // settle applies a handler's outcome to the delivery it came from. An
 // outcome for a delivery that expired is ignored: the event has been, or
-// will be, redelivered. Expiring first matters for a lone member, whose
-// overrun no other member's take has swept.
+// will be, redelivered. Expiring first matters for a lone member: no other
+// member's take call sweeps its overrun.
 func (c *consumer) settle(seq int, d delivery, err error, now time.Time) {
 	c.expire(now)
 	if cur, ok := c.pending[seq]; !ok || cur.token != d.token {

@@ -1,12 +1,12 @@
 // Package messagingtest is the conformance suite every messaging provider
 // passes. A provider's test calls [Run] with a constructor for a fresh
-// broker; each case runs its sources through a core/reactor Reactor, as a
+// broker; each case runs its sources through a [reactor.Reactor], as a
 // composition root would.
 //
 // The cases prove what a service relies on: an event survives the broker
 // intact, the type filter and delivery groups route it, the handler's return
-// decides its outcome, AckWait bounds a handler and redelivers, a durable
-// keeps its position across members, and a drained handler's
+// decides its outcome, AckWait bounds a handler and redelivers the event, a
+// durable keeps its position across members, and a drained handler's
 // acknowledgement holds. A case that proves an absence, such as no
 // redelivery after a terminate, watches a short quiet window.
 package messagingtest

@@ -1,5 +1,5 @@
 // Package messaging is the standard tier's broker operations: publishing an
-// event, and subscribing to events as a reactor source.
+// event and subscribing to events as a reactor source.
 //
 // A [Broker] is what a composition root builds reactors from. A
 // [Subscription] names a durable consumer: every source subscribed under
