@@ -6,21 +6,12 @@ names, signatures, and package homes. `design.md` states what the layer is and w
 states what it would expose. Each package is labeled with its intended home, and that home is the
 spike's hypothesis.
 
-`core/event`, `core/reactor`, and `messaging` are built, and their package documentation
-(`go doc ./core/event`, `go doc ./core/reactor`, `go doc ./messaging`) states their API. The
+`core/event`, `core/reactor`, `messaging`, and `messaging/outbox` are built, and their package
+documentation (`go doc ./core/event`, `go doc ./core/reactor`, `go doc ./messaging`,
+`go doc ./messaging/outbox`) states their API. The outbox's Postgres engine is
+`messaging/outbox/postgres`, a module of its own (`go doc ./messaging/outbox/postgres`). The
 conformance suite is `messaging/messagingtest`, and `messaging/memory` passes it. The sections
 below cover what is not built yet.
-
-## `messaging/outbox` (intended home: go-messaging)
-
-The emitter implementation over an outbox table, plus the relay that publishes rows outside any
-transaction and marks them published. The relay republishes under the event `id` as the
-deduplication key. The table ships as a migration set.
-
-```go
-func NewEmitter(...) event.Emitter
-type Relay struct{ /* publishes unpublished rows; the relay is its own sweeper */ }
-```
 
 ## Providers
 
@@ -29,13 +20,21 @@ type Relay struct{ /* publishes unpublished rows; the relay is its own sweeper *
 
 ## How a service composes it
 
+- The composition root builds the outbox once, `ob, err := outbox.New(postgres.Engine())`, and
+  injects `ob.Emitter()` into the domain. It declares `postgres.Migrations()` ahead of its own set,
+  and its verify stage calls `postgres.Verify`.
 - A domain's `messaging.go` translation file calls `Emit` inside the store's transaction, passing
   it as the `event.Tx`. It calls it in the transaction that makes the reported state true
   (`design.md`, "Outbox sequencing").
+- The composition root runs the relay as a reactor that produces work, at the root stage:
+  `reactor.New(ob.Relay(db), broker.Publish, reactor.Grace(d))`. A reactor that consumes sits
+  below it, so the drain stops publishing first. A handler that must not act twice claims the
+  event with `ob.Claim` in its own transaction. `courier/internal/app/infrastructure.go` and
+  `courier/scenario/outbox.go` show the wiring.
 - `internal/app/reactors.go` builds each reactor from a subscription and an adapter over a domain
   service method. It subscribes (`src, err := infra.Broker.Subscribe(sub)`), then builds the
   reactor with `reactor.New(src, adapt(dom.X.Method), reactor.Grace(d))`. It registers the reactor
   on the coordinator at the stage it chooses and passes its `Err` to `Monitor`.
-  `scenario/coordinator.go` shows the registration.
+  `courier/scenario/coordinator.go` shows the registration.
 - The adapter decodes the event's data into the domain's command. The event stops at the process
   boundary, so the domain service sees a command, never an event.
