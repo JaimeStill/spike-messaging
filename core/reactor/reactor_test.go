@@ -340,3 +340,54 @@ func (f failing) Receive(context.Context, reactor.Func[int]) error {
 	return f.err
 }
 func (failing) Ready() bool { return false }
+
+// deadlineSource delivers one occurrence under a per-occurrence deadline,
+// then stops its own context while the handler still runs.
+type deadlineSource struct {
+	d       time.Duration
+	stopped chan struct{}
+}
+
+func (s *deadlineSource) Receive(ctx context.Context, fn reactor.Func[int]) error {
+	occ, cancel := context.WithTimeout(ctx, s.d)
+	defer cancel()
+	stop, stopNow := context.WithCancel(occ)
+	done := make(chan error, 1)
+	go func() { done <- fn(stop, 1) }()
+	stopNow()
+	close(s.stopped)
+	<-done
+	<-ctx.Done()
+	return nil
+}
+
+func (s *deadlineSource) Ready() bool { return true }
+
+func TestHandlerKeepsSourceDeadline(t *testing.T) {
+	src := &deadlineSource{d: 50 * time.Millisecond, stopped: make(chan struct{})}
+	type result struct {
+		hasDeadline bool
+		err         error
+	}
+	got := make(chan result, 1)
+	r := reactor.New[int](src, func(ctx context.Context, _ int) error {
+		<-src.stopped
+		_, ok := ctx.Deadline()
+		<-ctx.Done()
+		got <- result{ok, ctx.Err()}
+		return nil
+	})
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	res := recvOrFail(t, got, "the handler's context to end")
+	if !res.hasDeadline {
+		t.Error("the handler lost the source's deadline")
+	}
+	if !errors.Is(res.err, context.DeadlineExceeded) {
+		t.Errorf("handler context ended with %v, want the deadline, not the source's stop", res.err)
+	}
+	if err := shutdown(t, r, failsafe); err != nil {
+		t.Errorf("Shutdown: %v", err)
+	}
+}

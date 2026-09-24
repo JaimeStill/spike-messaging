@@ -9,10 +9,18 @@ import (
 )
 
 // Func handles one occurrence. Its context carries the source's values and
-// is cancelled only when the drain deadline passes.
+// any deadline the source set for the occurrence, and is otherwise cancelled
+// only when the drain cancels the handlers.
 type Func[T any] func(ctx context.Context, occ T) error
 
 // Source delivers occurrences to a Func.
+//
+// What a handler error means is the source's own rule. An interval ([Every])
+// has nothing to redeliver, so an error ends it; a subscription redelivers
+// the occurrence instead and keeps receiving. A source may bound each
+// occurrence with a deadline on the context it passes to fn, such as a
+// broker's acknowledgement wait; the reactor keeps that deadline while
+// detaching the handler from the source's own cancellation.
 type Source[T any] interface {
 	// Receive delivers each occurrence to fn until ctx ends, then waits for
 	// the handling in flight and returns nil. It returns an error when the
@@ -93,7 +101,15 @@ func (r *Reactor[T]) Start(ctx context.Context) error {
 	r.state = running
 
 	handle := func(ctx context.Context, occ T) error {
-		hctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		// Stopping the source must not interrupt the handler, but a deadline
+		// the source set for this occurrence still applies.
+		var hctx context.Context
+		var cancel context.CancelFunc
+		if d, ok := ctx.Deadline(); ok {
+			hctx, cancel = context.WithDeadline(context.WithoutCancel(ctx), d)
+		} else {
+			hctx, cancel = context.WithCancel(context.WithoutCancel(ctx))
+		}
 		defer cancel()
 		defer context.AfterFunc(abortCtx, cancel)()
 		return r.fn(hctx, occ)
