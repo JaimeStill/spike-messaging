@@ -26,8 +26,10 @@ Each package sits in a directory named for its intended home:
   delivery groups.
 - **`messaging/outbox`**: the emitter over an outbox table, the relay, and the table shipped as a
   migration set.
-- **`messaging/memory` and `messaging/nats`**: the providers, and the conformance suite they both
-  pass.
+- **`messaging/memory` and `messaging/nats`**: the providers. Both pass the conformance suite,
+  `messaging/messagingtest`.
+- **courier** (`cmd/courier`): the spike's CLI, in the Elemental CLI layout. Its narrated
+  scenarios each show one capability on a broker. Each step's checkpoint adds its scenarios.
 - **The demonstration service**: a composition root, a domain that emits, a reactor, and the
   import check.
 
@@ -36,13 +38,11 @@ Each package sits in a directory named for its intended home:
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **`messaging`, `messaging/memory`, and the conformance suite**: publish, subscribe, delivery
-   groups, and acknowledge, redeliver, and terminate. Proves 1 on memory, and 3.
-2. **`messaging/outbox` on Postgres**: the emitter, the relay, the migration set, and a compose
+1. **`messaging/outbox` on Postgres**: the emitter, the relay, the migration set, and a compose
    stack. Proves 2.
-3. **`messaging/nats`**: conformance on JetStream, deduplication, stream provisioning, and the
+2. **`messaging/nats`**: conformance on JetStream, deduplication, stream provisioning, and the
    native request and reply. Proves 1 on NATS, and 8.
-4. **The demonstration service**: two replicas, drain, the import check, and a composite
+3. **The demonstration service**: two replicas, drain, the import check, and a composite
    two-step operation. Proves 4 through 7. Its validation is the final validation, and its close
    states the answer.
 

@@ -21,6 +21,15 @@ here, this note is the spike's own.
   as both the conformance double and the test double.
 - **The reactor contract is source-agnostic.** A reactor runs one source of occurrences on the
   lifecycle coordinator. A subscription, an interval, and a schedule are all sources.
+- **The source decides what a handler error means.** A subscription redelivers and keeps
+  receiving, and `event.Permanent` terminates. `Every` ends, because an interval has nothing to
+  redeliver. A handler keeps a deadline the source sets for each occurrence, such as `AckWait`,
+  while the reactor still detaches it from the source's cancellation.
+- **A subscription's Name is both the durable consumer and its delivery group.** Members under
+  one Name share its position and split its work, which maps onto a JetStream durable pull
+  consumer. Rejected: a separate `Group` field. JetStream has no second level of grouping
+  within a durable, so memory would have had to invent one. `go doc ./messaging` states the
+  delivery rules that follow.
 - **The scope is the standard tier plus one native use**: request and reply through the `nats`
   provider's handle.
 
@@ -49,7 +58,7 @@ reactor is a component, and the composition root adapts it with today's `lifecyc
 often that adapter recurs, and whether anything wants more than the three methods, is the evidence
 for the go-core change.
 
-The evidence from `cmd/every`:
+The evidence from step 1's `cmd/every`, now courier's `every` scenario:
 
 - **One adapter.** It is hand-written, at `StageRoot`.
 - **More than three methods.** The reactor also needs `Err`, which the root passes to `Monitor`.
@@ -64,17 +73,20 @@ The evidence from `cmd/every`:
   below the drain timeout, reports cancelled handlers before the deadline. A coordinator that
   gave participants a short window to report late errors would make both unnecessary.
 
+The evidence from courier's scenarios:
+
+- **One adapter serves every reactor.** `scenario/coordinator.go` adapts a component with
+  `Start`, `Shutdown`, `Ready`, and `Err` into a `lifecycle.Service` and monitors its `Err`. That
+  interface is the proposed component interface, with `Err` as its fourth member.
+- **Stages order the drain.** In `group`, the publisher sits at `StageRoot` and the workers at
+  stage 0, so the drain stops publishing before the workers drain. A reactor that consumes sits
+  below the root, and one that produces work sits at the root, as the HTTP server does.
+
 ## Open questions
 
-- Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration"),
-  and which stage a reactor takes. A reactor is an entry point like the HTTP server, so it may
-  belong at `StageRoot`, drained before the infrastructure it depends on, or at a stage of its own
-  between the domains and the root. `cmd/every` uses `StageRoot`, which a lone reactor doesn't
-  test.
-- What a handler error means for each source: for a subscription, redeliver, or terminate under
-  `event.Permanent`; for `Every`, the end of the source. The `messaging` step settles the rule,
-  and whether the reactor's handler wrapper keeps a per-message deadline the source sets, such as
-  `AckWait`, which `context.WithoutCancel` currently strips.
+- Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration").
+  courier's `group` puts consuming reactors at a numbered stage below a producing one at
+  `StageRoot`. The demonstration service decides where a reactor sits beside the HTTP server.
 - `event.Tx` names the transaction an event is written in, but a pool satisfies it too. The
   outbox step decides whether the outbox can enforce the transaction.
 - `event.Encode` writes header values as given, and `Decode` doesn't detect structured mode. The
@@ -82,8 +94,28 @@ The evidence from `cmd/every`:
 - Where the outbox writer lives, whether the relay polls or listens for notifications, and
   whether a consumer-side inbox table backs idempotency.
 - Who provisions a stream, and how readiness and drain run through the coordinator.
+- How the nats provider meets the contract where JetStream differs from memory:
+  - JetStream accepts an ack that arrives after `AckWait` if no redelivery has happened yet,
+    so the provider must drop an outcome once the handler's deadline passes.
+  - A member claims one delivery at a time, so the provider fetches one message per pull.
+  - `Subscription.Types` entries need a subject-token rule.
+- Deduplication on the event `id` joins the conformance suite with the nats provider.
+- The import check in the final validation must let a `_test.go` file import the memory
+  provider, its test double.
 - How trace context propagates as the CloudEvents `traceparent` extension alongside
   go-observability.
+
+## The CLI layout
+
+courier follows the Elemental CLI layout (standards-lab/org's `context/cli-applications.md`), and
+the layout fits a spike whose programs are lifecycle runs. It differs from clutch in three ways:
+
+- A scenario can reject an invalid combination of flags before its first step, through a
+  `Validate` hook.
+- `scenario.ErrUsage` marks a usage error, and `App.Run` maps it to `process.ExitUsage`.
+- The `scenario` mount needs a `RunE` of its own. cobra skips the `Args` check on a command
+  with no run function, so an unknown scenario would otherwise print help and exit 0. clutch's
+  mount has the same gap.
 
 ## Assumptions
 

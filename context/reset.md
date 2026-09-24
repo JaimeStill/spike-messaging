@@ -1,46 +1,67 @@
-# reset · core-event-and-reactor
+# reset · messaging-memory-conformance
 
 - **Status:** closeout
 - **Session:** start
-- **Branch:** core-event-and-reactor
+- **Branch:** messaging-memory-conformance
 
 ## Disposition
 
-- **Integrated:** the `event` and `reactor` sections of `api.md`. The package documentation
-  (`go doc ./core/event`, `go doc ./core/reactor`) now states that API. The composition section
-  stays, updated to `event.Tx`, `reactor.Grace`, and `Monitor`.
+- **Integrated:**
+  - `api.md`'s `messaging` section and its `messaging/memory` entry are gone. The package
+    documentation (`go doc ./messaging`) states that API, and `messaging/messagingtest` holds the
+    conformance suite. The composition section now cites `scenario/coordinator.go`.
+  - courier replaces `cmd/every` and `cmd/group` (`go run ./cmd/courier`).
 - **Add or sharpen:**
-  - `design.md` records two decisions: the envelope type is the spike's own, with sdk-go
-    rejected, and `reactor` is a standalone package.
-  - `design.md` records the lifecycle-registration evidence from `cmd/every`.
-  - `design.md` replaces the two answered open questions with three new ones: what a handler
-    error means for each source, together with the per-message deadline; `Tx` not enforcing a
-    transaction; and header encoding and structured mode.
-  - `README.md` removes step 1 from the path.
-- **Retained:** the rest of `api.md`, which covers `messaging`, the outbox, and the providers,
-  none of them built yet.
+  - `design.md` gains two decisions: the source decides what a handler error means and the
+    handler keeps the source's deadline; and Name is both the durable and the delivery group,
+    with a separate `Group` rejected.
+  - `design.md` adds courier's lifecycle evidence, and the reactor-stage question now carries
+    `group`'s staging.
+  - `design.md` gets a new section on the CLI layout's fit and its three differences from clutch.
+  - `design.md` adds open questions for the nats provider (a late ack, one fetch per pull,
+    subject tokens for `Types`), deduplication in the suite, and the import check allowing
+    `_test.go` files.
+  - `README.md` removes the finished step from the path and names `messagingtest` and courier
+    under the capabilities.
+- **Culled:** `design.md` drops the open question on handler errors and deadlines; the step
+  settled it.
+- **Retained:** `api.md`'s outbox, nats, and composition sections, none of them built yet.
 - **Validated:**
-  - Checkpoint (the final validation). `mise run build vet test lint` and
-    `go test -race -count=5 ./...` pass. Then `go build -o bin/every ./cmd/every`:
-    - `bin/every -work 2s`, interrupted mid-tick: the tick completes, and the program exits 0.
-    - `bin/every -work 5s -drain 2s -grace 1s`, interrupted: "tick cancelled", then
-      `ticker: reactor: handlers cancelled after grace 1s`, exit 1.
-    - `bin/every -fail-after 3`: `run: reactor: tick 3 failed`, exit 1.
-    - `bin/every -grace 5s -drain 5s`: exit 2.
-  - Adjust `4afc46d`: the two-phase `Grace` drain replaces `DrainTimeout` (`ab29a17`).
-  - Adjust `a1b15df`: the branch review's findings, including an error lost around the signal
-    and stale `Every` ticks. The new tests fail against the unfixed code.
+  - Checkpoint A: the conformance suite passes on memory (`go test -race -count=5 -v
+    ./messaging/...`). Mutating the Permanent check and settle's expiry each failed its case.
+    - Adjust `a230516`: `slices.Contains` in the filter checks.
+    - Adjust `f6e52c0`: memory split into broker, consumer, and source layers.
+  - Checkpoint B: `cmd/group` showed the split, the retry, the terminate, and both drains. The
+    program has since been replaced.
+  - Checkpoint C (the final validation): `mise run build ::: vet ::: test ::: lint` and
+    `go test -race -count=5 ./...` pass. Then `go build -o bin/courier ./cmd/courier`:
+    - Each of `every`, `group`, `retry`, `permanent`, and `drain` runs clean and exits 0.
+    - `every --fail-after 2` exits 1 with `run: reactor: tick 2 failed`.
+    - `drain --work 10s --grace 1s --drain 3s` exits 1 with `worker: reactor: handlers cancelled
+      after grace 1s`.
+    - `every --grace 5s --drain 5s`, an unknown scenario, an unknown broker, and an unknown flag
+      each exit 2.
+    - An interrupt mid-scenario narrates the drain, reports a grace cancellation, and exits 1.
+    - Adjust `3220506`: an interrupted scenario's drain was silent and dropped its error.
+  - Adjust `5064b99`, the branch review's findings:
+    - The contract states the start position, the binding rule, and one delivery per member.
+    - The suite gains four cases (`StartsAtStreamBeginning`, `BindingMustMatch`,
+      `MaxDeliverBoundsExpiry`, and a two-type filter), and a mutation for each fails its case.
+    - memory normalizes its stored configuration.
+    - An interrupted scenario's error names the scenario, and the acknowledgement check watches
+      a quiet window.
 
 ## Next-focus
 
-Step 1 of the path in `README.md`: `messaging`, `messaging/memory`, and the conformance suite,
-covering publish, subscribe, delivery groups, and acknowledge, redeliver, and terminate. Before
-building it, settle:
+Step 1 of the path in `README.md`, `messaging/outbox` on Postgres: the emitter, the relay, the
+migration set, and a compose stack. It proves evidence 2: a stop between commit and publish
+loses no event. courier gains an outbox scenario, whose need is the Postgres stack. Before
+building, settle the open outbox questions in `design.md`:
 
-- What a handler error means for each source (`design.md`, "Open questions"), and whether
-  `Every` follows the rule.
-- Whether the reactor's handler wrapper keeps a per-message deadline from the source, such as
-  `AckWait`.
+- where the outbox writer lives
+- whether the relay polls or listens
+- whether an inbox table backs idempotency
+- whether the outbox can enforce `event.Tx`
 
-`core/event`'s `Encode` and `Decode` are the memory provider's codec. Registering a subscription
-reactor adds to the lifecycle-registration evidence in `design.md`.
+The mise task invocation takes `:::` between tasks (`mise run build ::: vet ::: test ::: lint`);
+step 1's record wrote it without them.
