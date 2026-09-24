@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-messaging/output"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/output"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 // mountScenarios builds "scenario", with one subcommand per scenario, each

@@ -3,35 +3,39 @@ go = "1.27"
 golangci-lint = "2.13.2"
 
 [env]
+# Every module in go.work, as package patterns: ./... at the root lists only the root module's
+# packages. A module that imports a workspace sibling carries no require line for it, so
+# go mod tidy cannot run there; its go.mod is edited by hand.
+MODULES = "./... ./courier/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 
 [tasks.build]
 description = "Build the module"
-run = "go build ./..."
+run = "go build $MODULES"
 
 [tasks.test]
 description = "Run tests"
-run = "go test -race ./..."
+run = "go test -race $MODULES"
 
 [tasks.vet]
 description = "Run go vet"
-run = "go vet ./..."
+run = "go vet $MODULES"
 
 [tasks.fmt]
 description = "Format all Go source"
 run = "gofmt -w ."
 
 [tasks.tidy]
-description = "Run go mod tidy"
-run = "go mod tidy"
+description = "Tidy the root module, the one module that imports no workspace sibling"
+run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint"
-run = "golangci-lint run --build-tags integration ./... && go tool sqlint"
+run = "golangci-lint run --build-tags integration $MODULES && go tool sqlint"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres"
-run = "go test -race -tags integration -count=1 ./..."
+run = "go test -race -tags integration -count=1 $MODULES"
 
 [tasks.up]
 description = "Start the compose stack and wait until it is healthy"

@@ -5,7 +5,7 @@ import (
 
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 // Infrastructure builds the broker the flags name. It opens nothing that

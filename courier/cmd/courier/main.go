@@ -10,7 +10,7 @@ import (
 
 	"github.com/standards-lab/go-core/process"
 
-	"github.com/JaimeStill/spike-messaging/internal/app"
+	"github.com/JaimeStill/spike-messaging/courier/internal/app"
 )
 
 func main() {

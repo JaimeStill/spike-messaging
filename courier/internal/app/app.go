@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/standards-lab/go-core/process"
 
-	"github.com/JaimeStill/spike-messaging/output"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/output"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 // App is the application: the command tree assembled over the

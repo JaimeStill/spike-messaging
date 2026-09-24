@@ -1,6 +1,6 @@
 package scenario
 
-import "github.com/JaimeStill/spike-messaging/output"
+import "github.com/JaimeStill/spike-messaging/courier/output"
 
 // Reporter narrates a scenario through the Output every courier command
 // renders with.

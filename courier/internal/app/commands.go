@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/JaimeStill/spike-messaging/output"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/output"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 // commands is the list of mounts: the scenario mount and listing from

@@ -11,8 +11,8 @@ import (
 
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
-	"github.com/JaimeStill/spike-messaging/output"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/output"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 func memoryBrokers() (messaging.Broker, error) { return memory.New(), nil }

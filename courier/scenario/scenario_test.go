@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JaimeStill/spike-messaging/output"
-	"github.com/JaimeStill/spike-messaging/scenario"
+	"github.com/JaimeStill/spike-messaging/courier/output"
+	"github.com/JaimeStill/spike-messaging/courier/scenario"
 )
 
 func reporter() (*scenario.Reporter, *bytes.Buffer) {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/JaimeStill/spike-messaging/output"
+	"github.com/JaimeStill/spike-messaging/courier/output"
 )
 
 func TestStreams(t *testing.T) {
