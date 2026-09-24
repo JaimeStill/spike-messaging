@@ -29,6 +29,7 @@ type coordinator struct {
 	lc     *lifecycle.Coordinator
 	drain  time.Duration
 	cancel context.CancelFunc
+	rep    *Reporter
 	ready  chan struct{}
 	ended  chan struct{} // closed once Run returns, after err is set
 	err    error
@@ -54,7 +55,7 @@ func (c *coordinator) add(name string, stage int, r component) {
 func (c *coordinator) start(ctx context.Context, rep *Reporter) error {
 	c.lc.OnReady(func() { close(c.ready) })
 	runCtx, cancel := context.WithCancel(ctx)
-	c.cancel = cancel
+	c.cancel, c.rep = cancel, rep
 	go func() {
 		c.err = c.lc.Run(runCtx, c.drain)
 		close(c.ended)
@@ -99,12 +100,19 @@ func (c *coordinator) stop(rep *Reporter) error {
 	return c.err
 }
 
-// cleanup drains a coordinator a failed step left running. The step already
-// reported its failure, so cleanup reports nothing more.
+// cleanup drains a coordinator a step left running, as when an interrupt or
+// a failed step ends the scenario early, and narrates the drain. A
+// coordinator that had already ended was reported by the step that saw it,
+// so cleanup reports only a drain it performed itself.
 func (c *coordinator) cleanup() error {
-	if c.cancel != nil {
-		c.cancel()
-		<-c.ended
+	if c.cancel == nil {
+		return nil
 	}
-	return nil
+	select {
+	case <-c.ended:
+		return nil
+	default:
+	}
+	c.rep.Note("draining the coordinator")
+	return c.stop(c.rep)
 }
