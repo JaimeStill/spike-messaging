@@ -9,8 +9,9 @@
 // [Outbox.Emitter] is the [event.Emitter] a composition root injects into a
 // domain. It inserts each event in the domain's own transaction, so an event
 // exists exactly when the state it reports was committed. Nothing is
-// published there: the [Relay] publishes the committed rows afterward,
-// outside any transaction, so a stop between the commit and the publish
-// loses no event. [Outbox.Claim] is the inbox, a handler's guard against
+// published there: the [Relay] publishes the committed rows afterward, each
+// inside a transaction of its own that locks the row and marks it published
+// once the broker holds the event, so a stop between the commit and the
+// publish loses no event. [Outbox.Claim] is the inbox, a handler's guard against
 // handling a redelivered event twice.
 package outbox

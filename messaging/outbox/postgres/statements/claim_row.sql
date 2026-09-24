@@ -3,7 +3,9 @@
 --| transaction: required
 -- Claims the oldest unpublished row no other relay holds. The lock lasts
 -- until the relay's transaction marks the row published and commits, or
--- rolls back and leaves it for the next pass.
+-- rolls back and leaves it for the next pass. Oldest is seq order, the
+-- order of insertion: a transaction that commits late can make a row
+-- visible after a later row was published.
 SELECT seq, header, data
 FROM messaging_outbox
 WHERE published_at IS NULL

@@ -47,6 +47,11 @@ func OpenDSN(t testing.TB) (*sqlate.DB, string) {
 	}
 	name := "messaging_test_" + suffix(t)
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+		// A create that timed out can still finish on the server, so the
+		// database is dropped if it exists, on a context of its own.
+		dctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, _ = admin.ExecContext(dctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+		cancel()
 		_ = admin.Close()
 		t.Fatalf("create database %s: %v", name, err)
 	}

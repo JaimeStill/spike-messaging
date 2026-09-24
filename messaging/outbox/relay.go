@@ -34,7 +34,10 @@ func Poll(d time.Duration) RelayOption {
 
 // Timeout sets the deadline on each row's handler context. The row stays
 // locked while its handler runs, so the timeout bounds how long a hung
-// publish holds it. It must be positive.
+// publish holds it. The row's whole transaction is bounded at twice the
+// timeout, so a stalled database, or a handler that ignores its deadline,
+// rolls the transaction back rather than hold the row and the drain. It
+// must be positive.
 func Timeout(d time.Duration) RelayOption {
 	return func(r *Relay) { r.timeout = d }
 }
@@ -45,17 +48,21 @@ func Timeout(d time.Duration) RelayOption {
 //
 // Each row is handled in a transaction of its own. The relay locks the
 // oldest unpublished row, skipping rows another relay holds, and calls the
-// handler with its event. When the handler returns nil, the row is marked
-// published in the same transaction. When it returns an error, including
+// handler with its event inside that transaction, so the row stays locked
+// while the event is published. When the handler returns nil, the row is
+// marked published in the same transaction. When it returns an error, including
 // one marked [event.Permanent], the transaction rolls back, the row stays
 // unpublished, and the pass ends. The next pass, a poll later, retries it.
 // A stop anywhere before the commit leaves the row to be published again
 // under the same id, so delivery is at least once and a broker that
 // deduplicates on the id sees it once.
 //
-// One relay publishes in emission order and holds the rest of the outbox
-// back behind a row that fails. Several relays share the rows and publish
-// each one once, but not in order.
+// One relay publishes in seq order, which is the order the rows were
+// inserted among those committed, not the order their transactions
+// committed: a long transaction can commit a row after a later one was
+// published. It holds the rest of the outbox back behind a row that fails.
+// Several relays share the rows, and each row is claimed by one relay at a
+// time, but they publish in no particular order.
 type Relay struct {
 	o       *Outbox
 	db      sqlate.Beginner
@@ -130,7 +137,10 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 	// ends, so the transaction begins on a context that outlives ctx: a row
 	// claimed before ctx ends is settled, and its handler keeps only its own
 	// deadline. Only the claim itself stops at ctx.
-	settle := context.WithoutCancel(ctx)
+	// The transaction's own deadline, twice the handler's, bounds a stalled
+	// database or a handler that ignores its deadline.
+	settle, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*r.timeout)
+	defer cancel()
 	tx, err := r.db.Begin(settle)
 	if err != nil {
 		return false, err
@@ -159,14 +169,20 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 		return false, fmt.Errorf("outbox: relay: row %d: %w: %w", seq, errCorrupt, err)
 	}
 
-	hctx, cancel := context.WithTimeout(settle, r.timeout)
+	hctx, cancelHandler := context.WithTimeout(settle, r.timeout)
 	err = fn(hctx, e)
-	cancel()
+	cancelHandler()
 	if err != nil {
 		return false, handlerError{fmt.Errorf("outbox: relay: event %s: %w", e.ID, err)}
 	}
-	if _, err := r.o.eng.MarkPublished.Exec(settle, tx, query.Args{"seq": seq}); err != nil {
+	n, err := r.o.eng.MarkPublished.Exec(settle, tx, query.Args{"seq": seq})
+	if err != nil {
 		return false, err
+	}
+	if n != 1 {
+		// An engine whose mark changes no row would have the relay publish
+		// the row again on every pass.
+		return false, fmt.Errorf("outbox: relay: marking row %d published changed %d rows, want 1", seq, n)
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
@@ -174,8 +190,9 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 	return true, nil
 }
 
-// Ready reports whether the relay is receiving and its last pass reached
-// the database.
+// Ready reports whether the relay is receiving and no pass since its last
+// successful one has failed to reach the database. It is true from the
+// start of Receive, before the first pass.
 func (r *Relay) Ready() bool { return r.ready.Load() }
 
 // row is one claimed outbox row.

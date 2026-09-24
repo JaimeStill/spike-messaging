@@ -10,15 +10,19 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/standards-lab/sqlate"
+	pgdialect "github.com/standards-lab/sqlate/postgres"
+	"github.com/standards-lab/sqlate/query"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
+	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
 )
 
 const (
@@ -240,19 +244,35 @@ func TestRelaysPublishEachRowOnce(t *testing.T) {
 	}
 }
 
+// watched is a source that reports when its Receive context ends.
+type watched struct {
+	reactor.Source[event.Event]
+	stopped chan struct{}
+}
+
+func (w watched) Receive(ctx context.Context, fn reactor.Func[event.Event]) error {
+	context.AfterFunc(ctx, func() { close(w.stopped) })
+	return w.Source.Receive(ctx, fn)
+}
+
 func TestShutdownSettlesTheRowInFlight(t *testing.T) {
 	db := migrated(t)
 	emitEach(t, db, "1")
 	entered, release := make(chan struct{}), make(chan struct{})
-	r := relay(t, db, func(context.Context, event.Event) error {
+	src := watched{ob.Relay(db, outbox.Poll(poll)), make(chan struct{})}
+	r := reactor.New[event.Event](src, func(context.Context, event.Event) error {
 		close(entered)
 		<-release
 		return nil
 	})
+	if err := r.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stop(r) })
 	<-entered
 	done := make(chan error, 1)
 	go func() { done <- r.Shutdown(t.Context()) }()
-	time.Sleep(50 * time.Millisecond) // let the shutdown cancel the source
+	<-src.stopped // the source's context has ended with the handler in flight
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatalf("shutdown: %v", err)
@@ -263,9 +283,18 @@ func TestShutdownSettlesTheRowInFlight(t *testing.T) {
 }
 
 func TestCorruptRowEndsTheRelay(t *testing.T) {
+	for name, header := range map[string]string{
+		"a header that does not decode": `{"ce-id": ["1"]}`,
+		"a header that is not headers":  `{"ce-id": "1"}`,
+	} {
+		t.Run(name, func(t *testing.T) { corruptRowEndsTheRelay(t, header) })
+	}
+}
+
+func corruptRowEndsTheRelay(t *testing.T, header string) {
 	db := migrated(t)
 	if _, err := db.ExecContext(t.Context(),
-		`INSERT INTO messaging_outbox (source, id, header) VALUES ('/x', '1', '{"ce-id": ["1"]}')`); err != nil {
+		`INSERT INTO messaging_outbox (source, id, header) VALUES ('/x', '1', $1)`, header); err != nil {
 		t.Fatal(err)
 	}
 	r := relay(t, db, func(context.Context, event.Event) error { return nil })
@@ -277,4 +306,108 @@ func TestCorruptRowEndsTheRelay(t *testing.T) {
 	case <-time.After(failsafe):
 		t.Fatal("a corrupt row did not end the relay")
 	}
+}
+
+// A pass that cannot reach the outbox makes the relay not ready until a pass
+// succeeds again. Renaming the table stands in for a database the relay
+// cannot use.
+func TestDatabaseErrorMakesTheRelayNotReady(t *testing.T) {
+	db := migrated(t)
+	rec := &recorder{}
+	r := relay(t, db, rec.record)
+	eventually(t, "a ready relay", r.Ready)
+	if _, err := db.ExecContext(t.Context(), `ALTER TABLE messaging_outbox RENAME TO messaging_outbox_away`); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a relay that is not ready", func() bool { return !r.Ready() })
+	if _, err := db.ExecContext(t.Context(), `ALTER TABLE messaging_outbox_away RENAME TO messaging_outbox`); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a ready relay again", r.Ready)
+	emitEach(t, db, "1")
+	eventually(t, "event 1", func() bool { return slices.Equal(rec.seen(), []string{"1"}) })
+}
+
+// A handler that outlives Timeout sees its context end, and the row is
+// retried.
+func TestTimeoutEndsAHungHandler(t *testing.T) {
+	db := migrated(t)
+	emitEach(t, db, "1")
+	var once sync.Once
+	var first error
+	rec := &recorder{}
+	rel := reactor.New[event.Event](ob.Relay(db, outbox.Poll(poll), outbox.Timeout(50*time.Millisecond)),
+		func(ctx context.Context, e event.Event) error {
+			hung := false
+			once.Do(func() { hung = true })
+			if hung {
+				<-ctx.Done()
+				first = ctx.Err()
+				return first
+			}
+			return rec.record(ctx, e)
+		})
+	if err := rel.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stop(rel) })
+	eventually(t, "event 1 on the retry", func() bool { return len(rec.seen()) == 1 })
+	if !errors.Is(first, context.DeadlineExceeded) {
+		t.Fatalf("the hung handler's context ended with %v, want the deadline", first)
+	}
+	eventually(t, "no pending rows", drained(t, db))
+}
+
+// A handler that ignores its deadline cannot hold the row past twice
+// Timeout: the transaction rolls back and the row is published again.
+func TestTransactionBoundOutlastsAHandlerThatIgnoresItsDeadline(t *testing.T) {
+	db := migrated(t)
+	emitEach(t, db, "1")
+	const timeout = 50 * time.Millisecond
+	var once sync.Once
+	rec := &recorder{}
+	relay := reactor.New[event.Event](ob.Relay(db, outbox.Poll(poll), outbox.Timeout(timeout)),
+		func(ctx context.Context, e event.Event) error {
+			rec.add(e.ID)
+			once.Do(func() { time.Sleep(3 * timeout) }) // ignores ctx
+			return nil
+		})
+	if err := relay.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stop(relay) })
+	eventually(t, "no pending rows", drained(t, db))
+	if got := rec.seen(); !slices.Equal(got, []string{"1", "1"}) {
+		t.Fatalf("attempts %v, want event 1 twice: the first transaction must roll back", got)
+	}
+}
+
+// An engine whose mark changes no row is refused at the mark, so the row
+// is never committed as published by a statement that did not mark it.
+func TestMarkThatChangesNoRowFailsThePass(t *testing.T) {
+	db := migrated(t)
+	emitEach(t, db, "1")
+	eng := postgres.Engine()
+	eng.MarkPublished = compileMark(t, "UPDATE messaging_outbox SET published_at = now() WHERE seq = {{seq:bigint}} AND false")
+	broken, err := outbox.New(eng)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	r := reactor.New[event.Event](broken.Relay(db, outbox.Poll(poll)), rec.record)
+	if err := r.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stop(r) })
+	eventually(t, "two attempts", func() bool { return len(rec.seen()) >= 2 })
+	eventually(t, "a relay that is not ready", func() bool { return !r.Ready() })
+	if _, pending := rows(t, db); pending != 1 {
+		t.Fatalf("pending = %d, want the row still pending", pending)
+	}
+}
+
+func compileMark(t *testing.T, text string) query.Statement {
+	t.Helper()
+	fsys := fstest.MapFS{"s/mark_published.sql": &fstest.MapFile{Data: []byte("--| tier: standard\n--| transaction: required\n" + text)}}
+	return query.MustCatalog(query.Patterns()).MustCompile(fsys, "s", pgdialect.Dialect{}).Statement("mark_published")
 }

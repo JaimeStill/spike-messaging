@@ -70,3 +70,10 @@ func TestNewChecksEachStatementsParameters(t *testing.T) {
 		t.Fatalf("New = %v, want Emit's parameters refused", err)
 	}
 }
+
+func TestNewRejectsARequiredTransactionOnTheCallersStatements(t *testing.T) {
+	_, err := outbox.New(engine(t, "--| transaction: required\n"+emit))
+	if err == nil || !strings.Contains(err.Error(), "Emit (emit) declares a transaction required") {
+		t.Fatalf("New = %v, want Emit's transaction declaration refused", err)
+	}
+}

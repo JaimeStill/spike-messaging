@@ -50,11 +50,14 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module's packages reach no SQL engine or driver"
-run = """
-found=$(go list -deps -test ./... | grep -E '^github.com/(jackc/|standards-lab/sqlate/postgres)' || true)
+description = "Check that the root module's packages reach nothing outside the standard library and sqlate's engine-agnostic packages"
+run = '''
+allowed='^github.com/standards-lab/sqlate(/(header|query|sqltest|migrate))?$'
+# A package outside the standard library has a dot in its first path element.
+found=$(go list -deps -test -tags integration ./... | awk '{print $1}' | grep -E '^[^/]+\.[^/]*/' \
+  | grep -v '^github.com/JaimeStill/spike-messaging' | sort -u | grep -Ev "$allowed" || true)
 if [ -n "$found" ]; then
-  echo "the root module reaches an engine or a driver:"; echo "$found"; exit 1
+  echo "the root module reaches packages outside its allow-list:"; echo "$found"; exit 1
 fi
-echo "split-check: the root module reaches no engine or driver"
-"""
+echo "split-check: the root module reaches only the standard library and sqlate's engine-agnostic packages"
+'''

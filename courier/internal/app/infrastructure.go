@@ -97,8 +97,13 @@ func (i *Infrastructure) Outbox(ctx context.Context) (_ *scenario.OutboxStore, e
 	}
 	name := "courier_outbox_" + hex.EncodeToString(b[:])
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+		// A create cancelled by ctx can still finish on the server, so the
+		// database is dropped if it exists, on a context of its own.
+		dctx, cancel := context.WithTimeout(context.Background(), dbWait)
+		_, derr := admin.ExecContext(dctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+		cancel()
 		_ = admin.Close()
-		return nil, fmt.Errorf("create database %s: %w", name, err)
+		return nil, errors.Join(fmt.Errorf("create database %s: %w", name, err), derr)
 	}
 
 	var pool *sql.DB
