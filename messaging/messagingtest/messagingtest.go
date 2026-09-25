@@ -7,7 +7,8 @@
 // intact, the type filter and delivery groups route it, the handler's return
 // decides its outcome, AckWait bounds a handler and redelivers the event, a
 // durable keeps its position across members, and a drained handler's
-// acknowledgement holds. A case that proves an absence, such as no
+// acknowledgement holds. The broker deduplicates on the event's id, and
+// rejects a type no broker can route. A case that proves an absence, such as no
 // redelivery after a terminate, watches a short quiet window.
 package messagingtest
 
@@ -55,6 +56,8 @@ func Run(t *testing.T, newBroker func(t *testing.T) messaging.Broker) {
 		{"SubscribeRejectsInvalid", testSubscribeRejectsInvalid},
 		{"BindingMustMatch", testBindingMustMatch},
 		{"PublishRejectsInvalid", testPublishRejectsInvalid},
+		{"TypeRule", testTypeRule},
+		{"Deduplicates", testDeduplicates},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { c.fn(t, newBroker(t)) })
@@ -480,5 +483,45 @@ func testBindingMustMatch(t *testing.T, b messaging.Broker) {
 	defer cancel()
 	if err := src.Receive(ctx, func(context.Context, event.Event) error { return nil }); err == nil {
 		t.Error("a different configuration under an existing Name bound the consumer")
+	}
+}
+
+// A type that breaks messaging.CheckType is refused at both ends.
+func testTypeRule(t *testing.T, b messaging.Broker) {
+	for _, bad := range []string{"a..b", "a.*", "a.>", "a b"} {
+		if _, err := b.Subscribe(messaging.Subscription{Name: "typed", Types: []string{bad}}); err == nil {
+			t.Errorf("Subscribe accepted type %q", bad)
+		}
+		if err := b.Publish(context.Background(), ev("bad", bad)); err == nil {
+			t.Errorf("Publish accepted type %q", bad)
+		}
+	}
+}
+
+// A repeat of an id is accepted and dropped, whatever it carries, and a new
+// id still delivers.
+func testDeduplicates(t *testing.T, b messaging.Broker) {
+	var d deliveries
+	got := map[string][]byte{}
+	var mu sync.Mutex
+	member(t, b, messaging.Subscription{Name: "dedup"}, func(_ context.Context, e event.Event) error {
+		mu.Lock()
+		got[e.ID] = e.Data
+		mu.Unlock()
+		d.add("m", e)
+		return nil
+	})
+	first, repeat := ev("once", "t"), ev("once", "t")
+	first.Data, repeat.Data = []byte("first"), []byte("repeat")
+	publish(t, b, first, repeat, ev("end", "t"))
+	eventually(t, d.has("end"), "the event after the repeat")
+	time.Sleep(quiet)
+	if c := d.count("once"); c != 1 {
+		t.Errorf("the repeated id was delivered %d times, want once", c)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if string(got["once"]) != "first" {
+		t.Errorf("delivered %q, want the first publish's data", got["once"])
 	}
 }
