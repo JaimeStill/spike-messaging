@@ -28,7 +28,7 @@ func Command(s Scenario, newReporter func() *Reporter) *cobra.Command {
 func WriteListing(w io.Writer, scenarios []Scenario) {
 	for _, s := range scenarios {
 		_, _ = fmt.Fprintf(w, "  %-10s %s\n", s.Name, s.Summary)
-		for _, n := range s.Needs {
+		for _, n := range s.needs() {
 			_, _ = fmt.Fprintf(w, "  %-10s   needs %s\n", "", n.What)
 		}
 	}

@@ -7,7 +7,7 @@
 // turns its error into the exit code.
 //
 // It is the only package that names a provider: every package beneath it
-// works against messaging.Broker and the engine-agnostic outbox. The
-// Postgres engine, its SQL dialect, and the pgx driver are imported here
-// alone.
+// works against messaging.Broker and the engine-agnostic outbox. The NATS
+// provider and nats.go, and the Postgres engine, its SQL dialect, and the pgx
+// driver, are imported here alone.
 package app

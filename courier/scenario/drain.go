@@ -17,7 +17,7 @@ import (
 // drainScenario signals the drain while an event is being handled. Handling
 // shorter than the grace finishes, and its acknowledgement holds; longer, the
 // reactor cancels it and the run fails with the reactor's report.
-func drainScenario(brokers Brokers, needs []Need) Scenario {
+func drainScenario(brokers Brokers, needs func() []Need) Scenario {
 	work := 2 * time.Second
 	drain, grace := defaultDrain, defaultGrace
 	return Scenario{
@@ -33,6 +33,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(drain)
 			started := newSignal()
+			var l lease
 			var b messaging.Broker
 			sub := messaging.Subscription{Name: group}
 			return []Step{
@@ -40,7 +41,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 					Intent: fmt.Sprintf("Register a worker with a %v grace under a %v drain timeout, and start the coordinator", grace, drain),
 					Action: func(ctx context.Context, rep *Reporter) error {
 						var err error
-						if b, err = brokers(); err != nil {
+						if b, err = l.acquire(brokers); err != nil {
 							return err
 						}
 						src, err := b.Subscribe(sub)
@@ -82,7 +83,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 						return checkAcknowledged(ctx, b, sub, rep)
 					},
 				},
-			}, c.cleanup
+			}, afterDrain(c, &l)
 		},
 	}
 }

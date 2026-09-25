@@ -50,8 +50,10 @@ func TestRunRejectsInvalidFlagsFirst(t *testing.T) {
 	s := scenario.Scenario{
 		Name:     "demo",
 		Validate: func() error { return errors.New("--a must be below --b") },
-		Needs:    []scenario.Need{{What: "x", Check: func(context.Context) error { checked = true; return nil }}},
-		Steps:    func() ([]scenario.Step, func() error) { built = true; return nil, nil },
+		Needs: func() []scenario.Need {
+			return []scenario.Need{{What: "x", Check: func(context.Context) error { checked = true; return nil }}}
+		},
+		Steps: func() ([]scenario.Step, func() error) { built = true; return nil, nil },
 	}
 	rep, _ := reporter()
 	err := scenario.Run(t.Context(), s, rep)
@@ -66,8 +68,10 @@ func TestRunRejectsInvalidFlagsFirst(t *testing.T) {
 func TestRunStopsAtAFailedNeed(t *testing.T) {
 	built := false
 	s := scenario.Scenario{
-		Name:  "demo",
-		Needs: []scenario.Need{{What: "a broker", Check: func(context.Context) error { return errors.New("missing") }}},
+		Name: "demo",
+		Needs: func() []scenario.Need {
+			return []scenario.Need{{What: "a broker", Check: func(context.Context) error { return errors.New("missing") }}}
+		},
 		Steps: func() ([]scenario.Step, func() error) { built = true; return nil, nil },
 	}
 	rep, _ := reporter()

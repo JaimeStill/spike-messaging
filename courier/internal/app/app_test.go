@@ -32,12 +32,24 @@ func TestListNamesEveryScenario(t *testing.T) {
 	}
 }
 
+func TestListNamesTheBrokersNeed(t *testing.T) {
+	const need = "needs NATS with JetStream"
+	_, out, _ := execute(t, "list")
+	if strings.Contains(out, need) {
+		t.Errorf("the memory broker's listing names a NATS need:\n%s", out)
+	}
+	_, out, _ = execute(t, "--broker", "nats", "list")
+	if n := strings.Count(out, need); n != len(names) {
+		t.Errorf("the nats broker's listing names the NATS need %d times, want %d:\n%s", n, len(names), out)
+	}
+}
+
 func TestRootPrintsHelpAndScenarios(t *testing.T) {
 	code, out, _ := execute(t)
 	if code != process.ExitOK {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"scenario", "list", "--broker", "Scenarios:", "drain"} {
+	for _, want := range []string{"scenario", "list", "--broker", "--nats-url", "Scenarios:", "drain"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("root output lacks %q:\n%s", want, out)
 		}
@@ -59,7 +71,7 @@ func TestUsageErrors(t *testing.T) {
 		"grace not below drain": {[]string{"scenario", "every", "--grace", "5s", "--drain", "5s"}, "--grace must be below --drain"},
 		"unknown flag":          {[]string{"scenario", "every", "--nope"}, "unknown flag"},
 		"unknown scenario":      {[]string{"scenario", "nope"}, "unknown command"},
-		"unknown broker":        {[]string{"--broker", "nope", "list"}, `unknown broker "nope"`},
+		"unknown broker":        {[]string{"--broker", "nope", "list"}, `unknown broker "nope" (known: memory, nats)`},
 		"no outbox events":      {[]string{"scenario", "outbox", "--events", "0"}, "--events must be at least 1"},
 	}
 	for name, c := range cases {
@@ -103,5 +115,26 @@ func TestOnlyTheOutboxNeedsPostgres(t *testing.T) {
 	code, out, _ := execute(t, "--dsn", unreachable, "scenario", "retry", "--retry", "20ms")
 	if code != process.ExitOK {
 		t.Errorf("retry with an unreachable --dsn: exit %d\n%s", code, out)
+	}
+}
+
+func TestNATSNeedsAURL(t *testing.T) {
+	t.Setenv("MESSAGING_NATS_URL", "")
+	code, out, errs := execute(t, "--broker", "nats", "scenario", "retry")
+	if code != process.ExitFailure || !strings.Contains(errs, "retry: need NATS with JetStream") || !strings.Contains(errs, "no NATS URL") {
+		t.Errorf("exit %d, stderr %q, want exit %d on the NATS need", code, errs, process.ExitFailure)
+	}
+	if strings.Contains(out, "[1/") {
+		t.Errorf("a step ran before the need was checked:\n%s", out)
+	}
+}
+
+func TestNATSFailsOnAnUnreachableServer(t *testing.T) {
+	code, out, errs := execute(t, "--broker", "nats", "--nats-url", "nats://127.0.0.1:1", "scenario", "group")
+	if code != process.ExitFailure || !strings.Contains(errs, "group: need NATS with JetStream") {
+		t.Errorf("exit %d, stderr %q, want exit %d on the NATS need", code, errs, process.ExitFailure)
+	}
+	if strings.Contains(out, "[1/") {
+		t.Errorf("a step ran before the need was checked:\n%s", out)
 	}
 }

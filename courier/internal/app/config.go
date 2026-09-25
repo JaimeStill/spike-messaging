@@ -7,15 +7,18 @@ import (
 )
 
 // Config holds the persistent flags, read by the layers once cobra has
-// parsed them.
+// parsed them: the broker the scenarios run on, the NATS server the nats
+// broker connects to, and the Postgres server the outbox scenario uses.
 type Config struct {
-	Broker string
-	DSN    string
+	Broker  string
+	NATSURL string
+	DSN     string
 }
 
 // bind registers cfg's flags on fs.
 func (cfg *Config) bind(fs *pflag.FlagSet) {
-	fs.StringVar(&cfg.Broker, "broker", "memory", "the broker the scenarios run on: memory")
+	fs.StringVar(&cfg.Broker, "broker", "memory", "the broker the scenarios run on: memory or nats")
+	fs.StringVar(&cfg.NATSURL, "nats-url", "", "the NATS server the nats broker creates its scratch stream on (default $MESSAGING_NATS_URL)")
 	fs.StringVar(&cfg.DSN, "dsn", "", "the Postgres server the outbox scenario creates its scratch database on (default $MESSAGING_DSN)")
 }
 
@@ -27,4 +30,13 @@ func (cfg *Config) dsn() string {
 		return cfg.DSN
 	}
 	return os.Getenv("MESSAGING_DSN")
+}
+
+// natsURL is the --nats-url flag, or $MESSAGING_NATS_URL when the flag is
+// unset, read here for the same reason as dsn: a URL can carry credentials.
+func (cfg *Config) natsURL() string {
+	if cfg.NATSURL != "" {
+		return cfg.NATSURL
+	}
+	return os.Getenv("MESSAGING_NATS_URL")
 }

@@ -19,7 +19,7 @@ import (
 
 // groupScenario runs a publisher reactor and two workers that share one
 // subscription, and checks that the workers split the events.
-func groupScenario(brokers Brokers, needs []Need) Scenario {
+func groupScenario(brokers Brokers, needs func() []Need) Scenario {
 	events := 12
 	interval := 50 * time.Millisecond
 	work := 100 * time.Millisecond
@@ -40,6 +40,7 @@ func groupScenario(brokers Brokers, needs []Need) Scenario {
 		},
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
+			var l lease
 			all := newSignal()
 			var mu sync.Mutex
 			by := map[string][]string{} // event to the workers that handled it
@@ -47,7 +48,7 @@ func groupScenario(brokers Brokers, needs []Need) Scenario {
 				{
 					Intent: fmt.Sprintf("Register a publisher at the root stage and two workers on subscription %q at stage 0, then start the coordinator", group),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						b, err := brokers()
+						b, err := l.acquire(brokers)
 						if err != nil {
 							return err
 						}
@@ -117,7 +118,7 @@ func groupScenario(brokers Brokers, needs []Need) Scenario {
 						return errors.Join(errs...)
 					},
 				},
-			}, c.cleanup
+			}, afterDrain(c, &l)
 		},
 	}
 }

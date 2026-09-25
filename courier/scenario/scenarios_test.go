@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 )
 
-func memoryBrokers() (messaging.Broker, error) { return memory.New(), nil }
+func memoryBrokers() (messaging.Broker, func() error, error) { return memory.New(), nil, nil }
 
 // execute runs the named scenario's command with args on the memory broker.
 func execute(t *testing.T, name string, args ...string) (string, error) {
@@ -55,6 +56,41 @@ func TestScenariosOnMemory(t *testing.T) {
 			for _, w := range c.want {
 				if !strings.Contains(out, w) {
 					t.Errorf("narration lacks %q:\n%s", w, out)
+				}
+			}
+		})
+	}
+}
+
+// Each run that builds a broker releases it once, in its cleanup, and a
+// failed release fails the run.
+func TestBrokerReleasedOnce(t *testing.T) {
+	cases := map[string][]string{
+		"group":     {"--events", "4", "--interval", "5ms", "--work", "5ms"},
+		"retry":     {"--retry", "20ms"},
+		"permanent": {"--quiet", "100ms"},
+		"drain":     {"--work", "20ms"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			var released atomic.Int32
+			fail := errors.New("release failed")
+			brokers := func() (messaging.Broker, func() error, error) {
+				return memory.New(), func() error { released.Add(1); return fail }, nil
+			}
+			for _, s := range scenario.Scenarios(brokers, nil, nil, nil) {
+				if s.Name != name {
+					continue
+				}
+				rep, out := reporter()
+				cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+				cmd.SetArgs(args)
+				err := cmd.ExecuteContext(t.Context())
+				if !errors.Is(err, fail) || !strings.Contains(err.Error(), name+": cleanup: ") {
+					t.Errorf("err = %v, want the release's failure in the cleanup\n%s", err, out)
+				}
+				if n := released.Load(); n != 1 {
+					t.Errorf("released %d times, want once", n)
 				}
 			}
 		})
