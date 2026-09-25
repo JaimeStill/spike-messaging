@@ -18,7 +18,7 @@ func execute(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return a.Run(t.Context()), out.String(), errs.String()
 }
 
-var names = []string{"every", "group", "retry", "permanent", "drain", "outbox"}
+var names = []string{"every", "group", "retry", "permanent", "drain", "outbox", "request"}
 
 func TestListNamesEveryScenario(t *testing.T) {
 	code, out, _ := execute(t, "list")
@@ -41,6 +41,27 @@ func TestListNamesTheBrokersNeed(t *testing.T) {
 	_, out, _ = execute(t, "--broker", "nats", "list")
 	if n := strings.Count(out, need); n != len(names) {
 		t.Errorf("the nats broker's listing names the NATS need %d times, want %d:\n%s", n, len(names), out)
+	}
+}
+
+// On memory, the request scenario needs a broker it cannot have: the listing
+// names the flag that meets the need, and a run fails on it before any step.
+func TestRequestNeedsNATS(t *testing.T) {
+	const need = "needs a broker with native request and reply: --broker nats"
+	_, out, _ := execute(t, "list")
+	if !strings.Contains(out, need) {
+		t.Errorf("the memory broker's listing lacks %q:\n%s", need, out)
+	}
+	_, out, _ = execute(t, "--broker", "nats", "list")
+	if strings.Contains(out, need) {
+		t.Errorf("the nats broker's listing names the memory broker's need:\n%s", out)
+	}
+	code, out, errs := execute(t, "scenario", "request")
+	if code != process.ExitFailure || !strings.Contains(errs, "request: need a broker with native request and reply: --broker nats: the memory broker has none") {
+		t.Errorf("exit %d, stderr %q, want exit %d on the need", code, errs, process.ExitFailure)
+	}
+	if strings.Contains(out, "[1/") {
+		t.Errorf("a step ran before the need was checked:\n%s", out)
 	}
 }
 
@@ -73,6 +94,7 @@ func TestUsageErrors(t *testing.T) {
 		"unknown scenario":      {[]string{"scenario", "nope"}, "unknown command"},
 		"unknown broker":        {[]string{"--broker", "nope", "list"}, `unknown broker "nope" (known: memory, nats)`},
 		"no outbox events":      {[]string{"scenario", "outbox", "--events", "0"}, "--events must be at least 1"},
+		"no requests":           {[]string{"scenario", "request", "--requests", "0"}, "--requests must be at least 1"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -23,8 +23,10 @@ type Brokers func() (b messaging.Broker, release func() error, err error)
 // what needs returns first, and builds its broker from brokers; needs is
 // called then, not here, so it can follow the parsed flags, and may be nil.
 // The outbox scenario also builds its store from outboxes, and checks
-// outboxNeeds after needs.
-func Scenarios(brokers Brokers, needs func() []Need, outboxes Outboxes, outboxNeeds []Need) []Scenario {
+// outboxNeeds after needs. The request scenario builds no broker: it builds
+// its exchange from exchanges, and checks what requestNeeds returns in place
+// of needs.
+func Scenarios(brokers Brokers, needs func() []Need, outboxes Outboxes, outboxNeeds []Need, exchanges Exchanges, requestNeeds func() []Need) []Scenario {
 	return []Scenario{
 		everyScenario(needs),
 		groupScenario(brokers, needs),
@@ -37,6 +39,7 @@ func Scenarios(brokers Brokers, needs func() []Need, outboxes Outboxes, outboxNe
 			}
 			return slices.Concat(needs(), outboxNeeds)
 		}),
+		requestScenario(exchanges, requestNeeds),
 	}
 }
 
@@ -83,7 +86,8 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// lease holds one run's broker and its release.
+// lease holds the release of what one run acquired: its broker, or the
+// request scenario's exchange.
 type lease struct {
 	release func() error
 }
@@ -109,8 +113,8 @@ func (l *lease) close() error {
 	return release()
 }
 
-// afterDrain is a run's cleanup: it drains the coordinator, then releases
-// the broker, so no reactor still holds the broker when it goes.
+// afterDrain is a run's cleanup: it drains the coordinator, then calls the
+// lease's release, so no reactor still holds what it frees.
 func afterDrain(c *coordinator, l *lease) func() error {
 	return func() error { return errors.Join(c.cleanup(), l.close()) }
 }

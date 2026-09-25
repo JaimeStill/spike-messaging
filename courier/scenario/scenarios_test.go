@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/courier/output"
 	"github.com/JaimeStill/spike-messaging/courier/scenario"
 	"github.com/JaimeStill/spike-messaging/messaging"
@@ -21,7 +22,7 @@ func memoryBrokers() (messaging.Broker, func() error, error) { return memory.New
 // execute runs the named scenario's command with args on the memory broker.
 func execute(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil) {
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, fakeExchanges(nil), nil) {
 		if s.Name != name {
 			continue
 		}
@@ -46,6 +47,12 @@ func TestScenariosOnMemory(t *testing.T) {
 		{"retry", []string{"--retry", "50ms"}, []string{"attempt 1 failed", "attempt 2 handled", "two deliveries"}},
 		{"permanent", []string{"--quiet", "150ms"}, []string{"fails permanently", "event 2 handled", "delivered once and terminated"}},
 		{"drain", []string{"--work", "50ms"}, []string{"handling finished", "drained cleanly", "acknowledgement held"}},
+		{"request", []string{"--requests", "3"}, []string{
+			"responder receiving on fake",
+			`asking "request 1"`, `responder received "request 1"`, `reply "reply to request 1"`,
+			`reply "reply to request 3"`,
+			"each of 3 requests answered by its own reply", "drained cleanly",
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -78,7 +85,7 @@ func TestBrokerReleasedOnce(t *testing.T) {
 			brokers := func() (messaging.Broker, func() error, error) {
 				return memory.New(), func() error { released.Add(1); return fail }, nil
 			}
-			for _, s := range scenario.Scenarios(brokers, nil, nil, nil) {
+			for _, s := range scenario.Scenarios(brokers, nil, nil, nil, nil, nil) {
 				if s.Name != name {
 					continue
 				}
@@ -94,6 +101,115 @@ func TestBrokerReleasedOnce(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The request scenario releases its exchange once, in its cleanup, and a
+// failed release fails the run.
+func TestExchangeReleasedOnce(t *testing.T) {
+	var released atomic.Int32
+	fail := errors.New("release failed")
+	exchanges := fakeExchanges(func() error { released.Add(1); return fail })
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, exchanges, nil) {
+		if s.Name != "request" {
+			continue
+		}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--requests", "2"})
+		err := cmd.ExecuteContext(t.Context())
+		if !errors.Is(err, fail) || !strings.Contains(err.Error(), "request: cleanup: ") {
+			t.Errorf("err = %v, want the release's failure in the cleanup\n%s", err, out)
+		}
+		if !strings.Contains(out.String(), "drained cleanly") {
+			t.Errorf("the coordinator did not drain before the release:\n%s", out)
+		}
+		if n := released.Load(); n != 1 {
+			t.Errorf("released %d times, want once", n)
+		}
+	}
+}
+
+// A reply that does not match its request fails the check.
+func TestRequestChecksEachReply(t *testing.T) {
+	exchanges := func() (scenario.Exchange, func() error, error) {
+		ex, release, err := fakeExchanges(nil)()
+		ask := ex.Ask
+		ex.Ask = func(ctx context.Context, body []byte) ([]byte, error) {
+			got, err := ask(ctx, body)
+			if string(body) == "request 2" {
+				got = []byte("reply to someone else")
+			}
+			return got, err
+		}
+		return ex, release, err
+	}
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, exchanges, nil) {
+		if s.Name != "request" {
+			continue
+		}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--requests", "3"})
+		err := cmd.ExecuteContext(t.Context())
+		if err == nil || !strings.Contains(err.Error(), `request 2: reply "reply to someone else", want "reply to request 2"`) {
+			t.Errorf("err = %v\n%s", err, out)
+		}
+	}
+}
+
+func TestRequestsIsUsage(t *testing.T) {
+	_, err := execute(t, "request", "--requests", "0")
+	if !errors.Is(err, scenario.ErrUsage) {
+		t.Errorf("err = %v, want a usage error", err)
+	}
+}
+
+// chanSource is a Source of requests fed by a channel, standing in for a
+// provider's native request and reply.
+type chanSource struct {
+	reqs  chan scenario.Request
+	ready atomic.Bool
+}
+
+func (s *chanSource) Receive(ctx context.Context, fn reactor.Func[scenario.Request]) error {
+	s.ready.Store(true)
+	defer s.ready.Store(false)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case req := <-s.reqs:
+			if err := fn(ctx, req); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (s *chanSource) Ready() bool { return s.ready.Load() }
+
+// fakeExchanges builds in-process exchanges named "fake", each released by
+// release.
+func fakeExchanges(release func() error) scenario.Exchanges {
+	return func() (scenario.Exchange, func() error, error) {
+		src := &chanSource{reqs: make(chan scenario.Request)}
+		ask := func(ctx context.Context, body []byte) ([]byte, error) {
+			replies := make(chan []byte, 1)
+			req := scenario.Request{Body: body, Respond: func(b []byte) error { replies <- b; return nil }}
+			select {
+			case src.reqs <- req:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			select {
+			case b := <-replies:
+				return b, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return scenario.Exchange{Name: "fake", Serve: src, Ask: ask}, release, nil
 	}
 }
 
@@ -150,7 +266,7 @@ func (b *syncBuffer) String() string {
 // An interrupt while a step waits drains the coordinator in the cleanup,
 // which narrates the drain and reports its failure alongside the interrupt.
 func TestInterruptDrainsAndReports(t *testing.T) {
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil) {
+	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, fakeExchanges(nil), nil) {
 		if s.Name != "every" {
 			continue
 		}

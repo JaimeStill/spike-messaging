@@ -67,7 +67,8 @@ func TestOutboxScenarioOnPostgres(t *testing.T) {
 }
 
 // Each scenario that uses a broker runs end to end on the compose stack's
-// NATS, and deletes its scratch stream when it ends.
+// NATS, and deletes its scratch stream when it ends. The request scenario
+// runs its native request and reply there too, and creates no stream.
 func TestScenariosOnNATS(t *testing.T) {
 	if os.Getenv("MESSAGING_NATS_URL") == "" || os.Getenv("MESSAGING_DSN") == "" {
 		t.Fatal("MESSAGING_NATS_URL or MESSAGING_DSN is not set; run under mise with the compose stack up")
@@ -83,6 +84,7 @@ func TestScenariosOnNATS(t *testing.T) {
 		{"permanent", []string{"--quiet", "300ms"}, "event 1 was delivered once and terminated"},
 		{"drain", []string{"--work", "200ms"}, "its acknowledgement held"},
 		{"outbox", []string{"--events", "3", "--poll", "20ms"}, "each of 3 events delivered once: 1 2 3"},
+		{"request", []string{"--requests", "3"}, "each of 3 requests answered by its own reply"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

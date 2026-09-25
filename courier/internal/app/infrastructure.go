@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
@@ -17,6 +18,7 @@ import (
 	"github.com/standards-lab/sqlate/migrate"
 	pgdialect "github.com/standards-lab/sqlate/postgres"
 
+	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/courier/scenario"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
@@ -25,10 +27,11 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
 )
 
-// Infrastructure builds the broker the flags name, and the outbox store on
-// the Postgres server they name. It opens nothing that outlives a command:
-// each scenario run builds its own broker, on a scratch stream for nats, and
-// its own scratch database, and its cleanup removes them.
+// Infrastructure builds the broker the flags name, the outbox store on the
+// Postgres server they name, and the request scenario's exchange on the NATS
+// server. It opens nothing that outlives a command: each scenario run builds
+// its own broker, on a scratch stream for nats, its own scratch database, and
+// its own broker for an exchange, and its cleanup removes them.
 type Infrastructure struct {
 	cfg *Config
 }
@@ -68,16 +71,26 @@ func (i *Infrastructure) Broker() (messaging.Broker, func() error, error) {
 const natsWait = 10 * time.Second
 
 func (i *Infrastructure) natsBroker() (messaging.Broker, func() error, error) {
+	b, release, err := i.scratchBroker()
+	if err != nil {
+		return nil, nil, err
+	}
+	return b, release, nil
+}
+
+// scratchBroker connects to the NATS server and builds a broker on a stream
+// of its own, returning the release that deletes the stream and drains the
+// connection.
+func (i *Infrastructure) scratchBroker() (*nats.Broker, func() error, error) {
 	nc, err := i.natsConnect()
 	if err != nil {
 		return nil, nil, err
 	}
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	suffix, err := randomSuffix()
+	if err != nil {
 		nc.Close()
 		return nil, nil, err
 	}
-	suffix := hex.EncodeToString(b[:])
 	ctx, cancel := context.WithTimeout(context.Background(), natsWait)
 	defer cancel()
 	broker, err := nats.New(ctx, nc, nats.Config{Stream: "courier_" + suffix, Prefix: "courier." + suffix})
@@ -95,6 +108,16 @@ func (i *Infrastructure) natsBroker() (messaging.Broker, func() error, error) {
 		return errors.Join(derr, broker.Shutdown(ctx))
 	}
 	return broker, release, nil
+}
+
+// randomSuffix returns eight hex digits that make a run's scratch names
+// unique.
+func randomSuffix() (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // natsConnect connects to the NATS server at the URL, waiting at most
@@ -155,6 +178,91 @@ func (i *Infrastructure) natsPing(ctx context.Context) error {
 	return nil
 }
 
+// RequestNeeds returns what the request scenario requires: a broker with a
+// native request and reply, which only nats has, and then what that broker
+// needs. On memory the need fails, naming the flag that meets it.
+func (i *Infrastructure) RequestNeeds() []scenario.Need {
+	if i.cfg.Broker != "nats" {
+		return []scenario.Need{{
+			What: "a broker with native request and reply: --broker nats",
+			Check: func(context.Context) error {
+				return fmt.Errorf("the %s broker has none", i.cfg.Broker)
+			},
+		}}
+	}
+	return i.Needs()
+}
+
+// Exchange returns a native request and reply exchange through the nats
+// broker's handle, Broker.Conn, and the broker's release. Requests go to
+// courier_req.<hex>, which no courier stream captures, so they stay core NATS
+// messages and JetStream stores none of them.
+func (i *Infrastructure) Exchange() (scenario.Exchange, func() error, error) {
+	if i.cfg.Broker != "nats" {
+		return scenario.Exchange{}, nil, fmt.Errorf("the %s broker has no native request and reply", i.cfg.Broker)
+	}
+	suffix, err := randomSuffix()
+	if err != nil {
+		return scenario.Exchange{}, nil, err
+	}
+	b, release, err := i.scratchBroker()
+	if err != nil {
+		return scenario.Exchange{}, nil, err
+	}
+	nc := b.Conn()
+	subject := "courier_req." + suffix
+	ask := func(ctx context.Context, body []byte) ([]byte, error) {
+		msg, err := nc.RequestWithContext(ctx, subject, body)
+		if err != nil {
+			return nil, err
+		}
+		return msg.Data, nil
+	}
+	return scenario.Exchange{Name: subject, Serve: &responder{nc: nc, subject: subject}, Ask: ask}, release, nil
+}
+
+// responder is the exchange's Serve: a core NATS subscription on subject,
+// adapted to a reactor source of requests. It handles one request at a
+// time. A request has nothing to redeliver, so a handler error ends the
+// source, as it ends an interval.
+type responder struct {
+	nc      *natsgo.Conn
+	subject string
+	ready   atomic.Bool
+}
+
+// Receive subscribes to the subject and delivers each request to fn until
+// ctx ends, then unsubscribes. The subscription is flushed to the server
+// before the source reports ready, so a request sent once it is ready finds
+// the responder. Requests still queued when ctx ends get no reply.
+func (r *responder) Receive(ctx context.Context, fn reactor.Func[scenario.Request]) error {
+	msgs := make(chan *natsgo.Msg, 64)
+	sub, err := r.nc.ChanSubscribe(r.subject, msgs)
+	if err != nil {
+		return fmt.Errorf("subscribe %s: %w", r.subject, err)
+	}
+	if err := r.nc.FlushTimeout(natsWait); err != nil {
+		_ = sub.Unsubscribe()
+		return fmt.Errorf("subscribe %s: %w", r.subject, err)
+	}
+	r.ready.Store(true)
+	defer r.ready.Store(false)
+	for {
+		select {
+		case <-ctx.Done():
+			return sub.Unsubscribe()
+		case msg := <-msgs:
+			if err := fn(ctx, scenario.Request{Body: msg.Data, Respond: msg.Respond}); err != nil {
+				_ = sub.Unsubscribe()
+				return err
+			}
+		}
+	}
+}
+
+// Ready reports whether the subscription is receiving.
+func (r *responder) Ready() bool { return r.ready.Load() }
+
 // dbWait bounds each call the outbox store makes to the server outside a
 // scenario's own steps: the ping, and the drop in the cleanup.
 const dbWait = 10 * time.Second
@@ -190,12 +298,12 @@ func (i *Infrastructure) Outbox(ctx context.Context) (_ *scenario.OutboxStore, e
 	if err != nil {
 		return nil, err
 	}
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	suffix, err := randomSuffix()
+	if err != nil {
 		_ = admin.Close()
 		return nil, err
 	}
-	name := "courier_outbox_" + hex.EncodeToString(b[:])
+	name := "courier_outbox_" + suffix
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
 		// A create cancelled by ctx can still finish on the server, so the
 		// database is dropped if it exists, on a context of its own.
