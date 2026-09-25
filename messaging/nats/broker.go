@@ -1,0 +1,196 @@
+package nats
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/core/reactor"
+	"github.com/JaimeStill/spike-messaging/messaging"
+)
+
+const (
+	// DefaultDuplicates is the stream's deduplication window when Config
+	// sets none: JetStream's own default.
+	DefaultDuplicates = 2 * time.Minute
+	// DefaultAckWait is the AckWait of a subscription that sets none.
+	DefaultAckWait = 30 * time.Second
+	// AckMargin is how much longer the consumer waits for an outcome than
+	// the handler's deadline, so an outcome settled in time is not beaten
+	// by a redelivery.
+	AckMargin = 250 * time.Millisecond
+)
+
+// Config names the stream a broker publishes to and subscribes on.
+type Config struct {
+	// Stream is the stream's name: a token, as a subscription's Name is.
+	Stream string
+	// Prefix is the subject prefix, one or more tokens; the stream captures
+	// Prefix.> and an event is published to Prefix.<type>.
+	Prefix string
+	// Duplicates is the stream's deduplication window; 0 is
+	// DefaultDuplicates.
+	Duplicates time.Duration
+}
+
+// Validate reports every way cfg is unusable.
+func (cfg Config) Validate() error {
+	var errs []error
+	if cfg.Stream == "" || strings.ContainsAny(cfg.Stream, ".*> \t\r\n") {
+		errs = append(errs, fmt.Errorf("stream %q must be a non-empty token", cfg.Stream))
+	}
+	if err := messaging.CheckType(cfg.Prefix); err != nil {
+		errs = append(errs, fmt.Errorf("prefix: %w", err))
+	}
+	if cfg.Duplicates < 0 {
+		errs = append(errs, errors.New("duplicates must not be negative"))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("nats: config: %w", errors.Join(errs...))
+	}
+	return nil
+}
+
+// Broker is a [messaging.Broker] on a JetStream stream.
+type Broker struct {
+	nc  *natsgo.Conn
+	js  jetstream.JetStream
+	cfg Config
+}
+
+var _ messaging.Broker = (*Broker)(nil)
+
+// New provisions cfg's stream on nc, creating it or updating it to cfg, and
+// returns a broker on it. The broker owns nc from here: its Shutdown drains
+// it.
+func New(ctx context.Context, nc *natsgo.Conn, cfg Config) (*Broker, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.Duplicates == 0 {
+		cfg.Duplicates = DefaultDuplicates
+	}
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return nil, fmt.Errorf("nats: %w", err)
+	}
+	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:       cfg.Stream,
+		Subjects:   []string{cfg.Prefix + ".>"},
+		Storage:    jetstream.FileStorage,
+		Retention:  jetstream.LimitsPolicy,
+		Duplicates: cfg.Duplicates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("nats: provision stream %s: %w", cfg.Stream, err)
+	}
+	return &Broker{nc: nc, js: js, cfg: cfg}, nil
+}
+
+// Conn is the native handle, for a use beyond the standard tier, such as
+// request and reply.
+func (b *Broker) Conn() *natsgo.Conn { return b.nc }
+
+// Ready reports whether the connection is up.
+func (b *Broker) Ready() bool { return b.nc.IsConnected() }
+
+// Shutdown drains the connection: its subscriptions stop, pending
+// publishes and acknowledgements flush, and it closes. It returns once the
+// connection is closed, or with ctx's error when ctx ends first.
+func (b *Broker) Shutdown(ctx context.Context) error {
+	if err := b.nc.Drain(); err != nil && !errors.Is(err, natsgo.ErrConnectionClosed) {
+		return fmt.Errorf("nats: drain: %w", err)
+	}
+	t := time.NewTicker(10 * time.Millisecond)
+	defer t.Stop()
+	for !b.nc.IsClosed() {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("nats: drain: %w", ctx.Err())
+		case <-t.C:
+		}
+	}
+	return nil
+}
+
+// Publish publishes e to Prefix.<type> with its id as Nats-Msg-Id, and
+// returns once the stream holds it. A repeat of an id within the stream's
+// deduplication window is accepted and dropped.
+func (b *Broker) Publish(ctx context.Context, e event.Event) error {
+	h, body, err := event.Encode(e)
+	if err == nil {
+		err = messaging.CheckType(e.Type)
+	}
+	if err == nil {
+		err = carriable(h)
+	}
+	if err != nil {
+		return fmt.Errorf("nats: publish: %w", err)
+	}
+	msg := &natsgo.Msg{Subject: b.subject(e.Type), Header: natsgo.Header(h), Data: body}
+	msg.Header.Set(jetstream.MsgIDHeader, e.ID)
+	if _, err := b.js.PublishMsg(ctx, msg); err != nil {
+		return fmt.Errorf("nats: publish %s: %w", e.ID, err)
+	}
+	return nil
+}
+
+// carriable fails on a header value the NATS protocol cannot carry.
+func carriable(h event.Header) error {
+	for name, vs := range h {
+		for _, v := range vs {
+			if strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("header %s: a value must not contain CR or LF", name)
+			}
+		}
+	}
+	return nil
+}
+
+func (b *Broker) subject(typ string) string { return b.cfg.Prefix + "." + typ }
+
+// Subscribe validates sub and returns a source that binds its durable
+// consumer when it starts receiving.
+func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Event], error) {
+	if err := sub.Validate(); err != nil {
+		return nil, err
+	}
+	return &source{b: b, sub: sub, cfg: b.consumerConfig(sub)}, nil
+}
+
+// consumerConfig is the durable consumer sub describes. It is derived the
+// same way for every member, so members of a Name bind one consumer, and a
+// different subscription under the Name fails to.
+func (b *Broker) consumerConfig(sub messaging.Subscription) jetstream.ConsumerConfig {
+	wait := sub.AckWait
+	if wait == 0 {
+		wait = DefaultAckWait
+	}
+	maxDeliver := sub.MaxDeliver
+	if maxDeliver == 0 {
+		maxDeliver = -1
+	}
+	cfg := jetstream.ConsumerConfig{
+		Durable:       sub.Name,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       wait + AckMargin,
+		MaxDeliver:    maxDeliver,
+	}
+	if len(sub.Types) > 0 {
+		types := append([]string(nil), sub.Types...)
+		slices.Sort(types)
+		types = slices.Compact(types)
+		for _, t := range types {
+			cfg.FilterSubjects = append(cfg.FilterSubjects, b.subject(t))
+		}
+	}
+	return cfg
+}
