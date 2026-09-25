@@ -1,8 +1,9 @@
 # This stack runs the spike's Postgres, for messaging/outbox's integration
-# tests and courier's outbox scenario, and its NATS server with JetStream, for
-# messaging/nats's integration tests and courier's nats broker. Port 5435 lets
-# Postgres run beside sqlate (5433), spike-blobfs (5434), and go-web-service
-# (5432); port 4225 keeps NATS off the default 4222 that signal-lab uses.
+# tests and courier's outbox scenario, and the spike's NATS server with
+# JetStream, for messaging/nats's integration tests and courier's nats
+# broker. Port 5435 lets Postgres run beside sqlate (5433), spike-blobfs
+# (5434), and go-web-service (5432); port 4225 keeps NATS off the default
+# 4222 that signal-lab uses.
 services:
   postgres:
     image: postgres:18-alpine

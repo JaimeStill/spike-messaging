@@ -167,7 +167,7 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 
 // consumerConfig is the durable consumer sub describes. It is derived the
 // same way for every member, so members of a Name bind one consumer, and a
-// different subscription under the Name fails to.
+// different subscription under the Name fails to bind.
 func (b *Broker) consumerConfig(sub messaging.Subscription) jetstream.ConsumerConfig {
 	wait := sub.AckWait
 	if wait == 0 {

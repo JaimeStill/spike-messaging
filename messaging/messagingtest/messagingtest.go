@@ -7,9 +7,10 @@
 // intact, the type filter and delivery groups route it, the handler's return
 // decides its outcome, AckWait bounds a handler and redelivers the event, a
 // durable keeps its position across members, and a drained handler's
-// acknowledgement holds. The broker deduplicates on the event's id, and
-// rejects a type no broker can route. A case that proves an absence, such as no
-// redelivery after a terminate, watches a short quiet window.
+// acknowledgement holds. The broker deduplicates on the event's id and
+// rejects a type that breaks [messaging.CheckType]. A case that proves an
+// absence, such as no redelivery after a terminate, watches a short quiet
+// window.
 package messagingtest
 
 import (
@@ -486,7 +487,7 @@ func testBindingMustMatch(t *testing.T, b messaging.Broker) {
 	}
 }
 
-// A type that breaks messaging.CheckType is refused at both ends.
+// A type that breaks [messaging.CheckType] is refused at both ends.
 func testTypeRule(t *testing.T, b messaging.Broker) {
 	for _, bad := range []string{"a..b", "a.*", "a.>", "a b"} {
 		if _, err := b.Subscribe(messaging.Subscription{Name: "typed", Types: []string{bad}}); err == nil {

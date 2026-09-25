@@ -21,9 +21,9 @@ import (
 // Scratch returns a connection for the test to hand to a broker, and a
 // stream name and subject prefix unique to the test. A missing
 // MESSAGING_NATS_URL fails the test: the integration tag states that the
-// stack is expected. The cleanup deletes the stream, if a broker created it,
-// on a connection of its own, and closes the test's connection if the
-// broker did not.
+// stack is expected. The cleanup closes the test's connection, which a
+// broker's Shutdown may already have done, and deletes the stream on a
+// connection of its own, tolerating one no broker created.
 func Scratch(t testing.TB) (nc *natsgo.Conn, stream, prefix string) {
 	t.Helper()
 	url := os.Getenv("MESSAGING_NATS_URL")

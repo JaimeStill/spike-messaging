@@ -30,8 +30,9 @@ import (
 // Infrastructure builds the broker the flags name, the outbox store on the
 // Postgres server they name, and the request scenario's exchange on the NATS
 // server. It opens nothing that outlives a command: each scenario run builds
-// its own broker, on a scratch stream for nats, its own scratch database, and
-// its own broker for an exchange, and its cleanup removes them.
+// its own broker (on a scratch stream when the broker is nats), and its own
+// scratch database; the request scenario's broker carries its exchange. The
+// run's cleanup removes them.
 type Infrastructure struct {
 	cfg *Config
 }
@@ -194,9 +195,9 @@ func (i *Infrastructure) RequestNeeds() []scenario.Need {
 }
 
 // Exchange returns a native request and reply exchange through the nats
-// broker's handle, Broker.Conn, and the broker's release. Requests go to
-// courier_req.<hex>, which no courier stream captures, so they stay core NATS
-// messages and JetStream stores none of them.
+// broker's handle, [nats.Broker.Conn], and the broker's release. Requests
+// go to courier_req.<hex>, which no courier stream captures, so they stay
+// core NATS messages and JetStream stores none of them.
 func (i *Infrastructure) Exchange() (scenario.Exchange, func() error, error) {
 	if i.cfg.Broker != "nats" {
 		return scenario.Exchange{}, nil, fmt.Errorf("the %s broker has no native request and reply", i.cfg.Broker)
@@ -224,7 +225,7 @@ func (i *Infrastructure) Exchange() (scenario.Exchange, func() error, error) {
 // responder is the exchange's Serve: a core NATS subscription on subject,
 // adapted to a reactor source of requests. It handles one request at a
 // time. A request has nothing to redeliver, so a handler error ends the
-// source, as it ends an interval.
+// source, as it ends [reactor.Every].
 type responder struct {
 	nc      *natsgo.Conn
 	subject string

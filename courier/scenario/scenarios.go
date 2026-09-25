@@ -102,7 +102,7 @@ func (l *lease) acquire(brokers Brokers) (messaging.Broker, error) {
 	return b, nil
 }
 
-// close releases the broker, if one was acquired. It is safe to call more
+// close calls the release, if one was acquired. It is safe to call more
 // than once.
 func (l *lease) close() error {
 	release := l.release

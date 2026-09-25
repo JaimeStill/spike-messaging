@@ -105,8 +105,8 @@ func TestScenariosOnNATS(t *testing.T) {
 	}
 }
 
-// courierStreams lists the streams on the server whose names courier gives
-// its scratch streams.
+// courierStreams lists the streams on the server named like one of
+// courier's scratch streams.
 func courierStreams(t *testing.T) []string {
 	t.Helper()
 	nc, err := natsgo.Connect(os.Getenv("MESSAGING_NATS_URL"))
