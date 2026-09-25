@@ -5,7 +5,9 @@
 // stream would, and a durable consumer for each subscription Name that
 // starts at the log's beginning. Publish encodes an event to binary content
 // mode and each delivery decodes it, so the codec a real binding uses is
-// exercised on every message. Nothing persists beyond the process.
+// exercised on every message. Like a stream with a deduplication window, the
+// broker drops a publish of an id it has seen within [Duplicates]. Nothing
+// persists beyond the process.
 //
 // The package reads in three layers: broker.go holds the log and the
 // consumers, consumer.go is each consumer's delivery state machine, and

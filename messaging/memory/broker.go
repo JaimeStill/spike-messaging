@@ -13,8 +13,13 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
 
-// DefaultAckWait is the AckWait of a subscription that sets none.
-const DefaultAckWait = 30 * time.Second
+const (
+	// DefaultAckWait is the AckWait of a subscription that sets none.
+	DefaultAckWait = 30 * time.Second
+	// Duplicates is the deduplication window: a publish of an id seen
+	// within it is dropped. It is JetStream's default window.
+	Duplicates = 2 * time.Minute
+)
 
 // Broker is an in-memory [messaging.Broker]. Its zero value is not usable;
 // call [New].
@@ -25,6 +30,7 @@ type Broker struct {
 	mu        sync.Mutex
 	log       []message // an event's sequence is its index
 	consumers map[string]*consumer
+	seen      map[string]time.Time // id to when it was first published, within Duplicates
 }
 
 type message struct {
@@ -35,19 +41,33 @@ type message struct {
 
 // New returns an empty broker.
 func New() *Broker {
-	return &Broker{consumers: map[string]*consumer{}}
+	return &Broker{consumers: map[string]*consumer{}, seen: map[string]time.Time{}}
 }
 
 var _ messaging.Broker = (*Broker)(nil)
 
-// Publish appends e to the log and wakes every consumer.
+// Publish appends e to the log and wakes every consumer, unless e's id was
+// published within [Duplicates], in which case it drops e and returns nil.
 func (b *Broker) Publish(_ context.Context, e event.Event) error {
 	h, body, err := event.Encode(e)
+	if err == nil {
+		err = messaging.CheckType(e.Type)
+	}
 	if err != nil {
 		return fmt.Errorf("memory: publish: %w", err)
 	}
+	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for id, at := range b.seen {
+		if now.Sub(at) >= Duplicates {
+			delete(b.seen, id)
+		}
+	}
+	if _, ok := b.seen[e.ID]; ok {
+		return nil
+	}
+	b.seen[e.ID] = now
 	b.log = append(b.log, message{typ: e.Type, header: h, body: body})
 	for _, c := range b.consumers {
 		c.wakeAll()
