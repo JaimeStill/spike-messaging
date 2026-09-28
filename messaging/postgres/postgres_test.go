@@ -3,13 +3,18 @@ package postgres_test
 import (
 	"testing"
 
+	"github.com/JaimeStill/spike-messaging/messaging/inbox"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
 )
 
-// The engine defines every statement with the parameters the outbox names.
-func TestEngineIsComplete(t *testing.T) {
-	if _, err := outbox.New(postgres.Engine()); err != nil {
+// The engine defines every statement with the parameters the outbox and the
+// inbox name.
+func TestEnginesAreComplete(t *testing.T) {
+	if _, err := outbox.New(postgres.Outbox()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inbox.New(postgres.Inbox()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -24,14 +29,15 @@ func TestMigrationsName(t *testing.T) {
 	}
 }
 
-// The statements the relay alone runs declare their transaction; the two a
-// caller runs on its event.Tx leave it to that type.
+// Every statement that writes declares its transaction: the relay's run on
+// its own, and the sink's and the inbox's on the command's. Only the count
+// runs on a pool.
 func TestStatementsDeclareTheirTransaction(t *testing.T) {
 	want := map[string]bool{
-		"claim_inbox":    false,
+		"claim_inbox":    true,
 		"count_pending":  false,
 		"claim_row":      true,
-		"emit":           false,
+		"emit":           true,
 		"mark_published": true,
 	}
 	got := map[string]bool{}

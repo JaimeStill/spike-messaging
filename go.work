@@ -4,5 +4,5 @@ use (
 	.
 	./courier
 	./messaging/nats
-	./messaging/outbox/postgres
+	./messaging/postgres
 )

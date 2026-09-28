@@ -28,7 +28,7 @@ func claim(t *testing.T, db *sqlate.DB, consumer string, e event.Event, rollback
 	var first bool
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
 		var err error
-		if first, err = ob.Claim(t.Context(), tx, consumer, e); err != nil {
+		if first, err = in.Claim(t.Context(), tx, consumer, e); err != nil {
 			return struct{}{}, err
 		}
 		if rollback {
@@ -88,7 +88,7 @@ func TestClaimRequiresAConsumer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := ob.Claim(t.Context(), tx, "", tick("1")); err == nil {
+	if _, err := in.Claim(t.Context(), tx, "", tick("1")); err == nil {
 		t.Fatal("a claim without a consumer succeeded")
 	}
 }
@@ -112,7 +112,7 @@ func TestClaimAcrossAckWait(t *testing.T) {
 		n := attempts
 		mu.Unlock()
 		_, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (struct{}, error) {
-			first, err := ob.Claim(ctx, tx, sub.Name, e)
+			first, err := in.Claim(ctx, tx, sub.Name, e)
 			if err != nil {
 				return struct{}{}, err
 			}

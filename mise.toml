@@ -6,7 +6,7 @@ golangci-lint = "2.13.2"
 # MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
 # root module's packages. A module that imports a workspace sibling carries no require line for
 # it, so go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/outbox/postgres/..."
+MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 MESSAGING_NATS_URL = "nats://127.0.0.1:4225"
 
@@ -32,7 +32,7 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint"
-run = "golangci-lint run --build-tags integration $MODULES && cd messaging/outbox/postgres && go tool sqlint"
+run = "golangci-lint run --build-tags integration $MODULES && cd messaging/postgres && go tool sqlint"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres and NATS"

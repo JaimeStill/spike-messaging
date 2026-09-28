@@ -10,19 +10,25 @@ import (
 	"github.com/standards-lab/sqlate/migrate"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/messaging/inbox"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres/internal/pgtest"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres/internal/pgtest"
 )
 
-// ob is the outbox on the Postgres engine, which every test runs.
-var ob = func() *outbox.Outbox {
-	o, err := outbox.New(postgres.Engine())
+// ob and in are the outbox and the inbox on the Postgres engine, which every
+// test runs.
+var (
+	ob = must(outbox.New(postgres.Outbox()))
+	in = must(inbox.New(postgres.Inbox()))
+)
+
+func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
 	}
-	return o
-}()
+	return v
+}
 
 // migrated returns a throwaway database with the messaging set applied.
 func migrated(t *testing.T) *sqlate.DB {
@@ -51,7 +57,7 @@ func tick(id string) event.Event {
 	return event.Event{ID: id, Source: "/outbox-test", Type: "lab.demo.tick", Data: []byte(`{"n":` + id + `}`)}
 }
 
-// emit writes events in one transaction and commits it.
+// emit writes events through the sink in one transaction and commits it.
 func emit(t *testing.T, db *sqlate.DB, events ...event.Event) {
 	t.Helper()
 	if err := transact(t, db, events...); err != nil {
@@ -62,12 +68,7 @@ func emit(t *testing.T, db *sqlate.DB, events ...event.Event) {
 func transact(t *testing.T, db *sqlate.DB, events ...event.Event) error {
 	t.Helper()
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
-		for _, e := range events {
-			if err := ob.Emitter().Emit(t.Context(), tx, e); err != nil {
-				return struct{}{}, err
-			}
-		}
-		return struct{}{}, nil
+		return struct{}{}, ob.Sink().Write(t.Context(), tx, events...)
 	})
 	return err
 }
@@ -140,7 +141,7 @@ func TestEmitIsVisibleOnlyAfterCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ob.Emitter().Emit(t.Context(), tx, tick("1")); err != nil {
+	if err := ob.Sink().Write(t.Context(), tx, tick("1")); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
 	if total, _ := rows(t, db); total != 0 {
@@ -158,7 +159,7 @@ func TestRollbackLeavesNoRow(t *testing.T) {
 	db := migrated(t)
 	boom := errors.New("mutation failed")
 	_, err := sqlate.Transact(t.Context(), db, func(tx *sqlate.Tx) (struct{}, error) {
-		if err := ob.Emitter().Emit(t.Context(), tx, tick("1")); err != nil {
+		if err := ob.Sink().Write(t.Context(), tx, tick("1")); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, boom
@@ -202,5 +203,57 @@ func TestPendingCountsUnpublishedRows(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("Pending = %d, want 1", n)
+	}
+}
+
+type ticked struct {
+	N int `json:"n"`
+}
+
+var kindTicked = event.Define[ticked]("lab.demo.ticked")
+
+// A recorder over the outbox's sink writes a command's raised events into
+// the command's transaction when its body succeeds, and nothing when it
+// fails, so the rows exist exactly when the state they report committed.
+func TestRecorderEmitsIntoTheCommandsTransaction(t *testing.T) {
+	db := migrated(t)
+	rec := event.NewRecorder(ob.Sink(), "/outbox-test")
+	body := func(fail error) func(*sqlate.Tx, *event.Queue) (int, error) {
+		return func(tx *sqlate.Tx, q *event.Queue) (int, error) {
+			if _, err := tx.ExecContext(t.Context(), `SELECT 1`); err != nil {
+				return 0, err
+			}
+			kindTicked.Raise(q, "ex-1", ticked{N: 1})
+			kindTicked.Raise(q, "ex-1", ticked{N: 2})
+			return 2, fail
+		}
+	}
+	boom := errors.New("command refused")
+	if _, err := sqlate.Transact(t.Context(), db, rec.Emit(t.Context(), body(boom))); !errors.Is(err, boom) {
+		t.Fatalf("failing command = %v, want %v", err, boom)
+	}
+	if total, _ := rows(t, db); total != 0 {
+		t.Fatalf("after a failed command, %d rows exist", total)
+	}
+	n, err := sqlate.Transact(t.Context(), db, rec.Emit(t.Context(), body(nil)))
+	if err != nil || n != 2 {
+		t.Fatalf("command = %d, %v", n, err)
+	}
+	r, err := db.QueryContext(t.Context(), `SELECT source, data FROM messaging_outbox ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	var got []string
+	for r.Next() {
+		var source, data string
+		if err := r.Scan(&source, &data); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, source+" "+data)
+	}
+	want := []string{`/outbox-test {"n":1}`, `/outbox-test {"n":2}`}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("rows = %q, want %q in raise order", got, want)
 	}
 }

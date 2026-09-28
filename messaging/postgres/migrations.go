@@ -20,13 +20,13 @@ const (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// Migrations returns the messaging migration set for Postgres: the outbox
-// and inbox tables. A consumer declares it ahead of its own set in its
+// Migrations returns the messaging migration set for Postgres: the outbox's
+// and the inbox's tables. A consumer declares it ahead of its own set in its
 // migrator.
 func Migrations() (migrate.Set, error) {
 	files, err := migrate.Files(migrationFiles, "migrations")
 	if err != nil {
-		return migrate.Set{}, fmt.Errorf("outbox/postgres: %w", err)
+		return migrate.Set{}, fmt.Errorf("messaging/postgres: %w", err)
 	}
 	return migrate.Set{Name: Source, Table: Table, Migrations: files}, nil
 }

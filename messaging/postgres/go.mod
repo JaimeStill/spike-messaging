@@ -1,4 +1,4 @@
-module github.com/JaimeStill/spike-messaging/messaging/outbox/postgres
+module github.com/JaimeStill/spike-messaging/messaging/postgres
 
 go 1.27
 

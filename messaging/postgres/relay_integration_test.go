@@ -22,7 +22,7 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
 )
 
 const (
@@ -393,7 +393,7 @@ func TestTransactionBoundOutlastsAHandlerThatIgnoresItsDeadline(t *testing.T) {
 func TestMarkThatChangesNoRowFailsThePass(t *testing.T) {
 	db := migrated(t)
 	emitEach(t, db, "1")
-	eng := postgres.Engine()
+	eng := postgres.Outbox()
 	eng.MarkPublished = compileMark(t, "UPDATE messaging_outbox SET published_at = now() WHERE seq = {{seq:bigint}} AND false")
 	broken, err := outbox.New(eng)
 	if err != nil {
