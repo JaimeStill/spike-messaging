@@ -95,6 +95,11 @@ here, this note is the spike's own.
   context, so the `AckWait` deadline rolls a slow handler's claim back, and the redelivery's claim
   waits on its lock, then claims once (`TestClaimAcrossAckWait`). Under `REPEATABLE READ` or
   `SERIALIZABLE` the waiting claim fails with a serialization error instead, and is redelivered.
+- **The stream's retention is bounded, by a `MaxAge` longer than an exercise.** A consumer that
+  falls behind the retention recovers through a republish command on the producer, which emits
+  its current state again through its own outbox. The republish is built only when a step needs
+  it. Rejected: an unbounded stream, which grows without limit, and keeping only the last value
+  for each entity, which puts an entity token in the subject and changes the type rule.
 
 ## Outbox sequencing
 
@@ -119,7 +124,8 @@ and courier's `outbox` scenario on a scratch database. Marking before the publis
 
 The rule under test: **an event is enqueued in the transaction that makes the state it reports
 true.** For a composite operation, that is the complete step's transaction, never the begin
-step's.
+step's. The spike proves the rule on commands that write SQL alone. The Postgres and blob case
+waits on go-storage.
 
 ## Lifecycle registration
 
@@ -166,14 +172,13 @@ The evidence from courier's scenarios:
 
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration").
   courier's `group` puts consuming reactors at a numbered stage below a producing one at
-  `StageRoot`. The demonstration service decides where a reactor sits beside the HTTP server.
+  `StageRoot`. The exercise services (`exercise.md`) decide where a reactor sits beside the HTTP
+  server.
 - The nats broker is a lowest-stage component, but courier releases it from a run's cleanup
-  instead of registering it. The demonstration service registers it on the coordinator.
-- The stream sets no `MaxAge` or `MaxMsgs`, so it grows without bound. Its retention belongs with
-  the outbox's.
+  instead of registering it. Each exercise service registers it on the coordinator.
 - The import check in the final validation must let a `_test.go` file import the memory
-  provider, its test double. `split-check`'s allow-list over `go list -deps -test` is a starting
-  shape for it.
+  provider, its test double, and must hold the exercise services apart from each other.
+  `split-check`'s allow-list over `go list -deps -test` is a starting shape for it.
 - How the relay and a nats source report the errors they survive. A database error only makes
   the relay not ready, and a handler error, such as a broker that is down, reaches nothing; a
   source's failing pulls only make it not ready. Both need an error hook or the observability
