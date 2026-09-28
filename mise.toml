@@ -38,7 +38,7 @@ run = "golangci-lint run --build-tags integration $MODULES && cd messaging/postg
 description = "Run tests, including those against the compose stack's Postgres and NATS"
 run = "go test -race -tags integration -count=1 $MODULES"
 
-[tasks.serve-exercise]
+[tasks."exercise:serve"]
 description = "Run the exercise service locally against the compose stack"
 dir = "services/exercise"
 env = { EXERCISE_ENV = "local" }
