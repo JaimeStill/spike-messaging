@@ -25,7 +25,8 @@ type readiness struct {
 // service boots on the port the harness chose. The liveness probe answers,
 // and the readiness aggregate reports the coordinator under the app's
 // "lifecycle" name beside the database, the broker, the schema service, and
-// the relay. An interrupt drains to exit 0.
+// the three reactors: the relay, the resolver, and the orders reactor. An
+// interrupt drains to exit 0.
 func TestLifecycle_BootProbeDrain(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	c := s.Client()
@@ -43,7 +44,7 @@ func TestLifecycle_BootProbeDrain(t *testing.T) {
 	for _, ch := range ready.Checks {
 		checks[ch.Name] = ch.Ready
 	}
-	for _, name := range []string{"lifecycle", "database", "broker", "schema", "relay"} {
+	for _, name := range []string{"lifecycle", "database", "broker", "schema", "relay", "resolve", "orders"} {
 		if !checks[name] {
 			t.Errorf("readyz checks = %+v, want %s ready", ready.Checks, name)
 		}
