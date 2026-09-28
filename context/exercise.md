@@ -4,7 +4,7 @@ The spike's final demonstration, planned: four small services that play a two-fa
 sector dominance. Each round of the exercise runs as a chain of events and commands across all
 four, so the demonstration exercises fan-out, chains, ordering, redelivery, delivery groups, drain,
 and outages under a steady load. The rules are deliberately simple. Scale, meaning the elements and
-the sector layout, is what gets dialed in to make an exercise show the layer well.
+the sector layout, is what changes to make an exercise show the layer well.
 
 ## Guidelines
 
@@ -14,12 +14,12 @@ the sector layout, is what gets dialed in to make an exercise show the layer wel
 2. **A service's own commands and queries never depend on another service.** The broker is
    infrastructure, like the database: it registers at the lowest stage and is reported in
    `/readyz`.
-3. **Commands are the only way to mutate a service's state.** A reactor is a command's second
-   front door, beside HTTP. Queries never mutate.
+3. **Commands are the only way to mutate a service's state.** A reactor is a second way to invoke
+   a command, beside HTTP. Queries never mutate.
 4. **An event reports a committed mutation.** The producer shapes its payload to what the mutation
-   means. It is an event entity, the outbound counterpart of a command entity, and never shaped to
-   what some consumer would like. The consumer decides its reaction in its reactor registration,
-   usually by calling one of its own commands.
+   means. The payload is an event entity, the outbound counterpart of a command entity, and is
+   never shaped to what some consumer would like. The consumer decides its reaction in its
+   reactor registration, usually by calling one of its own commands.
 5. **One event can set off a chain** of events across the services.
 6. **No service's availability or internal function depends on another's.**
 7. **It stays a spike.** The ruleset is simplified and never grows into game design.
@@ -31,7 +31,8 @@ the sector layout, is what gets dialed in to make an exercise show the layer wel
 - A **sector** holds one **level**, a W×H grid. A cell is open, or carries one feature:
   - an **obstacle**, which is impassable
   - an **objective**, held by the last faction to end a round alone on it
-  - a **gate**, linked to a gate in another sector; entering it moves the element through
+  - a **gate**, linked to a gate in another sector; entering it moves the element into the
+    linked sector
 - The map, meaning the grids and their features, is public. The elements are not.
 - Time runs in **rounds**. The exercise service resolves one round per interval, and every order
   for that round applies at once. An order for a round already resolved is dropped, so a late or
@@ -73,11 +74,12 @@ it.
 | **operations**, maneuvering | `Open`, `Assign`, `Maneuver`, `Close` | `operations.orders.issued` (per faction per round) | `exercise.started`, `command.directive.issued`, `exercise.round.observed`, `exercise.concluded` |
 
 - **exercise** is the source of truth for conditions. `ResolveRound` runs on its own
-  `reactor.Every` at the round interval. `RecordOrders` drops orders for a past round as
-  permanent. Its queries serve the umpire's full view and the round history.
+  `reactor.Every` at the round interval. `RecordOrders` refuses orders for a past round with
+  `event.Permanent`, so they are never redelivered. Its queries serve the umpire's full view and
+  the round history.
 - **intelligence** fuses its faction's observations into an assessment: its own elements, the
-  contacts it knows of with their age, and the status of each objective. What it can know is
-  limited in five ways:
+  contacts it knows of with their age, and the status of each objective. Five suppression rules
+  limit what it can know:
   - sight radius by kind
   - sight stopping at the sector's edge
   - a contact kept at its last-seen cell and dropped after K rounds unseen
