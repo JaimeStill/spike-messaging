@@ -5,9 +5,9 @@ import (
 	"io"
 	"log/slog"
 
+	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
 	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-web-sdk"
-	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
 )
 
 // App is the application layer: it assembles infrastructure, the admin
@@ -40,7 +40,7 @@ func New(cfg *config.Config, w io.Writer) (*App, error) {
 
 	dom := newDomain(infra)
 
-	if _, err := newReactors(infra, dom, lc); err != nil {
+	if _, err := newReactors(infra, dom, cfg, lc); err != nil {
 		return nil, err
 	}
 

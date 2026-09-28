@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/standards-lab/go-web-sdk"
 	"github.com/JaimeStill/spike-messaging/services/exercise/integration"
+	"github.com/standards-lab/go-web-sdk"
 	"github.com/standards-lab/go-web-sdk/webtest"
 )
 
@@ -21,11 +21,11 @@ type readiness struct {
 	} `json:"checks"`
 }
 
-// The baseline composition as a running binary. The service boots on the
-// port the harness chose. The liveness probe answers, and the readiness
-// aggregate reports the coordinator under the app's "lifecycle" name. An
-// interrupt drains to exit 0. The build points a service fills in add their
-// own cases beside this one.
+// The composition as a running binary against the compose stack. The
+// service boots on the port the harness chose. The liveness probe answers,
+// and the readiness aggregate reports the coordinator under the app's
+// "lifecycle" name beside the database, the broker, the schema service, and
+// the relay. An interrupt drains to exit 0.
 func TestLifecycle_BootProbeDrain(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	c := s.Client()
@@ -39,14 +39,14 @@ func TestLifecycle_BootProbeDrain(t *testing.T) {
 	if ready.Status != "ready" {
 		t.Errorf("readyz status = %q", ready.Status)
 	}
-	found := false
+	checks := map[string]bool{}
 	for _, ch := range ready.Checks {
-		if ch.Name == "lifecycle" {
-			found = ch.Ready
-		}
+		checks[ch.Name] = ch.Ready
 	}
-	if !found {
-		t.Errorf("readyz checks = %+v, want the lifecycle check ready", ready.Checks)
+	for _, name := range []string{"lifecycle", "database", "broker", "schema", "relay"} {
+		if !checks[name] {
+			t.Errorf("readyz checks = %+v, want %s ready", ready.Checks, name)
+		}
 	}
 
 	if code := s.Stop(t); code != 0 {

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/standards-lab/go-web-sdk"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
+	"github.com/standards-lab/go-web-sdk"
 )
 
 // routes is the list of mounts: the modules the router serves, each built

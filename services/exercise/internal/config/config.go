@@ -7,6 +7,7 @@ import (
 
 	libconfig "github.com/standards-lab/go-core/config"
 	"github.com/standards-lab/go-core/logging"
+	"github.com/standards-lab/go-database"
 	"github.com/standards-lab/go-web-sdk"
 )
 
@@ -16,11 +17,14 @@ const envPrefix = "exercise"
 
 const defaultShutdownTimeout = 10 * time.Second
 
-// Config is the service's root configuration: the library capability blocks
-// plus the service-owned read policy and shutdown timeout.
+// Config is the service's root configuration: the library capability blocks,
+// the database and the event layer's messaging block, plus the
+// service-owned read policy and shutdown timeout.
 type Config struct {
 	Log             logging.Config     `json:"log"`
 	Server          web.Config         `json:"server"`
+	Database        database.Config    `json:"database"`
+	Messaging       MessagingConfig    `json:"messaging"`
 	Reads           ReadsConfig        `json:"reads"`
 	ShutdownTimeout libconfig.Duration `json:"shutdown_timeout"`
 }
@@ -36,6 +40,8 @@ func (c *Config) Merge(src *Config) {
 	}
 	c.Log.Merge(&src.Log)
 	c.Server.Merge(&src.Server)
+	c.Database.Merge(&src.Database)
+	c.Messaging.Merge(&src.Messaging)
 	c.Reads.Merge(&src.Reads)
 }
 
@@ -66,6 +72,12 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Server.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("server: %w", err)
+	}
+	if err := c.Database.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	if err := c.Messaging.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("messaging: %w", err)
 	}
 	if err := c.Reads.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("reads: %w", err)

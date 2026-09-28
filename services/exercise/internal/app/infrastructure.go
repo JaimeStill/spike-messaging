@@ -1,35 +1,66 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 
 	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-core/logging"
+	"github.com/standards-lab/go-database"
+	"github.com/standards-lab/go-database/admin"
+	dbpostgres "github.com/standards-lab/go-database/postgres"
+	"github.com/standards-lab/sqlate"
+	"github.com/standards-lab/sqlate/migrate"
+	pgdialect "github.com/standards-lab/sqlate/postgres"
+	"github.com/standards-lab/sqlate/query"
+
+	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/messaging/inbox"
+	"github.com/JaimeStill/spike-messaging/messaging/nats"
+	"github.com/JaimeStill/spike-messaging/messaging/outbox"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
+	"github.com/JaimeStill/spike-messaging/services/exercise/data"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
 )
 
-// Infrastructure holds the services an application is composed on, one
-// concrete field per service: the logger in the template baseline; a
-// database pool, storage, or auth client as a service grows. A field either
-// exists or the build fails, so a wiring mistake surfaces at compile time;
-// roles sharing a type (a write pool and a read pool) are distinct fields,
-// distinguished by name. The struct stops at the composition root: the
-// layer files read its fields, and a domain package receives its
-// dependencies as constructor parameters, never the struct itself.
+// Infrastructure holds the services the application is composed on, one
+// concrete field per service. DB is the database's lifecycle object, which
+// the admin service administers; the domains never see it. SQL is the
+// database as the domains see it. Sets are the migration sets the admin
+// service's migrator runs, the messaging set beneath the service's own.
+// Broker is the event layer's transport, Outbox and Inbox its durable
+// sides, and Recorder the one value a domain takes to emit the events it
+// raises. The struct stops at the composition root: the layer files read
+// its fields, and a package receives its dependencies as constructor
+// parameters, never the struct itself.
 type Infrastructure struct {
-	Logger *slog.Logger
+	Logger   *slog.Logger
+	DB       *database.DB
+	SQL      *data.Database
+	Sets     []migrate.Set
+	Broker   *broker
+	Outbox   *outbox.Outbox
+	Inbox    *inbox.Inbox
+	Recorder *event.Recorder[*sqlate.Tx]
 }
+
+// verifyStage prepares the messaging statements against the migrated
+// schema, once the schema service at admin.Stage has corrected it, beside
+// the domains that verify their own.
+const verifyStage = admin.Stage + 1
 
 // newInfrastructure constructs the infrastructure services in one place, in
 // dependency order, each registering on lc where it is built — as a
 // lifecycle.Service with the stage that places it in the process's startup
 // order — so a service cannot exist without a startup, shutdown, or
-// readiness declaration. Construction opens nothing: connectivity belongs
-// to a service's Start hook, so a failed cold start leaks no connections.
-// lc goes unused today, because the template's one service, Logger, has no
-// lifecycle; it stays a parameter so the first service that needs one — a
-// database pool, for instance — registers here without a signature change.
+// readiness declaration. The database and the broker register at stage 0,
+// so they start first and drain last, after every reactor. Construction
+// opens nothing: connectivity belongs to a service's Start hook, so a
+// failed cold start leaks no connections. This file is the one place a
+// provider is named: the database's, the broker's, and the messaging
+// engine with its migration set.
 func newInfrastructure(
 	w io.Writer,
 	cfg *config.Config,
@@ -37,7 +68,63 @@ func newInfrastructure(
 ) (*Infrastructure, error) {
 	logger := logging.New(w, cfg.Log)
 
+	db, err := dbpostgres.New(cfg.Database)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	lc.Add(lifecycle.Service{
+		Name:     "database",
+		Stage:    0,
+		Start:    db.Start,
+		Shutdown: db.Shutdown,
+		Check:    db,
+	})
+
+	b, err := newBroker(cfg.Messaging.URL, "exercise", nats.Config{
+		Stream: cfg.Messaging.Stream,
+		Prefix: cfg.Messaging.Prefix,
+		MaxAge: cfg.Messaging.MaxAge.Duration(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("broker: %w", err)
+	}
+	lc.Add(lifecycle.Service{
+		Name:     "broker",
+		Stage:    0,
+		Start:    b.Start,
+		Shutdown: b.Shutdown,
+		Check:    b,
+	})
+
+	catalog := query.MustCatalog(query.Patterns())
+	session := sqlate.Wrap(db.Conn(), pgdialect.Dialect{})
+
+	ob, err := outbox.New(postgres.Outbox())
+	if err != nil {
+		return nil, err
+	}
+	in, err := inbox.New(postgres.Inbox())
+	if err != nil {
+		return nil, err
+	}
+	lc.Add(lifecycle.Service{
+		Name:  "messaging",
+		Stage: verifyStage,
+		Start: func(ctx context.Context) error { return postgres.Verify(ctx, session) },
+	})
+	messagingSet, err := postgres.Migrations()
+	if err != nil {
+		return nil, fmt.Errorf("messaging migrations: %w", err)
+	}
+
 	return &Infrastructure{
-		Logger: logger,
+		Logger:   logger,
+		DB:       db,
+		SQL:      data.New(session, catalog),
+		Sets:     []migrate.Set{messagingSet},
+		Broker:   b,
+		Outbox:   ob,
+		Inbox:    in,
+		Recorder: event.NewRecorder(ob.Sink(), cfg.Messaging.Source),
 	}, nil
 }
