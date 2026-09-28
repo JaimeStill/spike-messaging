@@ -17,10 +17,12 @@ import (
 // event, so a delivery can outlive the publisher.
 //
 // Publish rejects an event that fails [event.Event.Validate] or whose type
-// breaks [CheckType]. The broker deduplicates on the event's id: an event
-// whose id the broker has seen within its deduplication window is accepted
-// and dropped, so a publisher that retries, such as the outbox's relay,
-// delivers the event once.
+// breaks [CheckType]. The broker deduplicates on the event's source and id,
+// which together identify a CloudEvents event: an event whose source and id
+// the broker has seen within its deduplication window is accepted and
+// dropped, so a publisher that retries, such as the outbox's relay, delivers
+// the event once, while another source's event that reuses the id still
+// delivers.
 type Publisher interface {
 	Publish(ctx context.Context, e event.Event) error
 }
@@ -52,7 +54,7 @@ type Broker interface {
 type Subscription struct {
 	// Name is the durable consumer, and so its delivery group: sources
 	// subscribed under the same Name share one position and split the work.
-	// It is a token: no whitespace, '.', '*', or '>'.
+	// It is a token: no whitespace, '.', '*', '>', '/', or '\'.
 	Name string
 	// Types filters on the event's type; empty matches every type. Each
 	// entry must pass [CheckType].
@@ -74,8 +76,8 @@ func (sub Subscription) Validate() error {
 	switch {
 	case sub.Name == "":
 		errs = append(errs, errors.New("name is required"))
-	case strings.ContainsAny(sub.Name, ".*> \t\r\n"):
-		errs = append(errs, fmt.Errorf("name %q must not contain whitespace, '.', '*', or '>'", sub.Name))
+	case !IsToken(sub.Name):
+		errs = append(errs, fmt.Errorf("name %q must not contain whitespace, '.', '*', '>', '/', or '\\'", sub.Name))
 	}
 	for _, t := range sub.Types {
 		if err := CheckType(t); err != nil {
@@ -95,6 +97,15 @@ func (sub Subscription) Validate() error {
 		return fmt.Errorf("messaging: subscription: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// IsToken reports whether s can name a durable consumer or a stream: it is
+// non-empty, with no whitespace, control character, '.', '*', '>', '/', or
+// '\', the characters a JetStream name may not hold.
+func IsToken(s string) bool {
+	return s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+		return strings.ContainsRune(".*>/\\", r) || unicode.IsSpace(r) || unicode.IsControl(r)
+	})
 }
 
 // CheckType reports whether t is an event type a broker can route: one or

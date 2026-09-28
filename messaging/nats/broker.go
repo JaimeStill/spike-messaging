@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,11 @@ const (
 	// DefaultAckWait is the AckWait of a subscription that sets none.
 	DefaultAckWait = 30 * time.Second
 	// AckMargin is how much longer the consumer waits for an outcome than
-	// the handler's deadline, so an outcome settled in time is not beaten
-	// by a redelivery.
+	// the handler's deadline, so an outcome settled in time reaches the
+	// server before it redelivers, on a link whose round trip is well under
+	// the margin. On a slower link a settled event can be delivered again,
+	// never lost. The margin is part of the consumer's configuration, so a
+	// release that changes it cannot bind the durables an earlier one made.
 	AckMargin = 250 * time.Millisecond
 )
 
@@ -43,8 +47,8 @@ type Config struct {
 // Validate reports every way cfg is unusable.
 func (cfg Config) Validate() error {
 	var errs []error
-	if cfg.Stream == "" || strings.ContainsAny(cfg.Stream, ".*> \t\r\n") {
-		errs = append(errs, fmt.Errorf("stream %q must be a non-empty token", cfg.Stream))
+	if !messaging.IsToken(cfg.Stream) {
+		errs = append(errs, fmt.Errorf("stream %q must be a token, as a subscription's name is", cfg.Stream))
 	}
 	if err := messaging.CheckType(cfg.Prefix); err != nil {
 		errs = append(errs, fmt.Errorf("prefix: %w", err))
@@ -103,9 +107,12 @@ func (b *Broker) Ready() bool { return b.nc.IsConnected() }
 
 // Shutdown drains the connection: its subscriptions stop, pending
 // publishes and acknowledgements flush, and it closes. It returns once the
-// connection is closed, or with ctx's error when ctx ends first.
+// connection is closed. When ctx ends first, it closes the connection
+// without finishing the drain and returns ctx's error.
 func (b *Broker) Shutdown(ctx context.Context) error {
-	if err := b.nc.Drain(); err != nil && !errors.Is(err, natsgo.ErrConnectionClosed) {
+	// A connection that is reconnecting cannot drain, and Drain closes it.
+	if err := b.nc.Drain(); err != nil && !errors.Is(err, natsgo.ErrConnectionClosed) && !errors.Is(err, natsgo.ErrConnectionReconnecting) {
+		b.nc.Close()
 		return fmt.Errorf("nats: drain: %w", err)
 	}
 	t := time.NewTicker(10 * time.Millisecond)
@@ -113,6 +120,7 @@ func (b *Broker) Shutdown(ctx context.Context) error {
 	for !b.nc.IsClosed() {
 		select {
 		case <-ctx.Done():
+			b.nc.Close()
 			return fmt.Errorf("nats: drain: %w", ctx.Err())
 		case <-t.C:
 		}
@@ -120,9 +128,9 @@ func (b *Broker) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// Publish publishes e to Prefix.<type> with its id as Nats-Msg-Id, and
-// returns once the stream holds it. A repeat of an id within the stream's
-// deduplication window is accepted and dropped.
+// Publish publishes e to Prefix.<type> with its source and id as
+// Nats-Msg-Id, and returns once the stream holds it. A repeat of a source and
+// id within the stream's deduplication window is accepted and dropped.
 func (b *Broker) Publish(ctx context.Context, e event.Event) error {
 	h, body, err := event.Encode(e)
 	if err == nil {
@@ -135,11 +143,18 @@ func (b *Broker) Publish(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("nats: publish: %w", err)
 	}
 	msg := &natsgo.Msg{Subject: b.subject(e.Type), Header: natsgo.Header(h), Data: body}
-	msg.Header.Set(jetstream.MsgIDHeader, e.ID)
+	msg.Header.Set(jetstream.MsgIDHeader, msgID(e))
 	if _, err := b.js.PublishMsg(ctx, msg); err != nil {
 		return fmt.Errorf("nats: publish %s: %w", e.ID, err)
 	}
 	return nil
+}
+
+// msgID is e's deduplication key: its source and id, which together
+// identify a CloudEvents event. The source is length-prefixed, so no source
+// and id pair can spell another's key.
+func msgID(e event.Event) string {
+	return strconv.Itoa(len(e.Source)) + ":" + e.Source + e.ID
 }
 
 // carriable fails on a header value the NATS protocol cannot carry.

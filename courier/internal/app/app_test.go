@@ -38,9 +38,10 @@ func TestListNamesTheBrokersNeed(t *testing.T) {
 	if strings.Contains(out, need) {
 		t.Errorf("the memory broker's listing names a NATS need:\n%s", out)
 	}
+	// Every scenario but every, which builds no broker, needs the server.
 	_, out, _ = execute(t, "--broker", "nats", "list")
-	if n := strings.Count(out, need); n != len(names) {
-		t.Errorf("the nats broker's listing names the NATS need %d times, want %d:\n%s", n, len(names), out)
+	if n := strings.Count(out, need); n != len(names)-1 {
+		t.Errorf("the nats broker's listing names the NATS need %d times, want %d:\n%s", n, len(names)-1, out)
 	}
 }
 

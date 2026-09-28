@@ -16,8 +16,8 @@ import (
 const (
 	// DefaultAckWait is the AckWait of a subscription that sets none.
 	DefaultAckWait = 30 * time.Second
-	// Duplicates is the deduplication window: a publish of an id seen
-	// within it is dropped. It is JetStream's default window.
+	// Duplicates is the deduplication window: a publish of a source and id
+	// seen within it is dropped. It is JetStream's default window.
 	Duplicates = 2 * time.Minute
 )
 
@@ -30,8 +30,11 @@ type Broker struct {
 	mu        sync.Mutex
 	log       []message // an event's sequence is its index
 	consumers map[string]*consumer
-	seen      map[string]time.Time // id to when it was first published, within Duplicates
+	seen      map[identity]time.Time // to when it was first published, within Duplicates
 }
+
+// identity is what makes a CloudEvents event unique: its source and id.
+type identity struct{ source, id string }
 
 type message struct {
 	typ    string // kept beside the header, so the type filter need not decode
@@ -41,13 +44,14 @@ type message struct {
 
 // New returns an empty broker.
 func New() *Broker {
-	return &Broker{consumers: map[string]*consumer{}, seen: map[string]time.Time{}}
+	return &Broker{consumers: map[string]*consumer{}, seen: map[identity]time.Time{}}
 }
 
 var _ messaging.Broker = (*Broker)(nil)
 
-// Publish appends e to the log and wakes every consumer, unless e's id was
-// published within [Duplicates], in which case it drops e and returns nil.
+// Publish appends e to the log and wakes every consumer, unless an event
+// with e's source and id was published within [Duplicates], in which case it
+// drops e and returns nil.
 func (b *Broker) Publish(_ context.Context, e event.Event) error {
 	h, body, err := event.Encode(e)
 	if err == nil {
@@ -64,10 +68,11 @@ func (b *Broker) Publish(_ context.Context, e event.Event) error {
 			delete(b.seen, id)
 		}
 	}
-	if _, ok := b.seen[e.ID]; ok {
+	key := identity{e.Source, e.ID}
+	if _, ok := b.seen[key]; ok {
 		return nil
 	}
-	b.seen[e.ID] = now
+	b.seen[key] = now
 	b.log = append(b.log, message{typ: e.Type, header: h, body: body})
 	for _, c := range b.consumers {
 		c.wakeAll()

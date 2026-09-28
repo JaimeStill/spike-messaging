@@ -24,6 +24,9 @@ const (
 	// retryWait is how long a member waits after a pull fails before it
 	// pulls again.
 	retryWait = 100 * time.Millisecond
+	// failuresBeforeCheck is how many pulls in a row may fail before the
+	// member asks the server whether its consumer still exists.
+	failuresBeforeCheck = 3
 )
 
 // source is one member of a durable consumer: the loop a reactor runs.
@@ -36,8 +39,10 @@ type source struct {
 
 // Receive binds the consumer, then delivers its messages to fn one at a
 // time until ctx ends. It fails when the binding does, as when the Name's
-// consumer has another configuration, or when the connection closes. A
-// handler error never ends Receive.
+// consumer has another configuration, when the connection closes, or when
+// the consumer or its stream is deleted. Any other failed pull is retried,
+// and the source reports not ready until a pull succeeds again. A handler
+// error never ends Receive.
 func (s *source) Receive(ctx context.Context, fn reactor.Func[event.Event]) error {
 	cons, err := s.b.js.CreateConsumer(ctx, s.b.cfg.Stream, s.cfg)
 	if err != nil {
@@ -48,6 +53,7 @@ func (s *source) Receive(ctx context.Context, fn reactor.Func[event.Event]) erro
 	}
 	s.ready.Store(true)
 	defer s.ready.Store(false)
+	failures := 0
 	for ctx.Err() == nil {
 		// The pull's context ends with ctx, and its deadline sets the pull's
 		// expiry on the server.
@@ -56,18 +62,43 @@ func (s *source) Receive(ctx context.Context, fn reactor.Func[event.Event]) erro
 		cancel()
 		switch {
 		case err == nil:
+			failures = 0
+			s.ready.Store(true)
 			s.deliver(ctx, msg, fn)
 		case ctx.Err() != nil, errors.Is(err, context.DeadlineExceeded), errors.Is(err, natsgo.ErrTimeout), errors.Is(err, jetstream.ErrNoMessages):
-		case errors.Is(err, natsgo.ErrConnectionClosed), errors.Is(err, jetstream.ErrConsumerDeleted), errors.Is(err, jetstream.ErrInvalidOption):
+			// An empty pull is a healthy one.
+			failures = 0
+			s.ready.Store(true)
+		case errors.Is(err, natsgo.ErrConnectionClosed), errors.Is(err, jetstream.ErrConsumerDeleted):
 			return fmt.Errorf("nats: receive %s: %w", s.sub.Name, err)
 		default:
-			// A transient failure, such as a reconnect in progress: pull again
-			// shortly.
+			// Most failures pass, such as a reconnect or a leader election.
+			// A deleted consumer or stream does not: its pulls fail with no
+			// responders, so after a few failures the member asks the server.
+			s.ready.Store(false)
+			failures++
+			if errors.Is(err, natsgo.ErrNoResponders) || failures >= failuresBeforeCheck {
+				if gone := s.gone(ctx, cons); gone != nil {
+					return fmt.Errorf("nats: receive %s: %w", s.sub.Name, gone)
+				}
+			}
 			select {
 			case <-ctx.Done():
 			case <-time.After(retryWait):
 			}
 		}
+	}
+	return nil
+}
+
+// gone returns the error that says cons or its stream no longer exists, or
+// nil when it does or the server cannot say.
+func (s *source) gone(ctx context.Context, cons jetstream.Consumer) error {
+	ictx, cancel := context.WithTimeout(ctx, pullWait)
+	defer cancel()
+	_, err := cons.Info(ictx)
+	if errors.Is(err, jetstream.ErrConsumerNotFound) || errors.Is(err, jetstream.ErrStreamNotFound) {
+		return err
 	}
 	return nil
 }

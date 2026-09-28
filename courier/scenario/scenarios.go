@@ -19,27 +19,49 @@ import (
 // release may be nil.
 type Brokers func() (b messaging.Broker, release func() error, err error)
 
-// Scenarios returns every scenario in presentation order. Each run checks
-// what needs returns first, and builds its broker from brokers; needs is
-// called then, not here, so it can follow the parsed flags, and may be nil.
-// The outbox scenario also builds its store from outboxes, and checks
-// outboxNeeds after needs. The request scenario builds no broker: it builds
-// its exchange from exchanges, and checks what requestNeeds returns in place
-// of needs.
-func Scenarios(brokers Brokers, needs func() []Need, outboxes Outboxes, outboxNeeds []Need, exchanges Exchanges, requestNeeds func() []Need) []Scenario {
+// Dependencies is what the composition root supplies the scenarios. Each
+// func() []Need is called when a run starts or the listing is written, not
+// when the scenarios are built, so it can follow the parsed flags; any of
+// them may be nil for nothing needed.
+type Dependencies struct {
+	// Brokers builds each run's broker, and BrokerNeeds is what it requires.
+	Brokers     Brokers
+	BrokerNeeds func() []Need
+	// Outboxes builds the outbox scenario's store, which also requires
+	// OutboxNeeds, checked after the broker's needs.
+	Outboxes    Outboxes
+	OutboxNeeds func() []Need
+	// Exchanges builds the request scenario's exchange, which requires
+	// RequestNeeds in place of the broker's needs.
+	Exchanges    Exchanges
+	RequestNeeds func() []Need
+}
+
+// Scenarios returns every scenario in presentation order, built on d. The
+// every scenario builds no broker, so it needs nothing.
+func Scenarios(d Dependencies) []Scenario {
 	return []Scenario{
-		everyScenario(needs),
-		groupScenario(brokers, needs),
-		retryScenario(brokers, needs),
-		permanentScenario(brokers, needs),
-		drainScenario(brokers, needs),
-		outboxScenario(brokers, outboxes, func() []Need {
-			if needs == nil {
-				return outboxNeeds
+		everyScenario(nil),
+		groupScenario(d.Brokers, d.BrokerNeeds),
+		retryScenario(d.Brokers, d.BrokerNeeds),
+		permanentScenario(d.Brokers, d.BrokerNeeds),
+		drainScenario(d.Brokers, d.BrokerNeeds),
+		outboxScenario(d.Brokers, d.Outboxes, concatNeeds(d.BrokerNeeds, d.OutboxNeeds)),
+		requestScenario(d.Exchanges, d.RequestNeeds),
+	}
+}
+
+// concatNeeds returns the needs of each list in order, calling each when a
+// run starts; a nil list contributes nothing.
+func concatNeeds(lists ...func() []Need) func() []Need {
+	return func() []Need {
+		var all []Need
+		for _, l := range lists {
+			if l != nil {
+				all = slices.Concat(all, l())
 			}
-			return slices.Concat(needs(), outboxNeeds)
-		}),
-		requestScenario(exchanges, requestNeeds),
+		}
+		return all
 	}
 }
 

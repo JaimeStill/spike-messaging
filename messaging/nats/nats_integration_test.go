@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
@@ -28,6 +30,14 @@ func broker(t *testing.T) *nats.Broker {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	shutdown(t, b)
+	return b
+}
+
+// shutdown registers b's Shutdown as a cleanup, so it runs after the
+// cleanups of the reactors started on b later in the test.
+func shutdown(t *testing.T, b *nats.Broker) {
+	t.Helper()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), failsafe)
 		defer cancel()
@@ -35,7 +45,6 @@ func broker(t *testing.T) *nats.Broker {
 			t.Errorf("Shutdown: %v", err)
 		}
 	})
-	return b
 }
 
 func TestConformance(t *testing.T) {
@@ -120,13 +129,13 @@ func TestProvisionIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = first.Shutdown(context.Background()) }()
+	shutdown(t, first)
 	nc2, _, _ := natstest.Scratch(t)
 	second, err := nats.New(t.Context(), nc2, cfg)
 	if err != nil {
 		t.Fatalf("a second New on the same stream: %v", err)
 	}
-	defer func() { _ = second.Shutdown(context.Background()) }()
+	shutdown(t, second)
 	got := make(chan string, 1)
 	start(t, second, messaging.Subscription{Name: "replica"}, func(_ context.Context, e event.Event) error {
 		got <- e.ID
@@ -149,6 +158,7 @@ func TestConfigValidate(t *testing.T) {
 	for name, cfg := range map[string]nats.Config{
 		"no stream":      {Prefix: "p"},
 		"dotted stream":  {Stream: "a.b", Prefix: "p"},
+		"slashed stream": {Stream: "a/b", Prefix: "p"},
 		"no prefix":      {Stream: "s"},
 		"wildcard":       {Stream: "s", Prefix: "p.*"},
 		"negative dupes": {Stream: "s", Prefix: "p", Duplicates: -1},
@@ -156,5 +166,58 @@ func TestConfigValidate(t *testing.T) {
 		if cfg.Validate() == nil {
 			t.Errorf("%s: Validate accepted %+v", name, cfg)
 		}
+	}
+}
+
+// A member whose consumer is deleted while it handles a delivery, so no pull
+// is waiting to hear of it, ends Receive with the error once its next pulls
+// fail, rather than retrying a consumer that is gone.
+func TestDeletedConsumerEndsReceive(t *testing.T) {
+	nc, stream, prefix := natstest.Scratch(t)
+	b, err := nats.New(t.Context(), nc, nats.Config{Stream: stream, Prefix: prefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shutdown(t, b)
+	src, err := b.Subscribe(messaging.Subscription{Name: "doomed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handling, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- src.Receive(t.Context(), func(context.Context, event.Event) error {
+			close(handling)
+			<-release
+			return nil
+		})
+	}()
+	eventually(t, "the source to be ready", src.Ready)
+	if err := b.Publish(t.Context(), event.Event{ID: "d", Source: "/test", Type: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-handling:
+	case <-time.After(failsafe):
+		t.Fatal("timed out waiting for the handler")
+	}
+	js, err := jetstream.New(b.Conn())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := js.DeleteConsumer(t.Context(), stream, "doomed"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Receive returned nil after its consumer was deleted")
+		}
+	case <-time.After(failsafe):
+		t.Fatal("Receive kept retrying a deleted consumer")
+	}
+	if src.Ready() {
+		t.Error("the source reports ready after Receive ended")
 	}
 }

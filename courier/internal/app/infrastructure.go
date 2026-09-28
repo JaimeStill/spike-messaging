@@ -61,7 +61,12 @@ func (i *Infrastructure) Broker() (messaging.Broker, func() error, error) {
 		return nil, nil, err
 	}
 	if i.cfg.Broker == "nats" {
-		return i.natsBroker()
+		s, err := i.scratchBroker()
+		if err != nil {
+			// A nil *nats.Broker would be a non-nil messaging.Broker.
+			return nil, nil, err
+		}
+		return s.broker, s.release, nil
 	}
 	return memory.New(), nil, nil
 }
@@ -71,26 +76,26 @@ func (i *Infrastructure) Broker() (messaging.Broker, func() error, error) {
 // the drain.
 const natsWait = 10 * time.Second
 
-func (i *Infrastructure) natsBroker() (messaging.Broker, func() error, error) {
-	b, release, err := i.scratchBroker()
-	if err != nil {
-		return nil, nil, err
-	}
-	return b, release, nil
+// scratch is a nats broker on a stream of its own: courier_<suffix>,
+// capturing courier.<suffix>.>. Its release deletes the stream and drains
+// the connection.
+type scratch struct {
+	broker  *nats.Broker
+	suffix  string
+	release func() error
 }
 
 // scratchBroker connects to the NATS server and builds a broker on a stream
-// of its own, returning the release that deletes the stream and drains the
-// connection.
-func (i *Infrastructure) scratchBroker() (*nats.Broker, func() error, error) {
+// of its own.
+func (i *Infrastructure) scratchBroker() (*scratch, error) {
 	nc, err := i.natsConnect()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	suffix, err := randomSuffix()
 	if err != nil {
 		nc.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), natsWait)
 	defer cancel()
@@ -100,7 +105,7 @@ func (i *Infrastructure) scratchBroker() (*nats.Broker, func() error, error) {
 		// so the stream is deleted if it exists before the connection closes.
 		derr := deleteStream(nc, "courier_"+suffix)
 		nc.Close()
-		return nil, nil, errors.Join(err, derr)
+		return nil, errors.Join(err, derr)
 	}
 	release := func() error {
 		derr := deleteStream(broker.Conn(), "courier_"+suffix)
@@ -108,7 +113,7 @@ func (i *Infrastructure) scratchBroker() (*nats.Broker, func() error, error) {
 		defer cancel()
 		return errors.Join(derr, broker.Shutdown(ctx))
 	}
-	return broker, release, nil
+	return &scratch{broker: broker, suffix: suffix, release: release}, nil
 }
 
 // randomSuffix returns eight hex digits that make a run's scratch names
@@ -202,16 +207,12 @@ func (i *Infrastructure) Exchange() (scenario.Exchange, func() error, error) {
 	if i.cfg.Broker != "nats" {
 		return scenario.Exchange{}, nil, fmt.Errorf("the %s broker has no native request and reply", i.cfg.Broker)
 	}
-	suffix, err := randomSuffix()
+	s, err := i.scratchBroker()
 	if err != nil {
 		return scenario.Exchange{}, nil, err
 	}
-	b, release, err := i.scratchBroker()
-	if err != nil {
-		return scenario.Exchange{}, nil, err
-	}
-	nc := b.Conn()
-	subject := "courier_req." + suffix
+	nc := s.broker.Conn()
+	subject := "courier_req." + s.suffix
 	ask := func(ctx context.Context, body []byte) ([]byte, error) {
 		msg, err := nc.RequestWithContext(ctx, subject, body)
 		if err != nil {
@@ -219,7 +220,7 @@ func (i *Infrastructure) Exchange() (scenario.Exchange, func() error, error) {
 		}
 		return msg.Data, nil
 	}
-	return scenario.Exchange{Name: subject, Serve: &responder{nc: nc, subject: subject}, Ask: ask}, release, nil
+	return scenario.Exchange{Name: subject, Serve: &responder{nc: nc, subject: subject}, Ask: ask}, s.release, nil
 }
 
 // responder is the exchange's Serve: a core NATS subscription on subject,

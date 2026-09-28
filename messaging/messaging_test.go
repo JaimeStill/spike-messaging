@@ -19,6 +19,8 @@ func TestValidate(t *testing.T) {
 		"dotted name":    {messaging.Subscription{Name: "a.b"}, "must not contain"},
 		"wildcard name":  {messaging.Subscription{Name: "a>"}, "must not contain"},
 		"spaced name":    {messaging.Subscription{Name: "a b"}, "must not contain"},
+		"slashed name":   {messaging.Subscription{Name: "a/b"}, "must not contain"},
+		"backslash name": {messaging.Subscription{Name: "a\\b"}, "must not contain"},
 		"empty type":     {messaging.Subscription{Name: "a", Types: []string{""}}, "empty type"},
 		"wildcard type":  {messaging.Subscription{Name: "a", Types: []string{"a.*"}}, "must not contain"},
 		"negative max":   {messaging.Subscription{Name: "a", MaxDeliver: -1}, "max deliver"},

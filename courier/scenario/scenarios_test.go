@@ -22,7 +22,7 @@ func memoryBrokers() (messaging.Broker, func() error, error) { return memory.New
 // execute runs the named scenario's command with args on the memory broker.
 func execute(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, fakeExchanges(nil), nil) {
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Brokers: memoryBrokers, Exchanges: fakeExchanges(nil)}) {
 		if s.Name != name {
 			continue
 		}
@@ -85,7 +85,7 @@ func TestBrokerReleasedOnce(t *testing.T) {
 			brokers := func() (messaging.Broker, func() error, error) {
 				return memory.New(), func() error { released.Add(1); return fail }, nil
 			}
-			for _, s := range scenario.Scenarios(brokers, nil, nil, nil, nil, nil) {
+			for _, s := range scenario.Scenarios(scenario.Dependencies{Brokers: brokers}) {
 				if s.Name != name {
 					continue
 				}
@@ -110,7 +110,7 @@ func TestExchangeReleasedOnce(t *testing.T) {
 	var released atomic.Int32
 	fail := errors.New("release failed")
 	exchanges := fakeExchanges(func() error { released.Add(1); return fail })
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, exchanges, nil) {
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Brokers: memoryBrokers, Exchanges: exchanges}) {
 		if s.Name != "request" {
 			continue
 		}
@@ -144,7 +144,7 @@ func TestRequestChecksEachReply(t *testing.T) {
 		}
 		return ex, release, err
 	}
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, exchanges, nil) {
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Brokers: memoryBrokers, Exchanges: exchanges}) {
 		if s.Name != "request" {
 			continue
 		}
@@ -266,7 +266,7 @@ func (b *syncBuffer) String() string {
 // An interrupt while a step waits drains the coordinator in the cleanup,
 // which narrates the drain and reports its failure alongside the interrupt.
 func TestInterruptDrainsAndReports(t *testing.T) {
-	for _, s := range scenario.Scenarios(memoryBrokers, nil, nil, nil, fakeExchanges(nil), nil) {
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Brokers: memoryBrokers, Exchanges: fakeExchanges(nil)}) {
 		if s.Name != "every" {
 			continue
 		}

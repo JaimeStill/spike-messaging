@@ -7,7 +7,7 @@
 // intact, the type filter and delivery groups route it, the handler's return
 // decides its outcome, AckWait bounds a handler and redelivers the event, a
 // durable keeps its position across members, and a drained handler's
-// acknowledgement holds. The broker deduplicates on the event's id and
+// acknowledgement holds. The broker deduplicates on the event's source and id and
 // rejects a type that breaks [messaging.CheckType]. A case that proves an
 // absence, such as no redelivery after a terminate, watches a short quiet
 // window.
@@ -43,6 +43,7 @@ func Run(t *testing.T, newBroker func(t *testing.T) messaging.Broker) {
 	}{
 		{"RoundTrip", testRoundTrip},
 		{"TypeFilter", testTypeFilter},
+		{"SingleTypeFilter", testSingleTypeFilter},
 		{"StartsAtStreamBeginning", testStartsAtStreamBeginning},
 		{"NamesEachReceiveAll", testNamesEachReceiveAll},
 		{"GroupSplitsWork", testGroupSplitsWork},
@@ -191,6 +192,18 @@ func testTypeFilter(t *testing.T, b messaging.Broker) {
 	publish(t, b, ev("a", "skip"), ev("b", "want"), ev("c", "also"), ev("d", "skip"), ev("end", "want"))
 	eventually(t, d.has("end"), "the last matching event")
 	if got, want := d.seen(), []string{"b", "c", "end"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("delivered %v, want %v", got, want)
+	}
+}
+
+// A filter of one type, the form a provider may configure differently from
+// several, admits that type alone.
+func testSingleTypeFilter(t *testing.T, b messaging.Broker) {
+	var d deliveries
+	member(t, b, messaging.Subscription{Name: "single", Types: []string{"lab.want"}}, d.record("m"))
+	publish(t, b, ev("a", "lab.skip"), ev("b", "lab.want"), ev("c", "lab.want.more"), ev("end", "lab.want"))
+	eventually(t, d.has("end"), "the last matching event")
+	if got, want := d.seen(), []string{"b", "end"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
 }
@@ -394,11 +407,17 @@ func testDurableResumes(t *testing.T, b messaging.Broker) {
 	}
 }
 
+// The subscription's AckWait is short, so a lost acknowledgement would
+// redeliver the event within the case's watch, which runs to twice AckWait
+// past the handler's start, leaving a provider room for its own margin.
 func testDrainKeepsAck(t *testing.T, b messaging.Broker) {
-	sub := messaging.Subscription{Name: "drain", RetryDelay: 10 * time.Millisecond}
+	const ackWait = 500 * time.Millisecond
+	sub := messaging.Subscription{Name: "drain", AckWait: ackWait, RetryDelay: 10 * time.Millisecond}
 	started := make(chan struct{})
+	var startedAt time.Time
 	var finished bool
 	m1 := member(t, b, sub, func(ctx context.Context, _ event.Event) error {
+		startedAt = time.Now()
 		close(started)
 		time.Sleep(100 * time.Millisecond)
 		finished = ctx.Err() == nil
@@ -420,7 +439,7 @@ func testDrainKeepsAck(t *testing.T, b messaging.Broker) {
 	member(t, b, sub, d.record("2"))
 	publish(t, b, ev("end", "t"))
 	eventually(t, d.has("end"), "the next member to receive new events")
-	time.Sleep(quiet)
+	time.Sleep(time.Until(startedAt.Add(2 * ackWait)))
 	if c := d.count("in-flight"); c != 0 {
 		t.Errorf("the drained event was redelivered %d times; its acknowledgement was lost", c)
 	}
@@ -457,6 +476,11 @@ func testReady(t *testing.T, b messaging.Broker) {
 func testSubscribeRejectsInvalid(t *testing.T, b messaging.Broker) {
 	if _, err := b.Subscribe(messaging.Subscription{}); err == nil {
 		t.Error("Subscribe accepted a subscription with no name")
+	}
+	for _, name := range []string{"a/b", "a\\b"} {
+		if _, err := b.Subscribe(messaging.Subscription{Name: name}); err == nil {
+			t.Errorf("Subscribe accepted the name %q, which no durable can take", name)
+		}
 	}
 }
 
@@ -499,8 +523,8 @@ func testTypeRule(t *testing.T, b messaging.Broker) {
 	}
 }
 
-// A repeat of an id is accepted and dropped, whatever it carries, and a new
-// id still delivers.
+// A repeat of a source and id is accepted and dropped, whatever it carries;
+// a new id, and the same id from another source, still deliver.
 func testDeduplicates(t *testing.T, b messaging.Broker) {
 	var d deliveries
 	got := map[string][]byte{}
@@ -512,13 +536,14 @@ func testDeduplicates(t *testing.T, b messaging.Broker) {
 		d.add("m", e)
 		return nil
 	})
-	first, repeat := ev("once", "t"), ev("once", "t")
+	first, repeat, elsewhere := ev("once", "t"), ev("once", "t"), ev("once", "t")
 	first.Data, repeat.Data = []byte("first"), []byte("repeat")
-	publish(t, b, first, repeat, ev("end", "t"))
+	elsewhere.Source, elsewhere.Data = "/elsewhere", []byte("first")
+	publish(t, b, first, repeat, elsewhere, ev("end", "t"))
 	eventually(t, d.has("end"), "the event after the repeat")
 	time.Sleep(quiet)
-	if c := d.count("once"); c != 1 {
-		t.Errorf("the repeated id was delivered %d times, want once", c)
+	if c := d.count("once"); c != 2 {
+		t.Errorf("the id was delivered %d times, want twice: once for each source", c)
 	}
 	mu.Lock()
 	defer mu.Unlock()

@@ -28,7 +28,14 @@ func New(stdout, stderr io.Writer) *App {
 	cfg := &Config{}
 	out := output.New(stdout, stderr)
 	infra := newInfrastructure(cfg)
-	scenarios := scenario.Scenarios(infra.Broker, infra.Needs, infra.Outbox, infra.OutboxNeeds(), infra.Exchange, infra.RequestNeeds)
+	scenarios := scenario.Scenarios(scenario.Dependencies{
+		Brokers:      infra.Broker,
+		BrokerNeeds:  infra.Needs,
+		Outboxes:     infra.Outbox,
+		OutboxNeeds:  infra.OutboxNeeds,
+		Exchanges:    infra.Exchange,
+		RequestNeeds: infra.RequestNeeds,
+	})
 
 	root := newRoot(cfg, infra, scenarios)
 	root.SetOut(stdout)
