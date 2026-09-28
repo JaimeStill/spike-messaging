@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,15 @@ type OutboxStore struct {
 	// Close releases the store and removes its database.
 	Close func() error
 }
+
+// tick is the event entity the outbox scenario raises.
+type tick struct {
+	N int `json:"n"`
+}
+
+// tickKind is the event the outbox scenario raises, through a recorder over
+// the outbox's sink, as a service's domain does.
+var tickKind = event.Define[tick]("lab.demo.tick")
 
 // Outboxes builds a fresh outbox store for one scenario run.
 type Outboxes func(context.Context) (*OutboxStore, error)
@@ -92,15 +102,19 @@ func outboxScenario(brokers Brokers, outboxes Outboxes, needs func() []Need) Sce
 				{
 					Intent: fmt.Sprintf("Emit %d events, each in its own transaction, with no relay running", events),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						em := store.Outbox.Emitter()
+						// The recorder numbers its ids, so the narration and the
+						// final check can read them in order.
+						var minted int
+						rec := event.NewRecorder(store.Outbox.Sink(), "/courier",
+							event.IDs(func() string { minted++; return strconv.Itoa(minted) }))
 						for n := 1; n <= events; n++ {
-							e := numbered(n)
-							if _, err := sqlate.Transact(ctx, store.DB, func(tx *sqlate.Tx) (struct{}, error) {
-								return struct{}{}, em.Emit(ctx, tx, e)
-							}); err != nil {
-								return fmt.Errorf("emit %s: %w", e.ID, err)
+							if _, err := sqlate.Transact(ctx, store.DB, rec.Emit(ctx, func(_ *sqlate.Tx, q *event.Queue) (struct{}, error) {
+								tickKind.Raise(q, "", tick{N: n})
+								return struct{}{}, nil
+							})); err != nil {
+								return fmt.Errorf("emit event %d: %w", n, err)
 							}
-							rep.Note("committed event %s", e.ID)
+							rep.Note("committed event %d", n)
 						}
 						pending, err := store.Pending(ctx)
 						if err != nil {
