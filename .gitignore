@@ -2,6 +2,9 @@
 .claude/plans/
 .claude/report.md
 
+# A service's secret configuration layers.
+secrets*.json
+
 # The per-machine map of reference checkouts.
 references.local.toml
 

@@ -5,4 +5,5 @@ use (
 	./courier
 	./messaging/nats
 	./messaging/postgres
+	./services/exercise
 )
