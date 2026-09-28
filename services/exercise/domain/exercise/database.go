@@ -20,11 +20,11 @@ import (
 //go:embed statements/*.sql
 var files embed.FS
 
-// store is the domain's SQL client: the statements of statements/ bound
-// once to their typed handles, and the operations as methods named for
-// them. It is the package's sole importer of the query library, and the one
-// place the rules' values become JSON for their jsonb columns and back.
-// Every method that writes takes the command's transaction.
+// store is the domain's SQL client. It binds each statement in statements/
+// once to a typed handle and exposes the operations as methods. It is the
+// package's only importer of the query library, and the only place where
+// the rules' values are encoded to JSON for their jsonb columns and decoded
+// back. Every method that writes takes the command's transaction.
 type store struct {
 	db           *data.Database
 	stmts        *query.Statements
@@ -46,8 +46,8 @@ type store struct {
 }
 
 // newStore compiles the statements against the service's catalog and binds
-// the handles. A compile failure is a wiring defect and panics; no I/O
-// happens here.
+// the handles. It performs no I/O. A compile failure is a wiring defect, so
+// newStore panics.
 func newStore(db *data.Database) *store {
 	stmts := db.Catalog.MustCompile(files, "statements", db.Dialect())
 	return &store{
@@ -76,8 +76,8 @@ func (s *store) Verify(ctx context.Context) error {
 	return query.Verify(ctx, s.db, s.stmts)
 }
 
-// exerciseRow is an exercise row as the database holds it, its rules
-// values still JSON.
+// exerciseRow is an exercise row as the database holds it, with its rules
+// values still encoded as JSON.
 type exerciseRow struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
@@ -120,13 +120,15 @@ func (r exerciseRow) exercise() (Exercise, error) {
 	return ex, nil
 }
 
-// ordersRow is one faction's recorded orders for a round, still JSON.
+// ordersRow is one faction's recorded orders for a round, still encoded as
+// JSON.
 type ordersRow struct {
 	Faction string `json:"faction"`
 	Orders  []byte `json:"orders"`
 }
 
-// roundRow is one round of the history, its rules values still JSON.
+// roundRow is one round of the history, with its rules values still encoded
+// as JSON.
 type roundRow struct {
 	Round        int       `json:"round"`
 	State        []byte    `json:"state"`
@@ -135,7 +137,7 @@ type roundRow struct {
 	ResolvedAt   time.Time `json:"resolved_at"`
 }
 
-// encode returns v as JSON text, the form a jsonb column is bound from.
+// encode returns v as JSON text, the form a jsonb column's parameter is bound from.
 func encode(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -145,15 +147,15 @@ func encode(v any) (string, error) {
 }
 
 // validID reports whether id is a UUID, the only form an exercise's id
-// takes, so an id that is not one names no exercise rather than failing
-// the statement's cast.
+// takes. A caller treats an id that is not a UUID as naming no exercise,
+// rather than letting the statement's cast fail.
 func validID(id string) bool {
 	_, err := uuid.Parse(id)
 	return err == nil
 }
 
-// one decodes the single exercise row rows returned, mapping no row to
-// ErrNotFound.
+// one decodes the single exercise row a statement returned for id, and
+// maps no row to ErrNotFound.
 func one(id string, r exerciseRow, err error) (Exercise, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Exercise{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -164,8 +166,8 @@ func one(id string, r exerciseRow, err error) (Exercise, error) {
 	return r.exercise()
 }
 
-// insert creates an exercise from a validated command, not yet started,
-// and returns its id.
+// insert creates an exercise, not yet started, from a validated command and
+// returns its id.
 func (s *store) insert(ctx context.Context, tx *sqlate.Tx, c CreateExercise, interval time.Duration) (string, error) {
 	state, err := encode(c.state())
 	if err != nil {
@@ -183,8 +185,9 @@ func (s *store) insert(ctx context.Context, tx *sqlate.Tx, c CreateExercise, int
 	return id, nil
 }
 
-// get reads the exercise with the id on sess, the pool or a command's
-// transaction, or ErrNotFound. An id that is not a UUID names no exercise.
+// get reads the exercise with the id on sess, which is the pool or a
+// command's transaction, or returns ErrNotFound. An id that is not a UUID
+// names no exercise.
 func (s *store) get(ctx context.Context, sess sqlate.Session, id string) (Exercise, error) {
 	if !validID(id) {
 		return Exercise{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -203,9 +206,8 @@ func (s *store) due(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// lockIfDue locks the exercise for resolving its next round, when it is
-// still running, due, and held by no other transaction; ok is false
-// otherwise.
+// lockIfDue locks the exercise to resolve its next round when it is still
+// running, due, and held by no other transaction. Otherwise ok is false.
 func (s *store) lockIfDue(ctx context.Context, tx *sqlate.Tx, id string) (ex Exercise, ok bool, err error) {
 	r, err := s.lockDue.One(ctx, tx, query.Args{"id": id})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -215,8 +217,8 @@ func (s *store) lockIfDue(ctx context.Context, tx *sqlate.Tx, id string) (ex Exe
 	return ex, err == nil, err
 }
 
-// share reads the exercise under a shared lock, which waits on a
-// resolution in flight, or ErrNotFound.
+// share reads the exercise under a shared lock, which waits for a
+// resolution in flight, or returns ErrNotFound.
 func (s *store) share(ctx context.Context, tx *sqlate.Tx, id string) (Exercise, error) {
 	if !validID(id) {
 		return Exercise{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -226,8 +228,8 @@ func (s *store) share(ctx context.Context, tx *sqlate.Tx, id string) (Exercise, 
 }
 
 // transition runs one of the status statements and reports whether it
-// changed the row: false when the exercise was no longer in the status the
-// statement moves it from.
+// changed the row. It reports false when the exercise was no longer in the
+// status the statement moves it from.
 func (s *store) transition(ctx context.Context, tx *sqlate.Tx, st query.Statement, args query.Args) (bool, error) {
 	n, err := st.Exec(ctx, tx, args)
 	if err != nil {
@@ -236,8 +238,8 @@ func (s *store) transition(ctx context.Context, tx *sqlate.Tx, st query.Statemen
 	return n == 1, nil
 }
 
-// markStarted moves a created exercise to running, its first round due one
-// interval from now.
+// markStarted moves a created exercise to running, with its first round due
+// one interval from now.
 func (s *store) markStarted(ctx context.Context, tx *sqlate.Tx, id string) (bool, error) {
 	return s.transition(ctx, tx, s.start, query.Args{"id": id})
 }
@@ -247,8 +249,8 @@ func (s *store) markPaused(ctx context.Context, tx *sqlate.Tx, id string) (bool,
 	return s.transition(ctx, tx, s.pause, query.Args{"id": id})
 }
 
-// markResumed moves a paused exercise to running, its next round due one
-// interval from now.
+// markResumed moves a paused exercise to running, with its next round due
+// one interval from now.
 func (s *store) markResumed(ctx context.Context, tx *sqlate.Tx, id string) (bool, error) {
 	return s.transition(ctx, tx, s.resume, query.Args{"id": id})
 }
@@ -263,7 +265,7 @@ func (s *store) markStopped(ctx context.Context, tx *sqlate.Tx, id string, from 
 }
 
 // markAdvanced records round and the state it left on a running exercise,
-// its next round due one interval from now.
+// with its next round due one interval from now.
 func (s *store) markAdvanced(ctx context.Context, tx *sqlate.Tx, id string, round int, state rules.State) (bool, error) {
 	st, err := encode(state)
 	if err != nil {

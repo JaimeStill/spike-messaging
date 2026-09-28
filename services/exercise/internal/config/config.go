@@ -18,8 +18,8 @@ const envPrefix = "exercise"
 const defaultShutdownTimeout = 10 * time.Second
 
 // Config is the service's root configuration: the library capability blocks,
-// the database and the event layer's messaging block, plus the
-// service-owned read policy and shutdown timeout.
+// the database block, and the messaging block, plus the service-owned read
+// policy and shutdown timeout.
 type Config struct {
 	Log             logging.Config     `json:"log"`
 	Server          web.Config         `json:"server"`

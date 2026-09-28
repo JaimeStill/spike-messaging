@@ -19,12 +19,12 @@ import (
 // Start, which the coordinator's stage order prevents.
 var errNotStarted = errors.New("broker: not started")
 
-// broker is the NATS broker as a lifecycle component at the lowest stage.
-// nats.New connects and provisions the stream, so it is I/O and cannot run
-// at construction, where the template forbids it; broker defers it to
-// Start. Its Subscribe likewise returns a source that binds to the started
-// broker when a reactor begins receiving, which the stage order places
-// after Start.
+// broker wraps the NATS broker as a lifecycle component at the lowest
+// stage. nats.New connects and provisions the stream, which is I/O, and the
+// template forbids I/O at construction, so broker defers nats.New to Start.
+// Likewise, Subscribe returns a source that binds to the started broker
+// when a reactor begins receiving, which the stage order places after
+// Start.
 type broker struct {
 	url  string
 	name string

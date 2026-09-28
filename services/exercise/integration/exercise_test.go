@@ -125,9 +125,9 @@ func await(t *testing.T, what string, d time.Duration, ok func() bool) {
 	}
 }
 
-// The step's checkpoint as a running binary: an exercise created and
-// started over the API, with both factions idle, resolves a round every
-// interval on its own reactor and ends at its round limit as a draw. Every
+// On the running binary, an exercise created and started over the API,
+// with both factions idle, resolves a round every interval on its own
+// reactor and ends at its round limit as a draw. Every
 // event reaches the stream in the chain's order: the start, each faction's
 // observation of each round from 0 to the limit, and the conclusion. The
 // umpire's view and the history agree.

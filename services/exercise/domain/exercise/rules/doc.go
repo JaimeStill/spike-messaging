@@ -28,15 +28,17 @@
 //  2. Engage. In each cell holding both factions' elements, each faction's
 //     strength is summed. A tie destroys every element in the cell.
 //     Otherwise the weaker faction's elements are destroyed, and the
-//     stronger loses the weaker's total, taken from its weakest element
-//     first (lowest strength, then lowest ID), an element at zero removed
-//     and the remainder carried to the next.
+//     stronger loses the weaker's total. The loss is taken from the
+//     stronger faction's weakest element first (lowest strength, then
+//     lowest ID); an element reduced to zero is removed, and the rest of
+//     the loss carries to the next element.
 //  3. Capture. An objective whose cell holds elements of exactly one
 //     faction becomes that faction's. Any other objective keeps its holder,
 //     even when no element stands on it.
-//  4. Observe. Each faction observes its own elements, every enemy element
-//     and every objective in the same sector within the Chebyshev distance
-//     of [Kind.Sight] of any of its elements. Sight ends at the sector's
+//  4. Observe. Each faction observes its own elements, and every enemy
+//     element and objective that lies in the same sector as one of its
+//     elements and within that element's [Kind.Sight], a Chebyshev
+//     distance. Sight ends at the sector's
 //     edge, gates included. See [Observe].
 //  5. Judge. A faction with no elements loses, and when neither has any the
 //     exercise is a draw. Otherwise a faction that holds every objective

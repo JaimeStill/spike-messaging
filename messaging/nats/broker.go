@@ -42,11 +42,12 @@ type Config struct {
 	// Duplicates is the stream's deduplication window; 0 is
 	// DefaultDuplicates.
 	Duplicates time.Duration
-	// MaxAge bounds the stream's retention: an event older than it is
-	// discarded, whether or not every consumer has received it. A consumer
-	// that falls behind it recovers through its producer republishing its
-	// current state. 0 keeps every event, and a positive MaxAge must be at
-	// least the deduplication window, as JetStream requires.
+	// MaxAge bounds the stream's retention: the stream discards an event
+	// older than MaxAge, whether or not every consumer has received it. A
+	// consumer that falls further behind than MaxAge recovers when the
+	// event's producer republishes its current state. 0 keeps every event.
+	// JetStream requires a positive MaxAge to be at least the
+	// deduplication window.
 	MaxAge time.Duration
 }
 

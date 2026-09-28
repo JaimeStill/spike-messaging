@@ -31,10 +31,10 @@ type State struct {
 // Validate reports every way s breaks the state's rules: its map is valid;
 // its two factions are distinct and named; element IDs are unique and
 // non-empty; each element belongs to one of the factions, is a force of
-// strength at least 1 or a scout of strength 1, and stands on an open or
-// featured cell of an existing sector that is not an obstacle; no two
-// elements of one faction share a cell; and every holder is a faction
-// holding an objective's cell.
+// strength at least 1 or a scout of strength 1, and stands inside the grid
+// of an existing sector on a cell that is not an obstacle; no two elements
+// of one faction share a cell; and every entry in Holders keys an objective
+// and names one of the factions.
 func (s State) Validate() error {
 	var errs []error
 	if err := s.Map.Validate(); err != nil {

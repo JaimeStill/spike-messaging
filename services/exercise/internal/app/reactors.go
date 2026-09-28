@@ -28,9 +28,9 @@ const resolveTick = 50 * time.Millisecond
 // verified, and the drain stops it after the reactors that produce work.
 const ordersStage = verifyStage + 1
 
-// ordersSubscription is the durable consumer and delivery group the orders
-// reactor receives operations' orders through, and the consumer its claims
-// are recorded under.
+// ordersSubscription names the durable consumer and delivery group through
+// which the orders reactor receives the operations service's orders. Its
+// Name is also the consumer the inbox records the reactor's claims under.
 var ordersSubscription = messaging.Subscription{
 	Name:  "exercise-orders",
 	Types: []string{"operations.orders.issued"},
@@ -40,7 +40,7 @@ var ordersSubscription = messaging.Subscription{
 // that watch a source of occurrences and dispatch each one to a call, the
 // inbound counterpart to a route. Relay publishes the outbox's committed
 // events to the broker. Resolve resolves each running exercise's round when
-// it is due. Orders records the orders operations issues.
+// it is due. Orders records the orders the operations service issues.
 type Reactors struct {
 	Relay   *reactor.Reactor[event.Event]
 	Resolve *reactor.Reactor[time.Time]
@@ -49,13 +49,13 @@ type Reactors struct {
 
 // newReactors constructs the reactors and registers each on lc. It takes
 // infra for the sources a reactor watches and dom for the domain calls it
-// dispatches to — the two halves a reactor joins. A reactor that produces
-// work sits at the root stage beside the server, so the drain stops it
-// before the reactors that consume: the relay, and the resolver, which
-// produces the rounds. The orders reactor consumes, at ordersStage. Each
-// reactor's grace, half the shutdown timeout, stays below the
-// coordinator's drain deadline, so a handler it cancels is reported before
-// the deadline drops the report.
+// dispatches to — the two halves a reactor joins. The reactors that
+// produce work, the relay and the resolver, which produces the rounds, sit
+// at the root stage beside the server, so the drain stops them before the
+// reactors that consume. The orders reactor consumes, so it sits at
+// ordersStage. Each reactor's grace, half the shutdown timeout, stays below
+// the coordinator's drain deadline, so a handler the reactor cancels is
+// reported before the deadline drops the report.
 func newReactors(
 	infra *Infrastructure,
 	dom *Domain,
@@ -92,9 +92,9 @@ func newReactors(
 	return &Reactors{Relay: relay, Resolve: resolve, Orders: orders}, nil
 }
 
-// ordersIssued is the exercise service's reading of an
-// operations.orders.issued event's data: its own type, decoded from the
-// event, since the services share no Go types.
+// ordersIssued is the exercise service's own type for an
+// operations.orders.issued event's data, decoded from the event, because
+// the services share no Go types.
 type ordersIssued struct {
 	Exercise string        `json:"exercise"`
 	Faction  string        `json:"faction"`
@@ -103,10 +103,10 @@ type ordersIssued struct {
 }
 
 // recordOrders adapts an operations.orders.issued event into the domain's
-// RecordOrders command, with a claim over the inbox bound to the event, so
-// the event stops at the process boundary and a redelivery changes
-// nothing. Data that does not decode is refused permanently: no
-// redelivery can fix it.
+// RecordOrders command, with a claim over the inbox bound to the event. The
+// domain never sees the event, and a redelivery changes nothing. Data that
+// does not decode is refused permanently, because no redelivery can fix
+// it.
 func recordOrders(svc *exercise.Service, infra *Infrastructure) reactor.Func[event.Event] {
 	return func(ctx context.Context, e event.Event) error {
 		var d ordersIssued
@@ -128,7 +128,7 @@ func recordOrders(svc *exercise.Service, infra *Infrastructure) reactor.Func[eve
 }
 
 // component is what a reactor offers the coordinator: the three lifecycle
-// methods and the channel a failure after Start arrives on.
+// methods, and the channel that reports a failure after Start.
 type component interface {
 	Start(context.Context) error
 	Shutdown(context.Context) error

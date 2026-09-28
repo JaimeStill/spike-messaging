@@ -16,8 +16,9 @@ type EventKind[T any] struct {
 }
 
 // Define declares the event kind of type typ, whose data is a T encoded as
-// JSON. A type that breaks [CheckType] is a declaration defect and panics,
-// at the package's initialization when the kind is a package variable.
+// JSON. A type that breaks [CheckType] is a declaration defect, so Define
+// panics; when the kind is a package variable, it panics at the package's
+// initialization.
 func Define[T any](typ string) EventKind[T] {
 	if err := CheckType(typ); err != nil {
 		panic(fmt.Sprintf("event: define: %v", err))
@@ -30,8 +31,8 @@ func (k EventKind[T]) Type() string { return k.typ }
 
 // Raise adds an event of this kind about subject, carrying data, to q. The
 // event has no id, source, or time until the recorder stamps it. An empty
-// subject is an absent attribute. A failure to encode data is held on q, and
-// fails the command when the recorder emits.
+// subject leaves the attribute absent. A failure to encode data is held on
+// q, and fails the command when the recorder emits.
 func (k EventKind[T]) Raise(q *Queue, subject string, data T) {
 	b, err := json.Marshal(data)
 	if err != nil {

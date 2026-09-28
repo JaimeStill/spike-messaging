@@ -13,8 +13,8 @@ import (
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
 )
 
-// Service is the exercise domain service: the world's commands and the
-// umpire's queries. Each command that mutates runs as one transaction
+// Service is the exercise domain service. It holds the world's commands and
+// the umpire's queries. Each command that mutates runs as one transaction
 // through [Service.command], so the events it raises commit with the state
 // they report.
 type Service struct {
@@ -23,9 +23,9 @@ type Service struct {
 }
 
 // New constructs the service over the service's database and the recorder
-// its commands emit through. Construction compiles and binds the
-// statements and performs no I/O; a compile failure or a nil recorder is a
-// wiring defect and panics.
+// its commands emit through. New compiles and binds the statements and
+// performs no I/O. A compile failure or a nil recorder is a wiring defect,
+// so New panics.
 func New(db *data.Database, rec *event.Recorder[*sqlate.Tx]) *Service {
 	if rec == nil {
 		panic("exercise: nil recorder")
@@ -33,8 +33,8 @@ func New(db *data.Database, rec *event.Recorder[*sqlate.Tx]) *Service {
 	return &Service{store: newStore(db), rec: rec}
 }
 
-// Verify prepares every statement against the migrated schema; the
-// composition root runs it at startup, once the schema is corrected.
+// Verify prepares every statement against the migrated schema. The
+// composition root runs it at startup, after the migrations.
 func (s *Service) Verify(ctx context.Context) error { return s.store.Verify(ctx) }
 
 // Find returns the umpire's view of the exercise with the id, or
@@ -52,9 +52,9 @@ func (s *Service) History(ctx context.Context, id string) ([]Round, error) {
 	return s.store.rounds(ctx, id)
 }
 
-// Create creates an exercise from c, not yet started: round 0, the
-// starting state c describes, and no objective held. It raises nothing, as
-// no event reports an exercise before it starts.
+// Create creates an exercise from c that has not started: its round is 0,
+// its state is the starting state c describes, and no objective is held. It
+// raises nothing, because no event reports an exercise before it starts.
 func (s *Service) Create(ctx context.Context, c CreateExercise) (Exercise, error) {
 	if err := c.Validate(); err != nil {
 		return Exercise{}, err
@@ -69,13 +69,13 @@ func (s *Service) Create(ctx context.Context, c CreateExercise) (Exercise, error
 	})
 }
 
-// Start starts a created exercise, or returns [ErrConflict]: it runs, its
-// first round due one interval from the database's clock, and round 0, the
-// start, is recorded in its history. It raises [Started], then
-// [RoundObserved] for each faction's observation of round 0, so the chain
-// has its first observation. When the start's own verdict is already over,
-// as with a faction that has no element, the exercise concludes at once and
-// [Concluded] follows.
+// Start starts a created exercise, or returns [ErrConflict]. The exercise
+// runs, its first round is due one interval from the database's clock, and
+// its history records round 0, the start. Start raises [Started], then
+// [RoundObserved] for each faction's observation of round 0, the first
+// observation intelligence and operations act on. When round 0's verdict is already over, as
+// when a faction has no element, the exercise concludes at once and Start
+// raises [Concluded] after them.
 func (s *Service) Start(ctx context.Context, id string) (Exercise, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, q *event.Queue) (Exercise, error) {
 		ex, err := s.store.get(ctx, tx, id)
@@ -117,14 +117,14 @@ func (s *Service) Pause(ctx context.Context, id string) (Exercise, error) {
 	return s.transition(ctx, id, "pause", StatusRunning, s.store.markPaused)
 }
 
-// Resume runs a paused exercise again, its next round due one interval
+// Resume runs a paused exercise again, with its next round due one interval
 // from the database's clock, or returns [ErrConflict]. It raises nothing.
 func (s *Service) Resume(ctx context.Context, id string) (Exercise, error) {
 	return s.transition(ctx, id, "resume", StatusPaused, s.store.markResumed)
 }
 
-// transition moves the exercise out of status from by mark, the command
-// named verb, which raises nothing.
+// transition runs the command named verb, which moves the exercise out of
+// status from through mark and raises nothing.
 func (s *Service) transition(
 	ctx context.Context,
 	id, verb string,
@@ -150,11 +150,11 @@ func (s *Service) transition(
 	})
 }
 
-// Stop ends an exercise that is created, running, or paused before its
-// verdict, or returns [ErrConflict]: it is stopped, with a verdict that is
-// over, has no winner, and gives "stopped" as its reason. It raises
-// [Concluded] only for an exercise that had started, so the services that
-// opened it close what they hold; a created exercise was never announced.
+// Stop ends an exercise that is created, running, or paused, or returns
+// [ErrConflict]. The exercise is stopped, with a verdict that is over, has
+// no winner, and gives "stopped" as its reason. Stop raises [Concluded]
+// only for an exercise that had started, so the services that opened it
+// close what they hold; no event announced a created exercise.
 func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, q *event.Queue) (Exercise, error) {
 		ex, err := s.store.get(ctx, tx, id)
@@ -180,20 +180,24 @@ func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 }
 
 // RecordOrders records a faction's orders for a round of an exercise,
-// replacing any it recorded for that round before. claim, when not nil,
-// runs first in the command's transaction, and when it reports a repeat
-// the command changes nothing and succeeds, so a redelivered event is
-// handled once.
+// replacing any it recorded for that round before. A non-nil claim runs
+// first in the command's transaction. When the claim reports a repeat, the
+// command changes nothing and succeeds, so a redelivered event is handled
+// once.
 //
-// The exercise is read under a shared lock, so the command waits on a
-// round being resolved and judges the orders against the round it leaves.
-// It refuses, with an error [event.IsPermanent] reports, since no
-// redelivery could succeed: an exercise that does not exist
-// ([ErrNotFound]); a faction that is not one of its two ([ErrValidation]);
-// an exercise that concluded or stopped, or an order for a round already
-// resolved ([ErrConflict]). A late order is dropped, so a late faction
-// stands still. The refusal rolls the claim back with the rest. It raises
-// nothing.
+// The command reads the exercise under a shared lock, so it waits for a
+// round being resolved and checks the orders against the round that
+// resolution leaves. It refuses the following with an error that
+// [event.IsPermanent] reports, because no redelivery could succeed:
+//
+//   - an exercise that does not exist ([ErrNotFound]);
+//   - a faction that is not one of the exercise's two ([ErrValidation]);
+//   - an exercise that concluded or stopped, or an order for a round
+//     already resolved ([ErrConflict]).
+//
+// A late order is dropped, so the late faction's elements stand still. A
+// refusal rolls back the claim with the rest of the transaction.
+// RecordOrders raises nothing.
 func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Claim) error {
 	_, err := s.command(ctx, func(tx *sqlate.Tx, _ *event.Queue) (struct{}, error) {
 		if claim != nil {
@@ -229,17 +233,18 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 
 // ResolveDue resolves the next round of every running exercise that is
 // due, each in a transaction of its own, and returns how many it resolved.
-// An exercise another replica is resolving, or that paused, stopped, or was
-// resolved since it was found due, is skipped. One exercise's failure never
-// stops the others: the failures are returned joined, each naming its
-// exercise.
+// It skips an exercise that another replica is resolving, or that paused,
+// stopped, or was resolved since it was found due. One exercise's failure
+// never stops the others: ResolveDue returns the failures joined, each
+// naming its exercise.
 //
-// A round applies the orders both factions recorded for it, an order for
-// an element of the other faction ignored, under [rules.Resolve]. The
-// exercise advances to the round, its next round due one interval from the
-// database's clock, or concludes when the round's verdict is over; the
-// round is recorded in its history. It raises [RoundObserved] for each
-// faction's observation of the round, then [Concluded] when it concluded.
+// A round applies, under [rules.Resolve], the orders both factions recorded
+// for it, ignoring an order for an element of the other faction. The
+// exercise then advances to the round, with its next round due one interval
+// from the database's clock, or concludes when the round's verdict is over.
+// Its history records the round. ResolveDue raises [RoundObserved] for each
+// faction's observation of the round, then [Concluded] if the exercise
+// concluded.
 func (s *Service) ResolveDue(ctx context.Context) (int, error) {
 	ids, err := s.store.due(ctx)
 	if err != nil {
@@ -264,8 +269,8 @@ func (s *Service) ResolveDue(ctx context.Context) (int, error) {
 	return resolved, errors.Join(errs...)
 }
 
-// resolve resolves the next round of the exercise with the id, reporting
-// false when it is no longer due or another transaction holds it.
+// resolve resolves the next round of the exercise with the id. It reports
+// false when the exercise is no longer due or another transaction holds it.
 func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, q *event.Queue) (bool, error) {
 		ex, ok, err := s.store.lockIfDue(ctx, tx, id)
@@ -301,8 +306,8 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 }
 
 // ownOrders returns the orders each faction recorded, in the factions'
-// order, keeping only those for an element of the faction that issued
-// them: a faction commands its own elements alone.
+// order, and keeps only those for an element of the faction that issued
+// them: a faction commands only its own elements.
 func ownOrders(s rules.State, recorded map[string][]rules.Order) []rules.Order {
 	owner := make(map[string]string, len(s.Elements))
 	for _, e := range s.Elements {
@@ -319,14 +324,14 @@ func ownOrders(s rules.State, recorded map[string][]rules.Order) []rules.Order {
 	return out
 }
 
-// conflict is the error for a command, named verb, that ex's status does
-// not allow.
+// conflict returns the error for the command named verb when ex's status
+// does not allow it.
 func conflict(verb string, ex Exercise) error {
 	return fmt.Errorf("%w: cannot %s exercise %s: it is %s", ErrConflict, verb, ex.ID, ex.Status)
 }
 
-// moved is the error for a command, named verb, whose exercise changed
-// status between the command's read and its write.
+// moved returns the error for the command named verb when its exercise
+// changed status between the command's read and its write.
 func moved(verb, id string) error {
 	return fmt.Errorf("%w: cannot %s exercise %s: its status changed", ErrConflict, verb, id)
 }

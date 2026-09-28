@@ -18,13 +18,13 @@ type Admin struct {
 	Database *admin.Service
 }
 
-// newAdmin wires the admin layer over infra, each admin service handed its
-// switches from cfg at the construction site. It takes lc because an admin
-// service owns a lifecycle stage: one that verifies and corrects the state
-// of the infrastructure it administers registers here, ahead of the domains
-// that depend on that state: the database admin service migrates the
-// messaging set and the service's own at stage 1, ahead of the statements
-// verified at stage 2.
+// newAdmin wires the admin layer over infra, and hands each admin service
+// its switches from cfg where it is constructed. It takes lc because an
+// admin service owns a lifecycle stage. An admin service that verifies and
+// corrects the state of the infrastructure it administers registers here,
+// ahead of the domains that depend on that state. The database admin
+// service migrates the messaging set and the service's own at stage 1,
+// before the statements are verified at stage 2.
 func newAdmin(
 	infra *Infrastructure,
 	_ *config.Config,
@@ -40,11 +40,11 @@ func newAdmin(
 }
 
 // mountAdmin builds the admin mount, /admin, with each admin domain's route
-// group mounted into it. The template ships the group initialized and empty.
-// In production the mount belongs on its own listener, authenticated and
-// unreachable from the public API's network path; that isolation is a
-// design constraint the application settles when the first admin service
-// arrives.
+// group mounted into it. The database admin service mounts no routes yet,
+// so the group is empty. In production the mount belongs on its own
+// listener, authenticated and unreachable from the public API's network
+// path; the application settles that isolation when it mounts the first
+// admin routes.
 func mountAdmin(adm *Admin) *web.Group {
 	return web.NewGroup("/admin")
 }

@@ -13,7 +13,7 @@
 //
 // The suite files, tagged integration, run the built service; the harness
 // itself is untagged, so the unit tier type-checks it on every pull
-// request. A service that adds a backing service runs the suite against
-// its compose stack as an isolated project, the pattern the reference
-// service proves; the template is engine-free and needs none.
+// request. The suite runs against the repository's compose stack, Postgres
+// and NATS, which must be up: each process gets the stack's exercise
+// database and a scratch stream of its own, which the harness deletes.
 package integration

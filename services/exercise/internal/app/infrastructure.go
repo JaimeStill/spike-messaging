@@ -30,11 +30,12 @@ import (
 // the admin service administers; the domains never see it. SQL is the
 // database as the domains see it. Sets are the migration sets the admin
 // service's migrator runs, the messaging set beneath the service's own.
-// Broker is the event layer's transport, Outbox and Inbox its durable
-// sides, and Recorder the one value a domain takes to emit the events it
-// raises. The struct stops at the composition root: the layer files read
-// its fields, and a package receives its dependencies as constructor
-// parameters, never the struct itself.
+// Broker carries events to and from NATS. Outbox stores the events a
+// command emits until the relay publishes them, and Inbox records the
+// events a consumer has handled. Recorder is the one value a domain takes
+// to emit the events it raises. The struct stays in the composition root:
+// the layer files read its fields, and a package receives its dependencies
+// as constructor parameters, never the struct itself.
 type Infrastructure struct {
 	Logger   *slog.Logger
 	DB       *database.DB
@@ -46,9 +47,9 @@ type Infrastructure struct {
 	Recorder *event.Recorder[*sqlate.Tx]
 }
 
-// verifyStage prepares the messaging statements against the migrated
-// schema, once the schema service at admin.Stage has corrected it, beside
-// the domains that verify their own.
+// verifyStage is the stage that prepares the messaging statements, and each
+// domain's own, against the migrated schema, after the schema service at
+// admin.Stage has corrected it.
 const verifyStage = admin.Stage + 1
 
 // newInfrastructure constructs the infrastructure services in one place, in

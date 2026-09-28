@@ -12,7 +12,7 @@
 // reports was committed. Nothing is published there: the [Relay] publishes
 // the committed rows afterward, each inside a transaction of its own that
 // locks the row and marks it published once the broker holds the event, so a
-// stop between the commit and the publish loses no event. A consumer's guard
-// against handling a redelivered event twice is the inbox, in
-// messaging/inbox.
+// stop between the commit and the publish loses no event. The inbox package,
+// messaging/inbox, guards a consumer against handling a redelivered event
+// twice.
 package outbox

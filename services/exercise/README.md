@@ -1,8 +1,9 @@
 # exercise
 
-The world of the spike's exercise (`context/exercise.md`): a two-faction exercise of sector
-dominance, from creation to conclusion. The service resolves one round per interval, records the
-orders the operations service issues, and reports each round as events. It was generated from
+The exercise service runs the world of the spike's exercise (`context/exercise.md`), a
+two-faction exercise of sector dominance, from creation to conclusion. The service resolves one
+round per interval, records the orders the operations service issues, and reports each round as
+events. It was generated from
 [go-web-sdk-template](https://github.com/standards-lab/go-web-sdk-template) `template/v0.9.0`.
 
 ## Running
@@ -23,13 +24,13 @@ startup.
 
 Mounted under `/api/exercises`:
 
-| Route | |
-|-------|-|
+| Route | Action |
+|-------|--------|
 | `POST /` | Create an exercise: its map, its two factions, their elements, a round interval, and a round limit |
 | `GET /{id}` | The umpire's view: status, round, the whole state, and the verdict |
 | `GET /{id}/history` | Every resolved round: its state, both factions' observations, and its verdict |
 | `POST /{id}/start` | Start the exercise; round 0 is observed at once |
-| `POST /{id}/pause` · `/resume` | Hold the clock, and continue it |
+| `POST /{id}/pause` · `/resume` | Hold the exercise's rounds, and resume them |
 | `POST /{id}/stop` | End the exercise |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
@@ -44,8 +45,8 @@ the exercise's ID:
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 
-The service consumes `operations.orders.issued` as the `exercise-orders` subscription. Orders for a
-round already resolved are refused permanently.
+The service consumes `operations.orders.issued` through the `exercise-orders` subscription. It
+permanently refuses orders for a round already resolved, so the broker does not redeliver them.
 
 ## Composition
 
@@ -80,5 +81,5 @@ From the repository root, `mise run test` runs the unit tier and `mise run integ
 integration tier across every module. For this service, the integration tier covers three things:
 
 - the domain's commands, on a scratch database;
-- the built service, against the compose stack on a scratch stream of its own;
-- an idle exercise that runs to its round limit as a draw.
+- the built service, against the compose stack, on a scratch stream of its own;
+- an idle exercise that runs to its round limit and ends in a draw.

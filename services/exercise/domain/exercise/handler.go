@@ -8,23 +8,23 @@ import (
 	"github.com/standards-lab/go-web-sdk"
 )
 
-// maxCommandBody bounds a command's request body. A create carries the
-// map and the elements, which stay well inside it for an exercise meant to
-// show the event layer.
+// maxCommandBody bounds a command's request body. A create carries the map
+// and the elements, and an exercise sized to demonstrate the messaging
+// packages stays well inside the bound.
 const maxCommandBody = 1 << 20
 
-// handler binds the layer's endpoints to its service. Every handler
-// returns its error; the group's writer maps it to a problem.
+// handler binds the package's endpoints to its service. Every handler
+// returns its error, and the group's error writer maps it to a problem.
 type handler struct {
 	service *Service
 }
 
-// Routes builds the layer's route group, rooted at /exercises. The reads
+// Routes builds the package's route group, rooted at /exercises. The reads
 // are the umpire's view (GET /{id}) and the round history (GET
-// /{id}/history). The commands are create (POST) and the transitions,
-// each an action on its own path: start, pause, resume, and stop (POST
-// /{id}/<action>), each answering with the umpire's view. RecordOrders has
-// no route: orders arrive from operations as events, through a reactor.
+// /{id}/history). The commands are create (POST) and the transitions start,
+// pause, resume, and stop, each on its own path (POST /{id}/<action>) and
+// each answering with the umpire's view. RecordOrders has no route: orders
+// arrive from the operations service as events, through a reactor.
 func Routes(service *Service) *web.Group {
 	h := &handler{service: service}
 	g := web.NewGroup("/exercises")
@@ -68,8 +68,8 @@ func (h *handler) history(w http.ResponseWriter, r *http.Request) error {
 	return web.WriteJSON(w, http.StatusOK, rounds)
 }
 
-// transition binds one status transition, a command that takes the
-// exercise's ID and answers with its view.
+// transition binds one status transition: a command that takes the
+// exercise's ID and returns its view.
 func (h *handler) transition(cmd func(ctx context.Context, id string) (Exercise, error)) web.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		ex, err := cmd(r.Context(), r.PathValue("id"))
@@ -80,8 +80,9 @@ func (h *handler) transition(cmd func(ctx context.Context, id string) (Exercise,
 	}
 }
 
-// status maps the layer's errors to problems: a rejected command is 400,
-// an unknown exercise 404, and a command its status does not allow 409.
+// status maps the package's errors to problems: a rejected command is 400,
+// an unknown exercise is 404, and a command the exercise's status does not
+// allow is 409.
 func status(err error) (web.Problem, bool) {
 	switch {
 	case errors.Is(err, ErrValidation):

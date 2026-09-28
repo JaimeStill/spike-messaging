@@ -13,8 +13,8 @@ import (
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
 )
 
-// ErrValidation classifies a command input the domain rejects on its own
-// fields, wrapped with every reason it found.
+// ErrValidation classifies a command input that the domain rejects because
+// of its own fields. The returned error wraps it with every reason found.
 var ErrValidation = errors.New("invalid command")
 
 // ErrNotFound reports an exercise that does not exist. It wraps
@@ -51,8 +51,9 @@ const (
 const reasonStopped = "stopped"
 
 // CreateExercise is the create command's input: the exercise's name, its
-// public map, its two factions and their elements where they stand at the
-// start, and its round interval, a Go duration such as "2s", and limit.
+// public map, its two factions, their elements where they stand at the
+// start, its round interval as a Go duration such as "2s", and its round
+// limit.
 type CreateExercise struct {
 	Name          string          `json:"name"`
 	Map           rules.Map       `json:"map"`
@@ -126,14 +127,14 @@ type Exercise struct {
 	intervalMS int64
 }
 
-// started reports whether the exercise has left created without being
-// stopped before it ran: whether its rounds were ever observed.
+// started reports whether the exercise is running or paused: it has
+// started and has not yet ended.
 func (e Exercise) started() bool {
 	return e.Status == StatusRunning || e.Status == StatusPaused
 }
 
 // Round is one entry of an exercise's history: the state after the round,
-// what each faction observed of it, indexed like the exercise's factions,
+// each faction's observation of it, indexed like the exercise's factions,
 // and the verdict. Round 0 is the start.
 type Round struct {
 	Round        int                  `json:"round"`
@@ -153,10 +154,10 @@ type RecordOrders struct {
 	Orders   []rules.Order `json:"orders"`
 }
 
-// Claim is an idempotency claim a caller runs in a command's transaction,
-// before the command does anything else. It reports whether this is the
-// first time the command's input was handled; on false the command changes
-// nothing and succeeds. A reactor's adapter binds one over its inbox and the
-// event it handles. A nil Claim is no claim, as an HTTP request or a test
-// makes.
+// Claim is an idempotency claim that a command runs in its transaction
+// before it does anything else. It reports whether this is the first time
+// the command's input was handled; on false the command changes nothing and
+// succeeds. A reactor's adapter binds a Claim over its inbox and the event
+// it handles. A caller without an inbox, such as a test, passes a nil
+// Claim, which claims nothing.
 type Claim func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)

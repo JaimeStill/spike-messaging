@@ -17,13 +17,14 @@ const (
 	defaultMessagingRelayPoll = 250 * time.Millisecond
 )
 
-// MessagingConfig is the event layer's block. URL is the NATS server the
-// broker connects to. Stream and Prefix name the JetStream stream every
+// MessagingConfig is the messaging block. URL is the NATS server the broker
+// connects to. Stream and Prefix name the JetStream stream that every
 // exercise service shares, so each service provisions the same stream and
-// they converge on it; MaxAge bounds its retention, longer than an
-// exercise. Source is the service's CloudEvents source, one value for every
-// replica. RelayPoll is how long the relay waits between passes once the
-// outbox is empty.
+// all of them use it. MaxAge bounds the stream's retention; set it longer
+// than any exercise lasts, so no consumer loses an event of an exercise
+// still running. Source is the service's CloudEvents source, one
+// value for every replica. RelayPoll is how long the relay waits between
+// passes once the outbox is empty.
 type MessagingConfig struct {
 	URL       string             `json:"url"`
 	Stream    string             `json:"stream"`
@@ -60,9 +61,10 @@ func (c *MessagingConfig) Merge(src *MessagingConfig) {
 
 // Finalize applies the defaults, reads the block's environment overrides
 // when a prefix is given (EXERCISE_MESSAGING_URL, …_STREAM, …_PREFIX,
-// …_MAX_AGE, …_SOURCE, …_RELAY_POLL), and validates: the stream, prefix,
-// and source set, and both durations positive. The broker checks the
-// stream and prefix against its naming rules when the root builds it.
+// …_MAX_AGE, …_SOURCE, …_RELAY_POLL), and validates that the stream,
+// prefix, and source are set and both durations are positive. The broker
+// checks the stream and prefix against its naming rules when the
+// composition root builds it.
 func (c *MessagingConfig) Finalize(envPrefix string) error {
 	if c.URL == "" {
 		c.URL = defaultMessagingURL

@@ -9,15 +9,15 @@ import (
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
 )
 
-// The events the domain raises, each about one exercise: its ID is every
-// event's subject. An event reports a committed mutation, so each is raised
-// only inside a command, through [Service.command].
+// The events the domain raises. Each is about one exercise, and the
+// exercise's ID is its subject. An event reports a committed mutation, so a
+// command raises it only inside [Service.command].
 var (
 	// Started reports an exercise that started: its public settings, so a
 	// consumer can open its own view of the exercise before any round.
 	Started = event.Define[StartedData]("exercise.started")
-	// RoundObserved reports what one faction observed after a round, one
-	// event per faction per round, round 0 raised at the start.
+	// RoundObserved reports what one faction observed after a round. Each
+	// round raises one per faction, and the start raises them for round 0.
 	RoundObserved = event.Define[ObservedData]("exercise.round.observed")
 	// Concluded reports an exercise that ended, by its verdict or by a stop,
 	// so a consumer closes what it holds of it.
@@ -37,8 +37,8 @@ type StartedData struct {
 }
 
 // ObservedData is the event entity of [RoundObserved]: one faction's
-// observation of one round, its own elements, the enemy contacts it sees,
-// and the objectives in its sight.
+// observation of one round, with its own elements, the enemy contacts it
+// sees, and the objectives in its sight.
 type ObservedData struct {
 	Exercise   string                  `json:"exercise"`
 	Faction    string                  `json:"faction"`
@@ -49,8 +49,8 @@ type ObservedData struct {
 }
 
 // ConcludedData is the event entity of [Concluded]: the last round, the
-// winning faction, "" for a draw or a stop, and the verdict's reason, or
-// "stopped".
+// winning faction ("" for a draw or a stop), and the verdict's reason
+// ("stopped" for a stop).
 type ConcludedData struct {
 	Exercise string `json:"exercise"`
 	Round    int    `json:"round"`
@@ -112,10 +112,10 @@ func raiseConcluded(q *event.Queue, id string, round int, v rules.Verdict) {
 	Concluded.Raise(q, id, concludedData(id, round, v))
 }
 
-// command runs fn, a mutating command's body, as one transaction whose
-// raised events the recorder writes into the same transaction when fn
-// succeeds: the state and the events that report it commit together, or
-// neither does. Every command that mutates runs through it.
+// command runs fn, a mutating command's body, as one transaction. When fn
+// succeeds, the recorder writes the events fn raised into the same
+// transaction, so the state and the events that report it commit together
+// or not at all. Every command that mutates runs through command.
 func (s *Service) command[R any](ctx context.Context, fn func(*sqlate.Tx, *event.Queue) (R, error)) (R, error) {
 	return sqlate.Transact(ctx, s.store.db.DB, s.rec.Emit(ctx, fn))
 }

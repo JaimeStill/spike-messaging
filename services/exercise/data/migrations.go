@@ -14,11 +14,12 @@ var migrationFiles embed.FS
 // schema_version table keeps.
 const Set = "exercise"
 
-// Migrations is the service's migration sets in declaration order: the sets
-// the libraries beneath the service ship, as the composition root passes
-// them, then the service's own, NNNN_name.{up,down}.sql under migrations/,
-// whose migrations may reference the tables beneath. A layout defect is a
-// wiring defect and panics at cold start.
+// Migrations returns the service's migration sets in declaration order:
+// first the sets the libraries beneath the service ship, as the composition
+// root passes them, then the service's own set, the NNNN_name.{up,down}.sql
+// files under migrations/, whose migrations may reference the tables
+// beneath. A layout defect is a wiring defect, so Migrations panics at cold
+// start.
 func Migrations(beneath ...migrate.Set) []migrate.Set {
 	ms, err := migrate.Files(migrationFiles, "migrations")
 	if err != nil {
