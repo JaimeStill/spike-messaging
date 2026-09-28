@@ -3,12 +3,19 @@
 package postgres_test
 
 import (
+	"context"
 	"errors"
+	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/core/reactor"
+	"github.com/JaimeStill/spike-messaging/messaging"
+	"github.com/JaimeStill/spike-messaging/messaging/memory"
 )
 
 // claim claims e for consumer in a transaction of its own, rolling it back
@@ -83,5 +90,75 @@ func TestClaimRequiresAConsumer(t *testing.T) {
 	defer func() { _ = tx.Rollback() }()
 	if _, err := ob.Claim(t.Context(), tx, "", tick("1")); err == nil {
 		t.Fatal("a claim without a consumer succeeded")
+	}
+}
+
+// A handler that outlives AckWait holds its claim only until its context's
+// deadline, which is the delivery's AckWait: the deadline rolls its
+// transaction back, so the redelivery, to another member of the group,
+// claims the event and does the work once. The redelivery's claim waits on
+// the first handler's row lock rather than failing, and under READ
+// COMMITTED proceeds once the lock is released.
+func TestClaimAcrossAckWait(t *testing.T) {
+	db := migrated(t)
+	b := memory.New()
+	sub := messaging.Subscription{Name: "billing", AckWait: 200 * time.Millisecond}
+	var mu sync.Mutex
+	var attempts, work int
+	firsts := make([]bool, 0, 2)
+	handler := func(ctx context.Context, e event.Event) error {
+		mu.Lock()
+		attempts++
+		n := attempts
+		mu.Unlock()
+		_, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (struct{}, error) {
+			first, err := ob.Claim(ctx, tx, sub.Name, e)
+			if err != nil {
+				return struct{}{}, err
+			}
+			mu.Lock()
+			firsts = append(firsts, first)
+			mu.Unlock()
+			if !first {
+				return struct{}{}, nil
+			}
+			if n == 1 {
+				<-ctx.Done() // overrun AckWait, holding the claim
+				return struct{}{}, ctx.Err()
+			}
+			mu.Lock()
+			work++
+			mu.Unlock()
+			return struct{}{}, nil
+		})
+		return err
+	}
+	for range 2 {
+		src, err := b.Subscribe(sub)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := reactor.New(src, handler)
+		if err := r.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { stop(r) })
+		eventually(t, "the member to be receiving", r.Ready)
+	}
+	if err := b.Publish(t.Context(), tick("1")); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the redelivery to do the work", func() bool { mu.Lock(); defer mu.Unlock(); return work == 1 })
+	time.Sleep(2 * sub.AckWait)
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 2 || work != 1 {
+		t.Errorf("%d deliveries did the work %d times, want 2 deliveries and the work once", attempts, work)
+	}
+	if !slices.Equal(firsts, []bool{true, true}) {
+		t.Errorf("claims were first %v, want both first: the overrun's rollback releases its claim", firsts)
+	}
+	if claim(t, db, sub.Name, tick("1"), false) {
+		t.Error("the event was claimable after the redelivery committed")
 	}
 }

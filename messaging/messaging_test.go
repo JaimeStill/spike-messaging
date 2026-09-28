@@ -19,7 +19,10 @@ func TestValidate(t *testing.T) {
 		"dotted name":    {messaging.Subscription{Name: "a.b"}, "must not contain"},
 		"wildcard name":  {messaging.Subscription{Name: "a>"}, "must not contain"},
 		"spaced name":    {messaging.Subscription{Name: "a b"}, "must not contain"},
+		"slashed name":   {messaging.Subscription{Name: "a/b"}, "must not contain"},
+		"backslash name": {messaging.Subscription{Name: "a\\b"}, "must not contain"},
 		"empty type":     {messaging.Subscription{Name: "a", Types: []string{""}}, "empty type"},
+		"wildcard type":  {messaging.Subscription{Name: "a", Types: []string{"a.*"}}, "must not contain"},
 		"negative max":   {messaging.Subscription{Name: "a", MaxDeliver: -1}, "max deliver"},
 		"negative wait":  {messaging.Subscription{Name: "a", AckWait: -1}, "ack wait"},
 		"negative retry": {messaging.Subscription{Name: "a", RetryDelay: -1}, "retry delay"},
@@ -31,6 +34,19 @@ func TestValidate(t *testing.T) {
 				t.Errorf("err = %v, want it to mention %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestCheckType(t *testing.T) {
+	for _, ok := range []string{"a", "lab.grant.approved", "a-b_c.D9"} {
+		if err := messaging.CheckType(ok); err != nil {
+			t.Errorf("CheckType(%q): %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", ".a", "a.", "a..b", "a.*", "a.>", "a>b", "a b", "a\tb", "a\nb"} {
+		if err := messaging.CheckType(bad); err == nil {
+			t.Errorf("CheckType(%q) accepted a type no broker can route", bad)
+		}
 	}
 }
 

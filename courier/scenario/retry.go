@@ -16,7 +16,7 @@ import (
 
 // retryScenario fails an event's first delivery and watches it come back
 // after the subscription's retry delay.
-func retryScenario(brokers Brokers, needs []Need) Scenario {
+func retryScenario(brokers Brokers, needs func() []Need) Scenario {
 	retry := 300 * time.Millisecond
 	return Scenario{
 		Name:    "retry",
@@ -34,6 +34,7 @@ func retryScenario(brokers Brokers, needs []Need) Scenario {
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
 			redelivered := newSignal()
+			var l lease
 			var b messaging.Broker
 			var mu sync.Mutex
 			var attempts []time.Time
@@ -42,7 +43,7 @@ func retryScenario(brokers Brokers, needs []Need) Scenario {
 					Intent: fmt.Sprintf("Register a worker on subscription %q with a %v retry delay, and start the coordinator", group, retry),
 					Action: func(ctx context.Context, rep *Reporter) error {
 						var err error
-						if b, err = brokers(); err != nil {
+						if b, err = l.acquire(brokers); err != nil {
 							return err
 						}
 						src, err := b.Subscribe(messaging.Subscription{Name: group, RetryDelay: retry})
@@ -93,7 +94,7 @@ func retryScenario(brokers Brokers, needs []Need) Scenario {
 						return nil
 					},
 				},
-			}, c.cleanup
+			}, afterDrain(c, &l)
 		},
 	}
 }

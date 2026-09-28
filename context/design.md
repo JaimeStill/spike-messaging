@@ -59,6 +59,42 @@ here, this note is the spike's own.
   `replace`. In workspace mode a sibling's requirements satisfy the root's imports, so the build
   cannot hold the root's boundary; `mise run split-check` does, as an allow-list of the standard
   library and sqlate's engine-agnostic packages.
+- **`messaging/nats` is a module of its own**, as the Postgres engine is, so nats.go stays out of
+  the root. Its integration suite runs the conformance cases against the compose stack's NATS, a
+  scratch stream per case. Rejected: an embedded nats-server, whose dependencies are heavy and
+  which departs from the repository's one test pattern; it returns if a step needs to stop the
+  broker under a test.
+- **An event type is a sequence of subject tokens.** `messaging.CheckType` requires `.`-separated
+  tokens, none empty, with no whitespace, `*`, or `>`, so a provider can route on the type as a
+  subject; `messaging.IsToken` is the rule for a durable or stream name, which also excludes `/`
+  and `\`. Both providers enforce both rules, and the conformance suite proves them. Rejected: a
+  rule in the nats provider alone, which lets memory accept what NATS cannot route.
+- **Deduplication keys on the event's source and id**, which together identify a CloudEvents
+  event and which the inbox already claims on. Both providers keep a two-minute window,
+  JetStream's default; nats sends the length-prefixed source and the id as `Nats-Msg-Id`.
+  Rejected: the id alone, which silently drops another source's event that reuses an id.
+- **The nats broker's constructor provisions its stream** with `CreateOrUpdateStream`, so every
+  replica converges on one configuration. The broker owns its connection and is a lifecycle
+  component at the lowest stage: its `Shutdown` drains the connection after the reactors, and
+  `Ready` reports it. Rejected: a separate provisioning call every root would have to make.
+- **A nats source binds its durable at `Receive` and pulls one message at a time.**
+  `CreateConsumer` with the configuration derived from the subscription binds or fails on a
+  mismatch. The handler's deadline is receipt plus `AckWait`; the consumer's `AckWait` is longer
+  by `AckMargin` (250ms), and an outcome that misses the deadline is dropped unsent, because
+  JetStream accepts a late ack until it redelivers. An outcome sent on a link slower than the
+  margin can land on a redelivery, which costs a duplicate, never a lost event. The margin is
+  part of the consumer's configuration, so changing it breaks the bind across a rolling deploy.
+  Rejected: the `Messages()` iterator, which prefetches, so one member takes work ahead of the
+  others.
+- **NATS header values are sent verbatim**, and a value holding CR or LF fails `Publish`. The
+  provider neither percent-encodes nor decodes structured mode; a binding that needs encoding,
+  such as HTTP, does its own.
+- **The native request and reply runs through `nats.Broker.Conn()`**, in the composition root
+  alone. `split-check` holds `courier/scenario` to no NATS package.
+- **A handler claims on its own context.** `Outbox.Claim` runs in a transaction on the handler's
+  context, so the `AckWait` deadline rolls a slow handler's claim back, and the redelivery's claim
+  waits on its lock, then claims once (`TestClaimAcrossAckWait`). Under `REPEATABLE READ` or
+  `SERIALIZABLE` the waiting claim fails with a serialization error instead, and is redelivered.
 
 ## Outbox sequencing
 
@@ -66,7 +102,8 @@ The emitter writes the row in the mutation's transaction. The relay handles each
 transaction of its own: it claims the oldest unpublished row with `FOR UPDATE SKIP LOCKED`,
 publishes the event while holding the row, and marks it published in the same transaction. A
 handler error, a stop, a timeout, or a failed commit leaves the row unpublished, and a later pass
-republishes it under the event `id` (`Nats-Msg-Id` on JetStream), so delivery is at least once.
+republishes it under the event's source and id (`Nats-Msg-Id` on JetStream), so delivery is at
+least once.
 The transaction is bounded at twice the relay's handler timeout.
 
 This departs from spike-blobfs's two-step, which publishes and then marks in separate steps.
@@ -120,35 +157,30 @@ The evidence from courier's scenarios:
   interface is the proposed component interface, with `Err` as its fourth member.
 - **Stages order the drain.** In `group`, the publisher sits at `StageRoot` and the workers at
   stage 0, so the drain stops publishing before the workers drain. In `outbox`, the relay sits at
-  `StageRoot` for the same reason. A reactor that consumes sits
-  below the root, and one that produces work sits at the root, as the HTTP server does.
+  `StageRoot` for the same reason. A reactor that consumes sits below the root, and one that
+  produces work sits at the root, as the HTTP server does.
+- **Readiness lags again.** `request` waits on its responder's own `Ready` before it sends,
+  because the coordinator is ready before its services' sources are receiving.
 
 ## Open questions
 
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration").
   courier's `group` puts consuming reactors at a numbered stage below a producing one at
   `StageRoot`. The demonstration service decides where a reactor sits beside the HTTP server.
-- `event.Encode` writes header values as given, and `Decode` doesn't detect structured mode. The
-  provider steps decide where percent-encoding and structured mode belong.
-- Who provisions a stream, and how readiness and drain run through the coordinator.
-- How the nats provider meets the contract where JetStream differs from memory:
-  - JetStream accepts an ack that arrives after `AckWait` if no redelivery has happened yet,
-    so the provider must drop an outcome once the handler's deadline passes.
-  - A member claims one delivery at a time, so the provider fetches one message per pull.
-  - `Subscription.Types` entries need a subject-token rule.
-- Deduplication on the event `id` joins the conformance suite with the nats provider.
+- The nats broker is a lowest-stage component, but courier releases it from a run's cleanup
+  instead of registering it. The demonstration service registers it on the coordinator.
+- The stream sets no `MaxAge` or `MaxMsgs`, so it grows without bound. Its retention belongs with
+  the outbox's.
 - The import check in the final validation must let a `_test.go` file import the memory
   provider, its test double. `split-check`'s allow-list over `go list -deps -test` is a starting
   shape for it.
-- How the relay reports the errors it survives. A database error only makes it not ready, and a
-  handler error, such as a broker that is down, reaches nothing. It needs an error hook or the
-  observability layer.
+- How the relay and a nats source report the errors they survive. A database error only makes
+  the relay not ready, and a handler error, such as a broker that is down, reaches nothing; a
+  source's failing pulls only make it not ready. Both need an error hook or the observability
+  layer.
 - A row that can never be published needs a quarantine or dead-letter mark. A corrupt row ends
   the relay on every start, and a handler that always fails holds the outbox back behind its row.
 - Retention: published outbox rows and inbox rows are never purged.
-- The nats step: a redelivery that arrives while a handler still runs makes the second
-  `Outbox.Claim` wait on the first handler's transaction, which interacts with `AckWait`. Under
-  `REPEATABLE READ` or `SERIALIZABLE`, it fails with a serialization error instead.
 - Whether `Outbox.Claim` moves to a sibling inbox package. It sits in `messaging/outbox` because
   its table is in the same migration set.
 - The relay's 10s default `Timeout` is untested against a slow broker.

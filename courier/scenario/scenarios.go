@@ -13,20 +13,55 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
 
-// Brokers builds a fresh broker for one scenario run.
-type Brokers func() (messaging.Broker, error)
+// Brokers builds a fresh broker for one scenario run, with the release that
+// frees what the broker holds, such as a scratch stream. A scenario calls
+// the release from its cleanup, once its coordinator has drained. The
+// release may be nil.
+type Brokers func() (b messaging.Broker, release func() error, err error)
 
-// Scenarios returns every scenario in presentation order. Each run builds its
-// broker from brokers and checks needs first. The outbox scenario also builds
-// its store from outboxes, and checks outboxNeeds after needs.
-func Scenarios(brokers Brokers, needs []Need, outboxes Outboxes, outboxNeeds []Need) []Scenario {
+// Dependencies is what the composition root supplies the scenarios. Each
+// func() []Need is called when a run starts or the listing is written, not
+// when the scenarios are built, so it can follow the parsed flags; any of
+// them may be nil for nothing needed.
+type Dependencies struct {
+	// Brokers builds each run's broker, and BrokerNeeds is what it requires.
+	Brokers     Brokers
+	BrokerNeeds func() []Need
+	// Outboxes builds the outbox scenario's store, which also requires
+	// OutboxNeeds, checked after the broker's needs.
+	Outboxes    Outboxes
+	OutboxNeeds func() []Need
+	// Exchanges builds the request scenario's exchange, which requires
+	// RequestNeeds in place of the broker's needs.
+	Exchanges    Exchanges
+	RequestNeeds func() []Need
+}
+
+// Scenarios returns every scenario in presentation order, built on d. The
+// every scenario builds no broker, so it needs nothing.
+func Scenarios(d Dependencies) []Scenario {
 	return []Scenario{
-		everyScenario(needs),
-		groupScenario(brokers, needs),
-		retryScenario(brokers, needs),
-		permanentScenario(brokers, needs),
-		drainScenario(brokers, needs),
-		outboxScenario(brokers, outboxes, slices.Concat(needs, outboxNeeds)),
+		everyScenario(nil),
+		groupScenario(d.Brokers, d.BrokerNeeds),
+		retryScenario(d.Brokers, d.BrokerNeeds),
+		permanentScenario(d.Brokers, d.BrokerNeeds),
+		drainScenario(d.Brokers, d.BrokerNeeds),
+		outboxScenario(d.Brokers, d.Outboxes, concatNeeds(d.BrokerNeeds, d.OutboxNeeds)),
+		requestScenario(d.Exchanges, d.RequestNeeds),
+	}
+}
+
+// concatNeeds returns the needs of each list in order, calling each when a
+// run starts; a nil list contributes nothing.
+func concatNeeds(lists ...func() []Need) func() []Need {
+	return func() []Need {
+		var all []Need
+		for _, l := range lists {
+			if l != nil {
+				all = slices.Concat(all, l())
+			}
+		}
+		return all
 	}
 }
 
@@ -71,6 +106,39 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// lease holds the release of what one run acquired: its broker, or the
+// request scenario's exchange.
+type lease struct {
+	release func() error
+}
+
+// acquire builds a broker from brokers and keeps its release for close.
+func (l *lease) acquire(brokers Brokers) (messaging.Broker, error) {
+	b, release, err := brokers()
+	if err != nil {
+		return nil, err
+	}
+	l.release = release
+	return b, nil
+}
+
+// close calls the release, if one was acquired. It is safe to call more
+// than once.
+func (l *lease) close() error {
+	release := l.release
+	l.release = nil
+	if release == nil {
+		return nil
+	}
+	return release()
+}
+
+// afterDrain is a run's cleanup: it drains the coordinator, then calls the
+// lease's release, so no reactor still holds what it frees.
+func afterDrain(c *coordinator, l *lease) func() error {
+	return func() error { return errors.Join(c.cleanup(), l.close()) }
 }
 
 // publish publishes e and notes it.

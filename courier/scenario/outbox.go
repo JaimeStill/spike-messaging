@@ -38,7 +38,7 @@ type Outboxes func(context.Context) (*OutboxStore, error)
 // outboxScenario commits events while no relay runs, then starts a relay and
 // a worker, and checks that every event reaches the worker once and no row
 // is left pending: evidence 2 on a real database.
-func outboxScenario(brokers Brokers, outboxes Outboxes, needs []Need) Scenario {
+func outboxScenario(brokers Brokers, outboxes Outboxes, needs func() []Need) Scenario {
 	events := 5
 	poll := 200 * time.Millisecond
 	return Scenario{
@@ -57,13 +57,14 @@ func outboxScenario(brokers Brokers, outboxes Outboxes, needs []Need) Scenario {
 		},
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
+			var l lease
 			all := newSignal()
 			var store *OutboxStore
 			var storeRep *Reporter
 			var mu sync.Mutex
 			delivered := map[string]int{} // event id to its delivery count
 			cleanup := func() error {
-				err := c.cleanup()
+				err := afterDrain(c, &l)()
 				if store != nil {
 					if cerr := store.Close(); cerr != nil {
 						return errors.Join(err, fmt.Errorf("drop database %s: %w", store.Name, cerr))
@@ -112,7 +113,7 @@ func outboxScenario(brokers Brokers, outboxes Outboxes, needs []Need) Scenario {
 				{
 					Intent: fmt.Sprintf("Register a relay at the root stage and a worker on subscription %q at stage 0, start the coordinator, and wait for every delivery", group),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						b, err := brokers()
+						b, err := l.acquire(brokers)
 						if err != nil {
 							return err
 						}

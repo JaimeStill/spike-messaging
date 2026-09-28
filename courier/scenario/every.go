@@ -15,7 +15,7 @@ import (
 
 // everyScenario runs an interval reactor on the coordinator and drains it.
 // A tick can be made to fail, which ends the reactor and so the run.
-func everyScenario(needs []Need) Scenario {
+func everyScenario(needs func() []Need) Scenario {
 	interval := 200 * time.Millisecond
 	ticks := 3
 	work := 100 * time.Millisecond

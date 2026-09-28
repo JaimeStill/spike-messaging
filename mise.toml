@@ -6,8 +6,9 @@ golangci-lint = "2.13.2"
 # MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
 # root module's packages. A module that imports a workspace sibling carries no require line for
 # it, so go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/... ./messaging/outbox/postgres/..."
+MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/outbox/postgres/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
+MESSAGING_NATS_URL = "nats://127.0.0.1:4225"
 
 [tasks.build]
 description = "Build the module"
@@ -34,7 +35,7 @@ description = "Run golangci-lint, including the integration-tagged files, and sq
 run = "golangci-lint run --build-tags integration $MODULES && cd messaging/outbox/postgres && go tool sqlint"
 
 [tasks.integration]
-description = "Run tests, including those against the compose stack's Postgres"
+description = "Run tests, including those against the compose stack's Postgres and NATS"
 run = "go test -race -tags integration -count=1 $MODULES"
 
 [tasks.up]
@@ -50,14 +51,25 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module's packages reach nothing outside the standard library and sqlate's engine-agnostic packages"
+description = "Check that the root module reaches nothing outside the standard library and sqlate's engine-agnostic packages, and that courier's scenarios reach no NATS package"
 run = '''
 allowed='^github.com/standards-lab/sqlate(/(header|query|sqltest|migrate))?$'
 # A package outside the standard library has a dot in its first path element.
-found=$(go list -deps -test -tags integration ./... | awk '{print $1}' | grep -E '^[^/]+\.[^/]*/' \
+# go list runs on its own first, so a package that fails to load fails the check.
+deps=$(go list -deps -test -tags integration ./...) || exit 1
+found=$(echo "$deps" | awk '{print $1}' | grep -E '^[^/]+\.[^/]*/' \
   | grep -v '^github.com/JaimeStill/spike-messaging' | sort -u | grep -Ev "$allowed" || true)
 if [ -n "$found" ]; then
   echo "the root module reaches packages outside its allow-list:"; echo "$found"; exit 1
 fi
 echo "split-check: the root module reaches only the standard library and sqlate's engine-agnostic packages"
+# Evidence 8: the native request and reply stays in the nats provider and the composition root, so
+# the broker-agnostic scenarios reach neither nats.go nor the provider.
+deps=$(go list -deps -test -tags integration ./courier/scenario/...) || exit 1
+found=$(echo "$deps" | awk '{print $1}' \
+  | grep -E '^(github.com/nats-io/|github.com/JaimeStill/spike-messaging/messaging/nats(/|$))' | sort -u || true)
+if [ -n "$found" ]; then
+  echo "courier/scenario reaches NATS packages:"; echo "$found"; exit 1
+fi
+echo "split-check: courier/scenario reaches neither nats.go nor the nats provider"
 '''

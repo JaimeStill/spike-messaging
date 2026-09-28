@@ -54,8 +54,8 @@ func Timeout(d time.Duration) RelayOption {
 // one marked [event.Permanent], the transaction rolls back, the row stays
 // unpublished, and the pass ends. The next pass, a poll later, retries it.
 // A stop anywhere before the commit leaves the row to be published again
-// under the same id, so delivery is at least once and a broker that
-// deduplicates on the id sees it once.
+// under the same source and id, so delivery is at least once and a broker
+// that deduplicates on them sees it once.
 //
 // One relay publishes in seq order, which is the order the rows were
 // inserted among those committed, not the order their transactions

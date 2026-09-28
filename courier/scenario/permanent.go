@@ -16,7 +16,7 @@ import (
 
 // permanentScenario terminates an event with a permanent error and watches
 // that it never comes back, while the next event is handled normally.
-func permanentScenario(brokers Brokers, needs []Need) Scenario {
+func permanentScenario(brokers Brokers, needs func() []Need) Scenario {
 	quiet := 500 * time.Millisecond
 	const retry = 50 * time.Millisecond
 	return Scenario{
@@ -35,6 +35,7 @@ func permanentScenario(brokers Brokers, needs []Need) Scenario {
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
 			next := newSignal()
+			var l lease
 			var b messaging.Broker
 			var failed atomic.Int32
 			return []Step{
@@ -42,7 +43,7 @@ func permanentScenario(brokers Brokers, needs []Need) Scenario {
 					Intent: fmt.Sprintf("Register a worker on subscription %q with a %v retry delay, and start the coordinator", group, retry),
 					Action: func(ctx context.Context, rep *Reporter) error {
 						var err error
-						if b, err = brokers(); err != nil {
+						if b, err = l.acquire(brokers); err != nil {
 							return err
 						}
 						src, err := b.Subscribe(messaging.Subscription{Name: group, RetryDelay: retry})
@@ -90,7 +91,7 @@ func permanentScenario(brokers Brokers, needs []Need) Scenario {
 					Intent: "Signal the drain and wait for the coordinator",
 					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
 				},
-			}, c.cleanup
+			}, afterDrain(c, &l)
 		},
 	}
 }

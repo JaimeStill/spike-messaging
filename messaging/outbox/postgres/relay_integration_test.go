@@ -199,26 +199,32 @@ func TestFailedPublishIsRetriedInOrder(t *testing.T) {
 }
 
 // A publish that reaches the broker but whose row is never marked, as when
-// the process stops between the two, is published again under the same id.
+// the process stops between the two, is published again under the same id,
+// and the broker's deduplication on the id delivers it once.
 func TestPublishedButUnmarkedIsRepublished(t *testing.T) {
 	db := migrated(t)
 	b := memory.New()
 	rec := observe(t, b)
 	emitEach(t, db, "1")
 	var once sync.Once
+	published := &recorder{}
 	relay(t, db, func(ctx context.Context, e event.Event) error {
 		if err := b.Publish(ctx, e); err != nil {
 			return err
 		}
+		published.add(e.ID)
 		var err error
 		once.Do(func() { err = errors.New("stopped before the mark") })
 		return err
 	})
-	eventually(t, "two deliveries", func() bool { return len(rec.seen()) == 2 })
-	if got := rec.seen(); !slices.Equal(got, []string{"1", "1"}) {
-		t.Fatalf("delivered %v, want event 1 twice", got)
-	}
 	eventually(t, "no pending rows", drained(t, db))
+	if got := published.seen(); !slices.Equal(got, []string{"1", "1"}) {
+		t.Fatalf("published %v, want event 1 twice", got)
+	}
+	time.Sleep(10 * poll)
+	if got := rec.seen(); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("delivered %v, want event 1 once", got)
+	}
 }
 
 func TestRelaysPublishEachRowOnce(t *testing.T) {

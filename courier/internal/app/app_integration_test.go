@@ -3,13 +3,18 @@
 package app_test
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/standards-lab/go-core/process"
 )
 
@@ -59,4 +64,72 @@ func TestOutboxScenarioOnPostgres(t *testing.T) {
 	if n != 0 {
 		t.Errorf("database %s is still on the server", m[1])
 	}
+}
+
+// Each scenario that uses a broker runs end to end on the compose stack's
+// NATS, and deletes its scratch stream when it ends. The request scenario
+// runs its native request and reply there too, on its broker's handle, and
+// deletes that broker's stream as the others do.
+func TestScenariosOnNATS(t *testing.T) {
+	if os.Getenv("MESSAGING_NATS_URL") == "" || os.Getenv("MESSAGING_DSN") == "" {
+		t.Fatal("MESSAGING_NATS_URL or MESSAGING_DSN is not set; run under mise with the compose stack up")
+	}
+	before := courierStreams(t)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"group", []string{"--events", "6", "--interval", "10ms", "--work", "20ms"}, "worker-b handled"},
+		{"retry", []string{"--retry", "100ms"}, "two deliveries, the second after the retry delay"},
+		{"permanent", []string{"--quiet", "300ms"}, "event 1 was delivered once and terminated"},
+		{"drain", []string{"--work", "200ms"}, "its acknowledgement held"},
+		{"outbox", []string{"--events", "3", "--poll", "20ms"}, "each of 3 events delivered once: 1 2 3"},
+		{"request", []string{"--requests", "3"}, "each of 3 requests answered by its own reply"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			args := append([]string{"--broker", "nats", "scenario", c.name}, c.args...)
+			code, out, errs := execute(t, args...)
+			if code != process.ExitOK {
+				t.Fatalf("exit %d\n%s%s", code, out, errs)
+			}
+			if !strings.Contains(out, c.want) {
+				t.Errorf("narration lacks %q:\n%s", c.want, out)
+			}
+		})
+	}
+	for _, name := range courierStreams(t) {
+		if !slices.Contains(before, name) {
+			t.Errorf("stream %s is still on the server", name)
+		}
+	}
+}
+
+// courierStreams lists the streams on the server named like one of
+// courier's scratch streams.
+func courierStreams(t *testing.T) []string {
+	t.Helper()
+	nc, err := natsgo.Connect(os.Getenv("MESSAGING_NATS_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	names := js.StreamNames(ctx)
+	var found []string
+	for name := range names.Name() {
+		if strings.HasPrefix(name, "courier_") {
+			found = append(found, name)
+		}
+	}
+	if err := names.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return found
 }

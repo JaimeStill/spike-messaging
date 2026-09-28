@@ -17,7 +17,10 @@ var ErrUsage = errors.New("usage")
 type Scenario struct {
 	Name    string // the word after "courier scenario"
 	Summary string // the line the listing prints
-	Needs   []Need
+	// Needs returns what the scenario requires, read when the listing is
+	// written or a run starts, so it can follow flags parsed after the
+	// scenario was built; nil for nothing.
+	Needs func() []Need
 	// Flags binds the scenario's own flags; nil for none.
 	Flags func(*pflag.FlagSet)
 	// Validate rejects an invalid combination of the parsed flags before
@@ -32,6 +35,14 @@ type Scenario struct {
 type Need struct {
 	What  string
 	Check func(context.Context) error
+}
+
+// needs is s.Needs, or nothing when it is nil.
+func (s Scenario) needs() []Need {
+	if s.Needs == nil {
+		return nil
+	}
+	return s.Needs()
 }
 
 // Step is one beat of the narration: what is about to happen, and the action
@@ -51,7 +62,7 @@ func Run(ctx context.Context, s Scenario, r *Reporter) (err error) {
 			return fmt.Errorf("%s: %w: %w", s.Name, ErrUsage, verr)
 		}
 	}
-	for _, n := range s.Needs {
+	for _, n := range s.needs() {
 		if cerr := n.Check(ctx); cerr != nil {
 			return fmt.Errorf("%s: need %s: %w", s.Name, n.What, cerr)
 		}

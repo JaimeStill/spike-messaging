@@ -17,7 +17,7 @@ import (
 // drainScenario signals the drain while an event is being handled. Handling
 // shorter than the grace finishes, and its acknowledgement holds; longer, the
 // reactor cancels it and the run fails with the reactor's report.
-func drainScenario(brokers Brokers, needs []Need) Scenario {
+func drainScenario(brokers Brokers, needs func() []Need) Scenario {
 	work := 2 * time.Second
 	drain, grace := defaultDrain, defaultGrace
 	return Scenario{
@@ -33,14 +33,18 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(drain)
 			started := newSignal()
+			var startedAt time.Time
+			var l lease
 			var b messaging.Broker
-			sub := messaging.Subscription{Name: group}
+			// AckWait outlasts the work, so it never cuts the handling short,
+			// and bounds how long a lost acknowledgement takes to show.
+			sub := messaging.Subscription{Name: group, AckWait: work + ackSlack}
 			return []Step{
 				{
 					Intent: fmt.Sprintf("Register a worker with a %v grace under a %v drain timeout, and start the coordinator", grace, drain),
 					Action: func(ctx context.Context, rep *Reporter) error {
 						var err error
-						if b, err = brokers(); err != nil {
+						if b, err = l.acquire(brokers); err != nil {
 							return err
 						}
 						src, err := b.Subscribe(sub)
@@ -49,6 +53,7 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 						}
 						handle := func(ctx context.Context, e event.Event) error {
 							rep.Note("event %s handling started, %v of work", e.ID, work)
+							startedAt = time.Now()
 							started.fire()
 							if !sleep(ctx, work) {
 								rep.Note("event %s handling cancelled: %v", e.ID, ctx.Err())
@@ -79,21 +84,27 @@ func drainScenario(brokers Brokers, needs []Need) Scenario {
 				{
 					Intent: fmt.Sprintf("Start a new member of %q and check the drained event is not redelivered", group),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						return checkAcknowledged(ctx, b, sub, rep)
+						return checkAcknowledged(ctx, b, sub, startedAt, rep)
 					},
 				},
-			}, c.cleanup
+			}, afterDrain(c, &l)
 		},
 	}
 }
 
-// ackQuiet is how long checkAcknowledged watches, after the new member's
-// first event, for a redelivery of the drained one.
-const ackQuiet = 250 * time.Millisecond
+const (
+	// ackSlack is how much longer the drain's AckWait is than its work.
+	ackSlack = 500 * time.Millisecond
+	// ackQuiet is how long checkAcknowledged watches past the drained
+	// event's AckWait, which leaves a provider room for its own margin.
+	ackQuiet = time.Second
+)
 
 // checkAcknowledged runs a fresh member of sub until it handles a new event
-// and a quiet window passes, and fails if event 1 reaches it.
-func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Subscription, rep *Reporter) (err error) {
+// and the drained event's AckWait, counted from startedAt, has passed by
+// ackQuiet, and fails if event 1 reaches it: an event whose acknowledgement
+// was lost is redelivered once its AckWait passes.
+func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Subscription, startedAt time.Time, rep *Reporter) (err error) {
 	src, err := b.Subscribe(sub)
 	if err != nil {
 		return err
@@ -127,12 +138,12 @@ func checkAcknowledged(ctx context.Context, b messaging.Broker, sub messaging.Su
 	case <-time.After(patience):
 		return errors.New("timed out waiting for the new member")
 	}
-	if !sleep(ctx, ackQuiet) {
+	if !sleep(ctx, time.Until(startedAt.Add(sub.AckWait+ackQuiet))) {
 		return ctx.Err()
 	}
 	if redelivered.Load() {
 		return errors.New("event 1 was redelivered: its acknowledgement was lost")
 	}
-	rep.Note("the new member received event 2 and, over %v, never event 1: its acknowledgement held", ackQuiet)
+	rep.Note("the new member received event 2 and, %v past event 1's %v AckWait, never event 1: its acknowledgement held", ackQuiet, sub.AckWait)
 	return nil
 }

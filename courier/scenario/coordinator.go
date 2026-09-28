@@ -86,6 +86,28 @@ func (c *coordinator) await(ctx context.Context, ch <-chan struct{}, what string
 	}
 }
 
+// awaitReady waits until r reports ready. The coordinator's readiness does
+// not wait on its services' checks, so a step that needs a reactor's source
+// to be receiving waits for it here. It fails as await does.
+func (c *coordinator) awaitReady(ctx context.Context, r component, what string) error {
+	ready := make(chan struct{})
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		t := time.NewTicker(10 * time.Millisecond)
+		defer t.Stop()
+		for !r.Ready() {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+			}
+		}
+		close(ready)
+	}()
+	return c.await(ctx, ready, what+" to be ready")
+}
+
 // stop signals the drain and returns Run's result: nil for a clean drain,
 // which it notes.
 func (c *coordinator) stop(rep *Reporter) error {

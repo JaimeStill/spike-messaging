@@ -11,4 +11,8 @@
 // The outbox scenario also takes an [OutboxStore] from the composition root:
 // an outbox over a scratch database, with the engine's SQL behind it. The
 // package itself imports no engine and holds no SQL.
+//
+// The request scenario takes an [Exchange] the same way: a native request
+// and reply the composition root builds on the provider's own client, with a
+// responder that runs as a reactor. The package imports no provider.
 package scenario
