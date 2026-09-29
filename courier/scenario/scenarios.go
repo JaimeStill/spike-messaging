@@ -35,9 +35,9 @@ type Dependencies struct {
 	// RequestNeeds in place of the broker's needs.
 	Exchanges    Exchanges
 	RequestNeeds func() []Need
-	// Joins builds the directives and assessments scenarios' broker on the exercise
-	// services' stream, which requires JoinNeeds in place of the broker's
-	// needs.
+	// Joins builds the directives and assessments scenarios' broker on the
+	// exercise services' stream, which requires JoinNeeds in place of the
+	// broker's needs.
 	Joins     Joins
 	JoinNeeds func() []Need
 }

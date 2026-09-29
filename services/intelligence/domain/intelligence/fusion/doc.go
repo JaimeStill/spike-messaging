@@ -25,7 +25,8 @@
 //   - the picture holds nothing a round did not reveal: an objective no
 //     element has seen has no known holder, and a contact carries only
 //     what its last sighting showed;
-//   - the chain's own lag: a picture is of the round its observation
-//     reports, and ages count in rounds, so a round the domain never
-//     assesses still ages what it knows.
+//   - the chain's own lag: an observation reaches intelligence through the
+//     round's chain of events, so a picture is of the round its
+//     observation reports, never a later one; ages count in rounds, so a
+//     round the domain never assesses still ages what it knows.
 package fusion

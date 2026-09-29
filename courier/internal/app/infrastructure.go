@@ -203,8 +203,8 @@ func (i *Infrastructure) natsPing(ctx context.Context) error {
 // Join returns a nats broker on the named stream, the one the exercise
 // services share, provisioned with maxAge as they provision it, and its
 // release. The release deletes the durable consumers the directives and
-// assessments scenarios left on the stream, then drains the connection; it leaves the
-// stream and its events.
+// assessments scenarios left on the stream, then drains the connection; it
+// leaves the stream and its events.
 func (i *Infrastructure) Join(stream, prefix string, maxAge time.Duration) (messaging.Broker, func() error, error) {
 	if i.cfg.Broker != "nats" {
 		return nil, nil, fmt.Errorf("the %s broker cannot join the services' stream", i.cfg.Broker)
@@ -257,8 +257,9 @@ func deleteConsumers(nc *natsgo.Conn, stream, prefix string) error {
 	return errors.Join(append(errs, names.Err())...)
 }
 
-// JoinNeeds returns what the directives and assessments scenarios require: the nats broker,
-// which alone reaches the services' stream, and then what it needs.
+// JoinNeeds returns what the directives and assessments scenarios require:
+// the nats broker, which alone reaches the services' stream, and then what
+// it needs.
 func (i *Infrastructure) JoinNeeds() []scenario.Need {
 	if i.cfg.Broker != "nats" {
 		return []scenario.Need{{

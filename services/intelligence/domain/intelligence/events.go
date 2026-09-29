@@ -15,11 +15,11 @@ import (
 // per observed round.
 var AssessmentIssued = event.Define[AssessmentData]("intelligence.assessment.issued")
 
-// AssessmentData is the event entity of [AssessmentIssued]: the exercise,
-// the faction, and its picture flattened beside them, which is the round
-// assessed, the faction's own elements, the contacts it knows of, each with
-// the round it was last seen and its age, and every objective, with its
-// last-seen holder when known.
+// AssessmentData is the event entity of [AssessmentIssued]: the exercise, the
+// faction, and the faction's picture flattened beside them. The picture
+// gives the round assessed, the faction's own elements, its contacts, each
+// with the round it was last seen and its age, and every objective, with
+// its last-seen holder when known.
 type AssessmentData struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
