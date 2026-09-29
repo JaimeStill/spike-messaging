@@ -67,7 +67,9 @@ func idle(limit int, interval string) map[string]any {
 }
 
 // watcher collects every event on a service's scratch stream, through a
-// broker of its own on the same stream: the view a downstream service has.
+// broker of its own on the same stream: the view a downstream service has,
+// provisioning the stream with the same configuration, as a downstream
+// service must.
 type watcher struct {
 	broker *nats.Broker
 	mu     sync.Mutex
@@ -80,7 +82,10 @@ func watch(t *testing.T, s *integration.Service) *watcher {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := nats.New(t.Context(), nc, nats.Config{Stream: s.Stream, Prefix: s.Prefix})
+	// Every broker on a stream provisions it, and the last to provision sets
+	// its configuration, so the watcher matches the service's: its default
+	// MaxAge, and the default deduplication window.
+	b, err := nats.New(t.Context(), nc, nats.Config{Stream: s.Stream, Prefix: s.Prefix, MaxAge: 24 * time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
