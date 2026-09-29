@@ -27,7 +27,7 @@ import (
 type Joins func(stream, prefix string, maxAge time.Duration) (b messaging.Broker, release func() error, err error)
 
 // DirectivesDurable prefixes the durable consumer each directives run
-// subscribes under, so a release can find the ones a run left.
+// subscribes under, so the stream's consumers show which are courier's.
 const DirectivesDurable = "courier-directives-"
 
 // The events the directives scenario reads and the one it issues, and the

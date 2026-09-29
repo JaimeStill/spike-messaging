@@ -20,7 +20,7 @@ import (
 )
 
 // AssessmentsDurable prefixes the durable consumer each assessments run
-// subscribes under, so a release can find the ones a run left.
+// subscribes under, so the stream's consumers show which are courier's.
 const AssessmentsDurable = "courier-assessments-"
 
 // assessmentType is the event the assessments scenario narrates.
