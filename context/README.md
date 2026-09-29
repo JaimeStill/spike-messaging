@@ -41,20 +41,25 @@ and go-core, and `courier/scenario` to no NATS package.
   `messaging/messagingtest`.
 - **courier** (`courier/cmd/courier`, its own module): the spike's CLI, in the Elemental CLI
   layout. Its narrated scenarios each show one capability on a broker, `--broker memory` or
-  `--broker nats`. Each step's checkpoint adds its scenarios.
+  `--broker nats`. Each step's checkpoint adds its scenarios. `directives` and `assessments`
+  stand in for command on the exercise services' stream, writing its directives and reading
+  intelligence's assessments.
 - **The exercise** (`exercise.md`): four services, `exercise`, `intelligence`, `command`, and
   `operations`, that play a two-faction exercise of sector dominance. Each round runs as a chain
-  of events and commands across all four. `services/exercise`, the world, and
-  `services/operations` are built; intelligence and command are planned.
+  of events and commands across all four. `services/exercise`, the world,
+  `services/intelligence`, and `services/operations` are built; command is planned. The theater
+  (`mise run demo-theater`) plays a larger exercise across the running services, and
+  `mise run demo-theater-check` reconciles its assessments against exercise's record.
 
 ## Path
 
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **intelligence**: observations become assessments, under the suppression rules.
-2. **command and the final validation**: the loop closes and runs on its own. The step covers two
-   replicas, drain, outages, convergence, and the import check. Its close states the answer.
+1. **command**: assessments become directives, and the loop closes and runs on its own, with
+   command deciding every round of the theater.
+2. **the final validation**: two replicas, drain, outages, convergence, and the import check.
+   Its close states the answer.
 
 ## Notes
 
