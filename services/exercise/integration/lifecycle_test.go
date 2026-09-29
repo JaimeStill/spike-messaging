@@ -36,6 +36,16 @@ func TestLifecycle_BootProbeDrain(t *testing.T) {
 		t.Errorf("healthz = %v", live)
 	}
 
+	// Live means every stage started, but a consumer reports ready only once
+	// its source binds its consumer, just after its stage starts.
+	s.Await(t, "readiness", func() bool {
+		resp, err := http.Get(s.URL() + web.ReadyPath)
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	})
 	ready := webtest.Decode[readiness](t, c.Get(t, web.ReadyPath), http.StatusOK)
 	if ready.Status != "ready" {
 		t.Errorf("readyz status = %q", ready.Status)
