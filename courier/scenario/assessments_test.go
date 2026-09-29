@@ -226,6 +226,42 @@ func TestAssessmentsSummaryCollapsesQuietRounds(t *testing.T) {
 	}
 }
 
+// A faction's first round that arrives after the other faction's later one
+// is still narrated, in order: the summary begins at round 0, not at the
+// first round it receives.
+func TestAssessmentsSummaryNarratesALateFirstRound(t *testing.T) {
+	b := memory.New()
+	publishJSON(t, b, "s", "exercise.started", map[string]any{"exercise": exerciseID, "factions": []string{"red", "blue"}})
+	assess := func(f string, r int) {
+		publishJSON(t, b, f+strconv.Itoa(r), "intelligence.assessment.issued", map[string]any{
+			"exercise": exerciseID, "faction": f, "round": r,
+			"own": []any{map[string]any{"id": f + strconv.Itoa(r), "strength": 1, "at": map[string]any{"sector": "a", "x": 0, "y": 0}}},
+		})
+	}
+	// Red's round 0 is never assessed, and blue's arrives after red's round 1.
+	assess("red", 1)
+	assess("blue", 0)
+	assess("blue", 1)
+	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 1, "reason": "limit"})
+	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
+		if s.Name != "assessments" {
+			continue
+		}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--exercise", exerciseID, "--summary", "--wait", "5s"})
+		if err := cmd.ExecuteContext(t.Context()); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		got := out.String()
+		r0, r1 := strings.Index(got, "  round 0\n"), strings.Index(got, "  round 1\n")
+		if r0 < 0 || r1 < r0 || !strings.Contains(got, "red   no assessment of this round") {
+			t.Errorf("narration:\n%s", got)
+		}
+	}
+}
+
 func TestAssessmentsValidatesItsFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{},

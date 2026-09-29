@@ -77,14 +77,18 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 
 // Observe fuses a faction's observation of a round into its assessment and
 // raises [AssessmentIssued] with the result. It skips an observation of a
-// round the assessment already covers, and any for a closed assessment.
+// round the assessment already covers, and one of a closed assessment past
+// the round its exercise concluded after. exercise raises the final round's
+// observations with the conclusion, and they arrive on separate
+// subscriptions, so the close can be handled first; the final round is
+// still assessed.
 func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("observe: %w", err))
 	}
 	return s.claimed(ctx, "observe", claim, func(tx *sqlate.Tx, q *event.Queue) error {
 		a, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
-		if err != nil || a.Status == StatusClosed || c.Round <= a.Round {
+		if err != nil || c.Round <= a.Round || a.Status == StatusClosed && c.Round > a.closedRound {
 			return err
 		}
 		a.Picture = fusion.Fuse(a.Picture, c.Observation, s.contactRounds)
@@ -93,14 +97,15 @@ func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 	})
 }
 
-// Close closes every faction's assessment in an exercise that concluded, so
-// no later observation changes it. It raises nothing.
+// Close closes every faction's assessment in an exercise that concluded,
+// recording the round it concluded after, so no observation of a later
+// round changes it. It raises nothing.
 func (s *Service) Close(ctx context.Context, c Close, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("close: %w", err))
 	}
 	return s.claimed(ctx, "close", claim, func(tx *sqlate.Tx, _ *event.Queue) error {
-		n, err := s.store.closeAll(ctx, tx, c.Exercise)
+		n, err := s.store.closeAll(ctx, tx, c.Exercise, c.Round)
 		if err == nil && n == 0 {
 			err = fmt.Errorf("%w: %s", ErrNotOpen, c.Exercise)
 		}

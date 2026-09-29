@@ -1,7 +1,6 @@
 package scenario
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,7 +14,7 @@ type roundBook struct {
 	factions []string // the factions narrated, once known
 	pending  map[int]map[string]assessmentData
 	next     int  // the next round to narrate
-	begun    bool // whether a round was narrated or skipped yet
+	begun    bool // whether a round was narrated yet
 	prev     map[string]assessmentData
 	prevKey  map[string][]string // each faction's last narrated picture, without ages
 	quiet    [2]int              // the open run of quiet rounds, or -1s
@@ -47,14 +46,13 @@ func (b *roundBook) add(d assessmentData) {
 // round, so this one will never come for it. last holds each faction's
 // latest assessed round.
 func (b *roundBook) flush(note func(string, ...any), last map[string]int) {
+	// The run reads the stream from its start, so it begins at round 0; a
+	// round no faction will be assessed on is passed once each faction has
+	// been assessed on a later one.
 	if len(b.factions) == 0 || len(b.pending) == 0 && !b.begun {
 		return
 	}
-	if !b.begun {
-		// A run that joins mid-exercise begins at the first round it has.
-		b.next = slices.Min(keys(b.pending))
-		b.begun = true
-	}
+	b.begun = true
 	for {
 		set := b.pending[b.next]
 		for _, f := range b.factions {
@@ -87,6 +85,7 @@ func (b *roundBook) end(note func(string, ...any)) {
 // ages of what it remembers, which the next narrated round shows.
 func (b *roundBook) narrate(note func(string, ...any), r int, set map[string]assessmentData) {
 	if len(set) == 0 {
+		b.end(note)
 		return
 	}
 	width := 0
@@ -252,15 +251,5 @@ func ids[T any](xs []T, id func(T) string) map[string]bool {
 	for _, x := range xs {
 		out[id(x)] = true
 	}
-	return out
-}
-
-// keys returns m's keys.
-func keys[V any](m map[int]V) []int {
-	out := make([]int, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.SortFunc(out, cmp.Compare[int])
 	return out
 }

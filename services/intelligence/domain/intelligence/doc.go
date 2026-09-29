@@ -39,6 +39,7 @@
 // observation can be handled before the start that opens its assessment,
 // and the broker redelivers it. Each command locks its faction's row, so
 // replicas act on one faction's observations one at a time. Observe skips
-// an observation of a round the assessment already covers, and any input
-// for a closed assessment.
+// an observation of a round the assessment already covers, and one of a
+// closed assessment past the round its exercise concluded after, so the
+// final round is assessed even when its conclusion is handled first.
 package intelligence

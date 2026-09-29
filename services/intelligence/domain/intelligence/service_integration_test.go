@@ -252,18 +252,26 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 	}
 }
 
-// A closed assessment takes no more observations.
-func TestCloseEndsTheAssessment(t *testing.T) {
+// A conclusion handled before its final round's observation, which exercise
+// raises with it, still lets that round be assessed; a closed assessment
+// takes no observation of a later round.
+func TestCloseStillAssessesTheConcludedRound(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
-	if err := svc.Close(t.Context(), intelligence.Close{Exercise: id}, nil); err != nil {
+	if err := svc.Observe(t.Context(), red(id, 1, loc(0, 0)), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Observe(t.Context(), red(id, 0, loc(0, 0)), nil); err != nil {
+	if err := svc.Close(t.Context(), intelligence.Close{Exercise: id, Round: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := assessments(t, db); len(got) != 0 {
-		t.Errorf("a closed assessment issued %+v", got)
+	for _, round := range []int{2, 3} {
+		if err := svc.Observe(t.Context(), red(id, round, loc(0, 0)), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := assessments(t, db)
+	if len(got) != 2 || got[1].Round != 2 {
+		t.Errorf("outbox holds %+v, want rounds 1 and 2's assessments alone", got)
 	}
 	as, err := svc.Find(t.Context(), id)
 	if err != nil {
@@ -273,6 +281,9 @@ func TestCloseEndsTheAssessment(t *testing.T) {
 		if a.Status != intelligence.StatusClosed {
 			t.Errorf("%s is %s", a.Faction, a.Status)
 		}
+	}
+	if as[1].Round != 2 {
+		t.Errorf("red's picture is of round %d, want 2", as[1].Round)
 	}
 }
 
@@ -311,7 +322,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 1); err != nil {
+	if err := m.Down(t.Context(), 2); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('assessment') IS NOT NULL`)

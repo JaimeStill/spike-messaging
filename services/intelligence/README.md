@@ -11,7 +11,7 @@ The service runs on the host against the repository's compose stack: Postgres, w
 `intelligence` database, and NATS with JetStream. From the repository root:
 
 ```sh
-mise run up                 # start Postgres and NATS
+mise run up                   # start Postgres and NATS
 mise run intelligence-serve   # run the service on 127.0.0.1:8082
 ```
 

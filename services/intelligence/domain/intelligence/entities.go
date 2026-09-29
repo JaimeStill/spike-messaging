@@ -41,13 +41,15 @@ const (
 
 // Assessment is one faction's assessment in an exercise, as the query shows
 // it: the picture its observations fused into, flattened beside the
-// exercise, the faction, and the status.
+// exercise, the faction, and the status. A closed assessment keeps the
+// round its exercise concluded after.
 type Assessment struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
 	Status   Status `json:"status"`
 	fusion.Picture
-	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	closedRound int
 }
 
 // Open is the open command's input, intelligence's reading of an
@@ -89,14 +91,15 @@ func (c Observe) Validate() error {
 }
 
 // Close is the close command's input, intelligence's reading of an
-// exercise.concluded event.
+// exercise.concluded event: the exercise, and the round it concluded after.
 type Close struct {
 	Exercise string `json:"exercise"`
+	Round    int    `json:"round"`
 }
 
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Close) Validate() error {
-	return invalid([]error{checkExercise(c.Exercise)})
+	return invalid([]error{checkExercise(c.Exercise), checkRound(c.Round)})
 }
 
 // Claim is an idempotency claim that a command runs in its transaction

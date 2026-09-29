@@ -58,11 +58,12 @@ func (s *store) Verify(ctx context.Context) error {
 // assessmentRow is an assessment row as the database holds it, with its
 // picture still encoded as JSON.
 type assessmentRow struct {
-	ExerciseID string    `json:"exercise_id"`
-	Faction    string    `json:"faction"`
-	Status     string    `json:"status"`
-	Picture    []byte    `json:"picture"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ExerciseID  string    `json:"exercise_id"`
+	Faction     string    `json:"faction"`
+	Status      string    `json:"status"`
+	ClosedRound *int      `json:"closed_round"`
+	Picture     []byte    `json:"picture"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // assessment decodes the row.
@@ -72,6 +73,9 @@ func (r assessmentRow) assessment() (Assessment, error) {
 		Faction:   r.Faction,
 		Status:    Status(r.Status),
 		UpdatedAt: r.UpdatedAt,
+	}
+	if r.ClosedRound != nil {
+		a.closedRound = *r.ClosedRound
 	}
 	if err := json.Unmarshal(r.Picture, &a.Picture); err != nil {
 		return Assessment{}, fmt.Errorf("assessment %s/%s: decode: %w", r.ExerciseID, r.Faction, err)
@@ -144,10 +148,10 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, a Assessment) error {
 	return nil
 }
 
-// closeAll closes every faction's assessment in exercise id and reports how
-// many it found.
-func (s *store) closeAll(ctx context.Context, tx *sqlate.Tx, id string) (int64, error) {
-	n, err := s.close.Exec(ctx, tx, query.Args{"exercise_id": id})
+// closeAll closes every faction's assessment in exercise id, which
+// concluded after round, and reports how many it found.
+func (s *store) closeAll(ctx context.Context, tx *sqlate.Tx, id string, round int) (int64, error) {
+	n, err := s.close.Exec(ctx, tx, query.Args{"exercise_id": id, "closed_round": round})
 	if err != nil {
 		return 0, fmt.Errorf("close assessments of %s: %w", id, err)
 	}

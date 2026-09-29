@@ -12,7 +12,8 @@ history API holds:
                 older than contact_rounds;
   - objectives: every objective in sight shows its true holder, no
                 objective seen before is unknown, and none out of sight is
-                reported as seen this round.
+                reported as seen this round;
+  - coverage:   every round has one assessment per faction.
 
 It reports every inconsistency and exits 1 on any, then reports each
 faction's stale beliefs at the end, what it last saw of an objective against
@@ -29,6 +30,7 @@ import os
 import subprocess
 import sys
 import urllib.request
+import uuid
 
 SIGHT = {"force": 2, "scout": 4}
 K = int(os.environ.get("INTELLIGENCE_CONTACT_ROUNDS", "3"))
@@ -62,7 +64,10 @@ def sees(own, at):
 
 def main():
     if len(sys.argv) > 1:
-        ex = sys.argv[1]
+        try:
+            ex = str(uuid.UUID(sys.argv[1]))
+        except ValueError:
+            sys.exit(f"{sys.argv[1]!r} is not an exercise ID")
     else:
         rows = psql("exercise", "select id from exercise where name = 'theater' order by created_at desc limit 1")
         if not rows:
@@ -81,8 +86,17 @@ def main():
     assessments.sort(key=lambda a: (a["round"], a["faction"]))
 
     errors, seen_before, last = [], {}, {}
+    factions = history[min(history)]["factions"]
+    issued = {(a["round"], a["faction"]) for a in assessments}
+    for r in sorted(history):
+        for f in factions:
+            if (r, f) not in issued:
+                errors.append(f"round {r} {f}: no assessment was issued")
     for a in assessments:
         r, f = a["round"], a["faction"]
+        if r not in history:
+            errors.append(f"round {r} {f}: assessed, but exercise's history has no such round")
+            continue
         state = history[r]
         tag = f"round {r} {f}"
         own = [e for e in state["elements"] if e["faction"] == f]

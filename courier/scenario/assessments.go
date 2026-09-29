@@ -231,6 +231,13 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		if err := json.Unmarshal(e.Data, &w.end); err != nil {
 			return event.Permanent(err)
 		}
+		if len(w.book.factions) == 0 {
+			// The start aged out of the stream: narrate the factions seen.
+			for f := range w.last {
+				w.book.factions = append(w.book.factions, f)
+			}
+			slices.Sort(w.book.factions)
+		}
 		w.concluded.fire()
 	}
 	if w.summary {
@@ -240,9 +247,10 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 	return nil
 }
 
-// check fires done once the exercise has concluded and every narrated
-// faction's last narrated assessment is of the concluded round or later,
-// or, for the summary, once the concluded round is narrated.
+// check fires done once the exercise has concluded and each faction's last
+// narrated assessment is of the concluded round or later, or, for the
+// summary, once the concluded round is narrated. The factions are those the
+// start named, or the one --faction names.
 func (w *assessmentWatch) check() {
 	if !w.concluded.isFired() {
 		return
@@ -254,8 +262,8 @@ func (w *assessmentWatch) check() {
 		}
 		return
 	}
-	for _, r := range w.last {
-		if r < w.end.Round {
+	for _, f := range w.book.factions {
+		if r, ok := w.last[f]; !ok || r < w.end.Round {
 			return
 		}
 	}
