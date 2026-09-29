@@ -33,6 +33,7 @@ type store struct {
 	findDue      query.Rows[string]
 	lockDue      query.Rows[exerciseRow]
 	lockShared   query.Rows[exerciseRow]
+	lockRow      query.Rows[exerciseRow]
 	start        query.Statement
 	pause        query.Statement
 	resume       query.Statement
@@ -58,6 +59,7 @@ func newStore(db *data.Database) *store {
 		findDue:      stmts.Statement("find_due").Scan(query.Scalar[string]),
 		lockDue:      stmts.Statement("lock_due").Scan(query.Scanner[exerciseRow]()),
 		lockShared:   stmts.Statement("lock_shared").Scan(query.Scanner[exerciseRow]()),
+		lockRow:      stmts.Statement("lock").Scan(query.Scanner[exerciseRow]()),
 		start:        stmts.Statement("start"),
 		pause:        stmts.Statement("pause"),
 		resume:       stmts.Statement("resume"),
@@ -224,6 +226,17 @@ func (s *store) share(ctx context.Context, tx *sqlate.Tx, id string) (Exercise, 
 		return Exercise{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
 	r, err := s.lockShared.One(ctx, tx, query.Args{"id": id})
+	return one(id, r, err)
+}
+
+// lock reads the exercise under a row lock held for the rest of the
+// transaction, which waits for a resolution in flight, or returns
+// ErrNotFound.
+func (s *store) lock(ctx context.Context, tx *sqlate.Tx, id string) (Exercise, error) {
+	if !validID(id) {
+		return Exercise{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	r, err := s.lockRow.One(ctx, tx, query.Args{"id": id})
 	return one(id, r, err)
 }
 

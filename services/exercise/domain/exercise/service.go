@@ -73,12 +73,12 @@ func (s *Service) Create(ctx context.Context, c CreateExercise) (Exercise, error
 // runs, its first round is due one interval from the database's clock, and
 // its history records round 0, the start. Start raises [Started], then
 // [RoundObserved] for each faction's observation of round 0, the first
-// observation intelligence and operations act on. When round 0's verdict is already over, as
-// when a faction has no element, the exercise concludes at once and Start
-// raises [Concluded] after them.
+// observation intelligence and operations act on. When round 0's verdict is
+// already over, as when a faction has no element, the exercise concludes at
+// once and Start raises [Concluded] after them.
 func (s *Service) Start(ctx context.Context, id string) (Exercise, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, q *event.Queue) (Exercise, error) {
-		ex, err := s.store.get(ctx, tx, id)
+		ex, err := s.store.lock(ctx, tx, id)
 		if err != nil {
 			return Exercise{}, err
 		}
@@ -124,7 +124,9 @@ func (s *Service) Resume(ctx context.Context, id string) (Exercise, error) {
 }
 
 // transition runs the command named verb, which moves the exercise out of
-// status from through mark and raises nothing.
+// status from through mark and raises nothing. Like every status command,
+// it reads the exercise under a row lock, so it waits on a resolution in
+// flight and decides from the status that resolution left.
 func (s *Service) transition(
 	ctx context.Context,
 	id, verb string,
@@ -132,7 +134,7 @@ func (s *Service) transition(
 	mark func(context.Context, *sqlate.Tx, string) (bool, error),
 ) (Exercise, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, _ *event.Queue) (Exercise, error) {
-		ex, err := s.store.get(ctx, tx, id)
+		ex, err := s.store.lock(ctx, tx, id)
 		if err != nil {
 			return Exercise{}, err
 		}
@@ -154,10 +156,12 @@ func (s *Service) transition(
 // [ErrConflict]. The exercise is stopped, with a verdict that is over, has
 // no winner, and gives "stopped" as its reason. Stop raises [Concluded]
 // only for an exercise that had started, so the services that opened it
-// close what they hold; no event announced a created exercise.
+// close what they hold; no event announced a created exercise. Stop reads
+// the exercise under a row lock, so a stop that races a resolution waits
+// for it and concludes at the round it resolved.
 func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 	return s.command(ctx, func(tx *sqlate.Tx, q *event.Queue) (Exercise, error) {
-		ex, err := s.store.get(ctx, tx, id)
+		ex, err := s.store.lock(ctx, tx, id)
 		if err != nil {
 			return Exercise{}, err
 		}
