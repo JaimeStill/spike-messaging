@@ -417,3 +417,40 @@ func compileMark(t *testing.T, text string) query.Statement {
 	fsys := fstest.MapFS{"s/mark_published.sql": &fstest.MapFile{Data: []byte("--| tier: standard\n--| transaction: required\n" + text)}}
 	return query.MustCatalog(query.Patterns()).MustCompile(fsys, "s", pgdialect.Dialect{}).Statement("mark_published")
 }
+
+// A relay with a Drain publishes, on its way out, the rows committed while
+// it slept between passes, as a producer's last commits during a drain are.
+// Without one it leaves them for the next start.
+func TestDrainPublishesWhatWasCommittedBeforeTheStop(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		opts    []outbox.RelayOption
+		pending int
+	}{
+		{"with a drain", []outbox.RelayOption{outbox.Drain(5 * time.Second)}, 0},
+		{"without one", nil, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := migrated(t)
+			b := memory.New()
+			rec := observe(t, b)
+			opts := append([]outbox.RelayOption{outbox.Poll(time.Hour)}, tc.opts...)
+			r := reactor.New[event.Event](ob.Relay(db, opts...), b.Publish, reactor.Grace(10*time.Second))
+			if err := r.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, "the relay's first pass", r.Ready)
+			time.Sleep(50 * time.Millisecond) // the first pass found nothing; the relay sleeps for an hour
+			emitEach(t, db, "1", "2", "3")
+			if err := r.Shutdown(t.Context()); err != nil {
+				t.Fatalf("shutdown: %v", err)
+			}
+			if _, pending := rows(t, db); pending != tc.pending {
+				t.Fatalf("after shutdown, %d rows pending, want %d", pending, tc.pending)
+			}
+			if tc.pending == 0 {
+				eventually(t, "three deliveries", func() bool { return len(rec.seen()) == 3 })
+			}
+		})
+	}
+}

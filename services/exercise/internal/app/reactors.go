@@ -28,6 +28,11 @@ const resolveTick = 50 * time.Millisecond
 // verified, and the drain stops it after the reactors that produce work.
 const ordersStage = verifyStage + 1
 
+// relayStage places the relay above every other reactor and below the root,
+// so the drain stops it only after the server and the resolver, which
+// commit events, and it publishes what they committed while it drained.
+const relayStage = ordersStage + 1
+
 // ordersSubscription names the durable consumer and delivery group through
 // which the orders reactor receives the operations service's orders. Its
 // Name is also the consumer the inbox records the reactor's claims under.
@@ -49,11 +54,11 @@ type Reactors struct {
 
 // newReactors constructs the reactors and registers each on lc. It takes
 // infra for the sources a reactor watches and dom for the domain calls it
-// dispatches to — the two halves a reactor joins. The reactors that
-// produce work, the relay and the resolver, which produces the rounds, sit
-// at the root stage beside the server, so the drain stops them before the
-// reactors that consume. The orders reactor consumes, so it sits at
-// ordersStage. Each reactor's grace, half the shutdown timeout, stays below
+// dispatches to — the two halves a reactor joins. The resolver produces
+// the rounds, so it sits at the root stage beside the server, and the drain
+// stops both first. The relay sits at relayStage, below them, so it drains
+// after them and publishes the events they committed while they drained.
+// The orders reactor consumes, so it sits at ordersStage, below the relay. Each reactor's grace, half the shutdown timeout, stays below
 // the coordinator's drain deadline, so a handler the reactor cancels is
 // reported before the deadline drops the report.
 func newReactors(
@@ -62,14 +67,19 @@ func newReactors(
 	cfg *config.Config,
 	lc *lifecycle.Coordinator,
 ) (*Reactors, error) {
-	grace := reactor.Grace(cfg.ShutdownTimeout.Duration() / 2)
+	shutdown := cfg.ShutdownTimeout.Duration()
+	grace := reactor.Grace(shutdown / 2)
 
+	// The relay's last pass, bounded below its grace, publishes what the
+	// server and the resolver committed while they drained.
 	relay := reactor.New(
-		infra.Outbox.Relay(infra.SQL.DB, outbox.Poll(cfg.Messaging.RelayPoll.Duration())),
+		infra.Outbox.Relay(infra.SQL.DB,
+			outbox.Poll(cfg.Messaging.RelayPoll.Duration()),
+			outbox.Drain(shutdown/4)),
 		infra.Broker.Publish,
 		grace,
 	)
-	register(lc, "relay", lifecycle.StageRoot, relay)
+	register(lc, "relay", relayStage, relay)
 
 	// Every ends on a handler error, so the resolver logs a pass's failures
 	// and returns nil: one exercise that fails to resolve never stops the

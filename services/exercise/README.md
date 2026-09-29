@@ -59,10 +59,11 @@ order:
 | 1 | `schema`: go-database's admin service migrates the `messaging` set, then `exercise` |
 | 2 | `messaging` and `exercise` verify their statements |
 | 3 | `orders`, the reactor that records operations' orders |
-| root | `server`, `relay`, which publishes the outbox, and `resolve`, which resolves due rounds |
+| 4 | `relay`, which publishes the outbox |
+| root | `server`, and `resolve`, which resolves due rounds |
 
-The drain runs in reverse, so the reactors that produce work stop before the ones that consume,
-and the broker and database close last.
+The drain runs in reverse. The server and the resolver, which commit events, stop first, and the
+relay then publishes what they committed while they drained. The broker and database close last.
 
 ## Configuration
 
