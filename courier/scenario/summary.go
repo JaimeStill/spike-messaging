@@ -1,0 +1,266 @@
+package scenario
+
+import (
+	"cmp"
+	"fmt"
+	"slices"
+	"strings"
+)
+
+// roundBook groups one exercise's assessments by round for the summary
+// narration, and narrates a round once every faction's assessment of it is
+// in: a block per faction, with what changed since its last round, and
+// quiet rounds collapsed into one line.
+type roundBook struct {
+	factions []string // the factions narrated, once known
+	pending  map[int]map[string]assessmentData
+	next     int  // the next round to narrate
+	begun    bool // whether a round was narrated or skipped yet
+	prev     map[string]assessmentData
+	prevKey  map[string][]string // each faction's last narrated picture, without ages
+	quiet    [2]int              // the open run of quiet rounds, or -1s
+}
+
+func newRoundBook(faction string) *roundBook {
+	b := &roundBook{
+		pending: map[int]map[string]assessmentData{},
+		prev:    map[string]assessmentData{},
+		prevKey: map[string][]string{},
+		quiet:   [2]int{-1, -1},
+	}
+	if faction != "" {
+		b.factions = []string{faction}
+	}
+	return b
+}
+
+// add files d under its round.
+func (b *roundBook) add(d assessmentData) {
+	if b.pending[d.Round] == nil {
+		b.pending[d.Round] = map[string]assessmentData{}
+	}
+	b.pending[d.Round][d.Faction] = d
+}
+
+// flush narrates, in order, every round that is complete: each faction's
+// assessment of it is in, or the faction has been assessed on a later
+// round, so this one will never come for it. last holds each faction's
+// latest assessed round.
+func (b *roundBook) flush(note func(string, ...any), last map[string]int) {
+	if len(b.factions) == 0 || len(b.pending) == 0 && !b.begun {
+		return
+	}
+	if !b.begun {
+		// A run that joins mid-exercise begins at the first round it has.
+		b.next = slices.Min(keys(b.pending))
+		b.begun = true
+	}
+	for {
+		set := b.pending[b.next]
+		for _, f := range b.factions {
+			if _, ok := set[f]; !ok {
+				if r, seen := last[f]; !seen || r <= b.next {
+					return
+				}
+			}
+		}
+		b.narrate(note, b.next, set)
+		delete(b.pending, b.next)
+		b.next++
+	}
+}
+
+// end closes an open run of quiet rounds.
+func (b *roundBook) end(note func(string, ...any)) {
+	switch {
+	case b.quiet[0] < 0:
+	case b.quiet[0] == b.quiet[1]:
+		note("round %d: no change", b.quiet[0])
+	default:
+		note("rounds %d–%d: no change", b.quiet[0], b.quiet[1])
+	}
+	b.quiet = [2]int{-1, -1}
+}
+
+// narrate notes round r, or extends the run of quiet rounds when no
+// faction learned or lost anything: its picture is the same but for the
+// ages of what it remembers, which the next narrated round shows.
+func (b *roundBook) narrate(note func(string, ...any), r int, set map[string]assessmentData) {
+	if len(set) == 0 {
+		return
+	}
+	width := 0
+	for _, f := range b.factions {
+		width = max(width, len(f))
+	}
+	var blocks [][]string
+	quiet := true
+	for _, f := range b.factions {
+		d, ok := set[f]
+		if !ok {
+			blocks = append(blocks, []string{fmt.Sprintf("%-*s  no assessment of this round", width, f)})
+			quiet = false
+			continue
+		}
+		prev, had := b.prev[f]
+		head, changed := header(d, prev, had)
+		body := b.body(d, prev, had, r, true)
+		key := b.body(d, prev, had, r, false)
+		if changed || len(body) > len(key) || !slices.Equal(key, b.prevKey[f]) {
+			quiet = false
+		}
+		lines := []string{fmt.Sprintf("%-*s  %s", width, f, head)}
+		for _, l := range body {
+			lines = append(lines, strings.Repeat(" ", width+2)+l)
+		}
+		blocks = append(blocks, lines)
+		b.prev[f] = d
+		b.prevKey[f] = key
+	}
+	if quiet {
+		if b.quiet[0] < 0 {
+			b.quiet[0] = r
+		}
+		b.quiet[1] = r
+		return
+	}
+	b.end(note)
+	note("round %d", r)
+	for _, lines := range blocks {
+		for _, l := range lines {
+			note("  %s", l)
+		}
+	}
+}
+
+// header renders a faction's own elements, their total strength, and what
+// changed since its previous narrated assessment: the strength it lost and
+// the elements gone. It reports whether anything changed.
+func header(d, prev assessmentData, had bool) (string, bool) {
+	strength := 0
+	for _, e := range d.Own {
+		strength += e.Strength
+	}
+	h := fmt.Sprintf("%d %s, strength %d", len(d.Own), plural(len(d.Own), "element"), strength)
+	if !had {
+		return h, true
+	}
+	before := 0
+	for _, e := range prev.Own {
+		before += e.Strength
+	}
+	var delta []string
+	if strength != before {
+		delta = append(delta, fmt.Sprintf("%+d", strength-before))
+	}
+	for _, id := range gone(ids(prev.Own, func(e assessedElement) string { return e.ID }), ids(d.Own, func(e assessedElement) string { return e.ID })) {
+		delta = append(delta, "lost "+id)
+	}
+	if len(delta) == 0 {
+		return h, false
+	}
+	return h + " (" + strings.Join(delta, ", ") + ")", true
+}
+
+// body renders what a faction knows of the enemy and the objectives: the
+// contacts it sees this round, those it remembers at their last-seen cell,
+// those intelligence dropped since its previous narrated assessment, and
+// each objective by who it believes holds it. Without ages, it renders the
+// standing picture a quiet round is compared by: no ages, and no drops,
+// which belong to the round they happen in.
+func (b *roundBook) body(d, prev assessmentData, had bool, r int, ages bool) []string {
+	var sees, remembers, dropped []string
+	for _, c := range d.Contacts {
+		if c.Age == 0 {
+			sees = append(sees, fmt.Sprintf("%s(%d) %s", c.ID, c.Strength, place(c.At)))
+		} else {
+			s := fmt.Sprintf("%s(%d) at %s", c.ID, c.Strength, place(c.At))
+			if ages {
+				s += ", " + ago(c.Age)
+			}
+			remembers = append(remembers, s)
+		}
+	}
+	if had {
+		now := ids(d.Contacts, func(c assessedContact) string { return c.ID })
+		for _, c := range prev.Contacts {
+			if !now[c.ID] {
+				dropped = append(dropped, fmt.Sprintf("%s, last seen %s", c.ID, ago(r-c.Seen)))
+			}
+		}
+	}
+	lines := []string{"sees       " + orNone(sees, " · ")}
+	if len(remembers) > 0 {
+		lines = append(lines, "remembers  "+strings.Join(remembers, " · "))
+	}
+	if ages && len(dropped) > 0 {
+		lines = append(lines, "dropped    "+strings.Join(dropped, " · "))
+	}
+	return append(lines, "objectives "+objectivesLine(d, ages))
+}
+
+// objectivesLine groups the objectives by what the faction believes of
+// them: held by itself, held by another faction, unheld, or never seen. A
+// belief from an earlier round carries its age.
+func objectivesLine(d assessmentData, ages bool) string {
+	groups := map[string][]string{}
+	for _, o := range d.Objectives {
+		label := "unknown"
+		switch {
+		case !o.Known:
+		case o.Holder == "":
+			label = "unheld"
+		case o.Holder == d.Faction:
+			label = "held"
+		default:
+			label = o.Holder
+		}
+		s := place(o.At)
+		if ages && o.Known && o.Age > 0 {
+			s += " (" + ago(o.Age) + ")"
+		}
+		groups[label] = append(groups[label], s)
+	}
+	var others []string
+	for label := range groups {
+		if label != "held" && label != "unheld" && label != "unknown" {
+			others = append(others, label)
+		}
+	}
+	slices.Sort(others)
+	var parts []string
+	for _, label := range slices.Concat([]string{"held"}, others, []string{"unheld", "unknown"}) {
+		if items := groups[label]; len(items) > 0 {
+			parts = append(parts, label+" "+strings.Join(items, " "))
+		}
+	}
+	return orNone(parts, " · ")
+}
+
+func ago(n int) string { return fmt.Sprintf("%d %s ago", n, plural(n, "round")) }
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+// ids returns the set of IDs of xs.
+func ids[T any](xs []T, id func(T) string) map[string]bool {
+	out := make(map[string]bool, len(xs))
+	for _, x := range xs {
+		out[id(x)] = true
+	}
+	return out
+}
+
+// keys returns m's keys.
+func keys[V any](m map[int]V) []int {
+	out := make([]int, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.SortFunc(out, cmp.Compare[int])
+	return out
+}

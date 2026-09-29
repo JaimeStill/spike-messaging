@@ -24,7 +24,10 @@ startup.
 fields, five objectives, and six elements a side, each faction starting in its home sector. With
 exercise, intelligence, and operations running, `mise run demo-theater` creates and starts it,
 directs both factions through courier's `directives` scenario, and narrates both factions'
-assessments through courier's `assessments --summary`.
+assessments through courier's `assessments --summary`, a block per faction per round.
+`mise run demo-theater-check` then reconciles every assessment of the run against this service's
+history, the umpire's record, under the suppression rules, and reports what each faction wrongly
+believes at the end.
 
 ## API
 

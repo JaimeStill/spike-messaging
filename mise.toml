@@ -112,4 +112,9 @@ curl -sf -o /dev/null -XPOST "localhost:8081/api/exercises/$id/start"
 sleep 1
 for f in red blue; do echo "$f's directives:"; grep "heads for\|holds" "$out/$f.log" || echo "  none yet; see $out/$f.log"; done
 wait
+echo "check it against the umpire: mise run demo-theater-check $id"
 '''
+
+[tasks."demo-theater-check"]
+description = "Reconcile a theater run's assessments against the umpire's record: the latest run, or the exercise ID given"
+run = "python3 scripts/theater_check.py"
