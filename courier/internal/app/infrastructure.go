@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	libconfig "github.com/standards-lab/go-core/config"
 	"github.com/standards-lab/sqlate"
 	"github.com/standards-lab/sqlate/migrate"
 	pgdialect "github.com/standards-lab/sqlate/postgres"
@@ -194,6 +196,74 @@ func (i *Infrastructure) natsPing(ctx context.Context) error {
 		return fmt.Errorf("JetStream: %w", err)
 	}
 	return nil
+}
+
+// Join returns a nats broker on the named stream, the one the exercise
+// services share, provisioned with maxAge as they provision it, and its
+// release. The release deletes the durable consumers the directives
+// scenario left on the stream, then drains the connection; it leaves the
+// stream and its events.
+func (i *Infrastructure) Join(stream, prefix string, maxAge time.Duration) (messaging.Broker, func() error, error) {
+	if i.cfg.Broker != "nats" {
+		return nil, nil, fmt.Errorf("the %s broker cannot join the services' stream", i.cfg.Broker)
+	}
+	broker, err := nats.New(nats.Config{
+		URL: i.cfg.natsURL(), Name: "courier", Stream: stream, Prefix: prefix, MaxAge: libconfig.Duration(maxAge),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), natsWait)
+	defer cancel()
+	if err := broker.Start(ctx); err != nil {
+		return nil, nil, err
+	}
+	release := func() error {
+		derr := deleteConsumers(broker.Conn(), stream, scenario.DirectivesDurable)
+		ctx, cancel := context.WithTimeout(context.Background(), natsWait)
+		defer cancel()
+		return errors.Join(derr, broker.Shutdown(ctx))
+	}
+	return broker, release, nil
+}
+
+// deleteConsumers deletes every durable consumer on the stream whose name
+// begins with prefix.
+func deleteConsumers(nc *natsgo.Conn, stream, prefix string) error {
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), natsWait)
+	defer cancel()
+	s, err := js.Stream(ctx, stream)
+	if err != nil {
+		return fmt.Errorf("stream %s: %w", stream, err)
+	}
+	names := s.ConsumerNames(ctx)
+	var errs []error
+	for name := range names.Name() {
+		if strings.HasPrefix(name, prefix) {
+			if err := s.DeleteConsumer(ctx, name); err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+				errs = append(errs, fmt.Errorf("delete consumer %s: %w", name, err))
+			}
+		}
+	}
+	return errors.Join(append(errs, names.Err())...)
+}
+
+// JoinNeeds returns what the directives scenario requires: the nats broker,
+// which alone reaches the services' stream, and then what it needs.
+func (i *Infrastructure) JoinNeeds() []scenario.Need {
+	if i.cfg.Broker != "nats" {
+		return []scenario.Need{{
+			What: "the services' stream: --broker nats",
+			Check: func(context.Context) error {
+				return fmt.Errorf("the %s broker cannot reach it", i.cfg.Broker)
+			},
+		}}
+	}
+	return i.Needs()
 }
 
 // RequestNeeds returns what the request scenario requires: a broker with a

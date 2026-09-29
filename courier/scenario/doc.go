@@ -15,4 +15,10 @@
 // The request scenario takes an [Exchange] the same way: a native request
 // and reply the composition root builds on the provider's own client, with a
 // responder that runs as a reactor. The package imports no provider.
+//
+// The directives scenario stands in for the exercise's command service. It
+// takes [Joins], a broker on the stream the exercise services share rather
+// than a scratch one, reads the map and a faction's first observation from
+// it, and issues one command.directive.issued that sends each of the
+// faction's elements to secure an objective.
 package scenario
