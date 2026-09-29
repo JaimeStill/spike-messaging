@@ -64,9 +64,9 @@ type (
 		} `json:"map"`
 	}
 	observedData struct {
-		Exercise string `json:"exercise"`
-		Faction  string `json:"faction"`
-		Round    int    `json:"round"`
+		Exercise string    `json:"exercise"`
+		Faction  string    `json:"faction"`
+		Round    int       `json:"round"`
 		Own      []element `json:"own"`
 	}
 	concludedData struct {
