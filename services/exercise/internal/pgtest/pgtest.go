@@ -1,10 +1,9 @@
-//go:build integration
-
-// Package pgtest gives each integration-tagged test of the service its own
-// throwaway database on the server EXERCISE_TEST_DSN names, with the
-// service's migration sets applied, so no test depends on the compose
-// stack's database or on another test. The database is dropped when the
-// test ends. It follows messaging/postgres's pgtest.
+// Package pgtest gives each integration test of the service its own
+// throwaway database on the server EXERCISE_TEST_DSN names, so no test
+// depends on the compose stack's database or on another test. [Open] and
+// [OpenBare] return one to the domain tier, and [Scratch] names one for the
+// integration harness to point a service process at. Each database is
+// dropped when the test ends. It follows messaging/postgres's pgtest.
 package pgtest
 
 import (
@@ -54,13 +53,34 @@ func Open(t testing.TB) *data.Database {
 // OpenBare is Open without the migrations, for a test of the schema itself.
 func OpenBare(t testing.TB) *data.Database {
 	t.Helper()
-	dsn := os.Getenv("EXERCISE_TEST_DSN")
-	if dsn == "" {
-		dsn = DefaultDSN
-	}
+	dsn := adminDSN()
+	name := Scratch(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse %s: %v", dsn, err)
+	}
+	u.Path = "/" + name
+	pool, err := sql.Open("pgx", u.String())
+	if err != nil {
+		t.Fatalf("open %s: %v", name, err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	if err := pool.PingContext(ctx); err != nil {
+		t.Fatalf("ping %s: %v", name, err)
+	}
+	return data.New(sqlate.Wrap(pool, pgdialect.Dialect{}), query.MustCatalog(query.Patterns()))
+}
 
+// Scratch creates a uniquely named, empty database on the administrative
+// server and returns its name, dropping it when the test ends. The drop
+// ends any session still open on it, such as a service process's pool.
+func Scratch(t testing.TB) string {
+	t.Helper()
+	dsn := adminDSN()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatalf("open %s: %v", dsn, err)
@@ -93,21 +113,15 @@ func OpenBare(t testing.TB) *data.Database {
 		}
 		_ = admin.Close()
 	})
+	return name
+}
 
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("parse %s: %v", dsn, err)
+// adminDSN is EXERCISE_TEST_DSN, else the compose stack's [DefaultDSN].
+func adminDSN() string {
+	if dsn := os.Getenv("EXERCISE_TEST_DSN"); dsn != "" {
+		return dsn
 	}
-	u.Path = "/" + name
-	pool, err := sql.Open("pgx", u.String())
-	if err != nil {
-		t.Fatalf("open %s: %v", name, err)
-	}
-	t.Cleanup(func() { _ = pool.Close() })
-	if err := pool.PingContext(ctx); err != nil {
-		t.Fatalf("ping %s: %v", name, err)
-	}
-	return data.New(sqlate.Wrap(pool, pgdialect.Dialect{}), query.MustCatalog(query.Patterns()))
+	return DefaultDSN
 }
 
 // suffix returns eight random hex characters, so parallel packages never

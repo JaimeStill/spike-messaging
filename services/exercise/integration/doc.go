@@ -14,6 +14,6 @@
 // The suite files, tagged integration, run the built service; the harness
 // itself is untagged, so the unit tier type-checks it on every pull
 // request. The suite runs against the repository's compose stack, Postgres
-// and NATS, which must be up: each process gets the stack's exercise
-// database and a scratch stream of its own, which the harness deletes.
+// and NATS, which must be up: each process gets a scratch database and a
+// scratch stream of its own, which the harness drops when the test ends.
 package integration

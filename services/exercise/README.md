@@ -81,5 +81,5 @@ From the repository root, `mise run test` runs the unit tier and `mise run integ
 integration tier across every module. For this service, the integration tier covers three things:
 
 - the domain's commands, on a scratch database;
-- the built service, against the compose stack, on a scratch stream of its own;
+- the built service, against the compose stack, on a scratch database and stream of its own;
 - an idle exercise that runs to its round limit and ends in a draw.

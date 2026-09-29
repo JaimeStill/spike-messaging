@@ -14,6 +14,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/standards-lab/go-core/process/processtest"
 	"github.com/standards-lab/go-web-sdk/webtest"
+
+	"github.com/JaimeStill/spike-messaging/services/exercise/internal/pgtest"
 )
 
 // The compose stack's defaults, the values config.local.json pairs with.
@@ -46,10 +48,11 @@ type Service struct {
 	*processtest.Process
 	addr   string
 	client *webtest.Client
-	// Stream and Prefix are the scratch JetStream stream the process
-	// provisions and publishes on, its own so concurrent processes and runs
-	// never share events. The harness deletes the stream when the test ends.
-	Stream, Prefix string
+	// Database is the scratch database the process migrates and runs on, and
+	// Stream and Prefix the scratch JetStream stream it provisions and
+	// publishes on: its own, so concurrent processes and runs never share an
+	// exercise or an event. The harness drops both when the test ends.
+	Database, Stream, Prefix string
 }
 
 // Start runs the service with opts and returns once it is live: Launch
@@ -69,13 +72,14 @@ func Launch(t testing.TB, opts Options) *Service {
 	_, _ = rand.Read(b)
 	tag := hex.EncodeToString(b)
 	s := &Service{
-		addr:   addr,
-		client: webtest.NewClient("http://" + addr),
-		Stream: "test_" + tag,
-		Prefix: "test." + tag,
+		addr:     addr,
+		client:   webtest.NewClient("http://" + addr),
+		Database: pgtest.Scratch(t),
+		Stream:   "test_" + tag,
+		Prefix:   "test." + tag,
 	}
 	t.Cleanup(func() { deleteStream(t, s.Stream) })
-	s.Process = processtest.Launch(t, environment(opts, addr, s.Stream, s.Prefix)...)
+	s.Process = processtest.Launch(t, environment(opts, addr, s)...)
 	return s
 }
 
@@ -123,9 +127,9 @@ func (s *Service) Ready(t testing.TB) *Service {
 // environment composes the service's own variables for the run. EXERCISE_ENV is
 // cleared so no overlay applies: the base file and these variables are the
 // whole configuration. The port is the one Launch reserved, the database
-// and NATS are the parent's or the compose stack's, and the stream is the
-// process's scratch stream.
-func environment(opts Options, addr, stream, prefix string) []string {
+// server and NATS are the parent's or the compose stack's, and the database
+// and the stream are the process's scratch ones.
+func environment(opts Options, addr string, s *Service) []string {
 	host, port, _ := net.SplitHostPort(addr)
 	env := []string{
 		"EXERCISE_ENV=",
@@ -136,9 +140,10 @@ func environment(opts Options, addr, stream, prefix string) []string {
 		"EXERCISE_DATABASE_HOST=" + getenv("EXERCISE_DATABASE_HOST", defaultDatabaseHost),
 		"EXERCISE_DATABASE_PORT=" + getenv("EXERCISE_DATABASE_PORT", defaultDatabasePort),
 		"EXERCISE_DATABASE_PASSWORD=" + getenv("EXERCISE_DATABASE_PASSWORD", defaultDatabasePassword),
+		"EXERCISE_DATABASE_NAME=" + s.Database,
 		"EXERCISE_MESSAGING_URL=" + NATSURL(),
-		"EXERCISE_MESSAGING_STREAM=" + stream,
-		"EXERCISE_MESSAGING_PREFIX=" + prefix,
+		"EXERCISE_MESSAGING_STREAM=" + s.Stream,
+		"EXERCISE_MESSAGING_PREFIX=" + s.Prefix,
 	}
 	return append(env, opts.Env...)
 }
