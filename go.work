@@ -6,5 +6,6 @@ use (
 	./messaging/nats
 	./messaging/postgres
 	./services/exercise
+	./services/intelligence
 	./services/operations
 )
