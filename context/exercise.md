@@ -66,7 +66,7 @@ A round resolves in one transaction, in this order:
 ## The services
 
 Every service keys its rows by exercise and faction, serves both factions from one process, and
-claims every event it consumes with `Outbox.Claim`, in the transaction of the command that handles
+claims every event it consumes through its inbox, in the transaction of the command that handles
 it.
 
 | Service | Commands: API · reactor · interval | Emits | Reacts to |
@@ -95,9 +95,27 @@ it.
   2. Otherwise, **secure** the nearest objective that its faction does not hold and that none of
      its other elements is already heading for.
   3. Otherwise, **hold**.
-- **operations** steps each element toward its directive's target, along a shortest path found
-  by breadth-first search over open cells and gates, up to the element's moves per round.
+- **operations** steps each element toward its directive's target, and is built:
+  `services/operations`. Its README states its API, stages, and events.
+  - It plans along a shortest path found by breadth-first search over open cells and gates, up
+    to the element's moves per round (`domain/operations/route`). It keeps a faction's elements
+    off one another's final cells by exercise's own rule, so one can follow another into the
+    cell it leaves, and two can swap.
+  - It confirms exercise's `ordersIssued` as its payload:
+    `{exercise, faction, round, orders: [{element, steps: [{sector, x, y}]}]}`.
+  - A directive is `{exercise, faction, round, directives: [{element, target}]}`, one event per
+    faction per decision, where a null target holds the element.
+  - A directive on the round operations last acted on re-issues that round's orders when it
+    changes the plan, and exercise keeps the last orders it records, so a directive takes effect
+    in the round it arrives. A directive on a later round only sets targets.
+  - Its four inputs arrive on four subscriptions, so an observation can be handled before the
+    start that opens its operation: it fails with `ErrNotOpen`, which is not permanent, and is
+    redelivered after 250ms.
+  - courier's `directives` scenario stands in for command.
 - command and operations each skip an input from an earlier round than the last they acted on.
+  command issues a directive only when a target changes, so when operations skips a lagging
+  one, that change is lost: command resends its faction's full target state in each directive,
+  or operations applies stale targets without re-issuing orders.
 
 ## One round
 
@@ -130,6 +148,15 @@ it.
   - With exercise down, the world pauses.
 
   On its return, each service skips its stale backlog, and the exercise converges.
+- **Smoothed in the final validation.** operations surfaced these, and the end-to-end run must
+  settle them:
+  - A new consumer's durable starts at the beginning of the shared stream, so a service's first
+    boot replays every retained exercise: operations issued orders for all of them, which
+    exercise refused.
+  - Orders issued after an exercise's last round, before its conclusion is handled, are refused.
+  - An input for an exercise never opened is redelivered without bound.
+  - Every broker on the stream sets its configuration, so each service, and courier's
+    `--max-age`, must set `max_age` alike.
 
 ## Where the services live
 
@@ -142,10 +169,11 @@ it.
   and the service owns everything in it: go-database's schema service migrates the messaging set
   and the service's own at startup.
 - **Tasks.** A service's tasks are named `<service>:<action>`, such as `exercise:serve`.
-- **Wiring.** Each composition root wires its broker, outbox, inbox, recorder, relay, and
-  reactors. What exercise's root holds that every service repeats (the broker component, the
-  reactor registration, the relay's wiring, the failure throttle) is evidence for what
-  go-messaging should package.
+- **Wiring.** Each composition root builds its broker with `nats.New` and its messaging with
+  `messaging.New`, and registers the broker, the relay (`Runtime.Relay`), and each consumer
+  (`Runtime.Consume`) through `core/lifecycle.Register`. A service's configuration carries a
+  `messaging` block and a `nats` block. operations was generated the way exercise was and took
+  exercise's service layer, renamed.
 
 ## Assumptions
 

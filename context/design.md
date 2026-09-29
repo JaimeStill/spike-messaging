@@ -74,7 +74,9 @@ here, this note is the spike's own.
   engine and provider modules, courier, and the exercise services, with no `require` for a
   workspace sibling and no `replace`. In workspace mode a sibling's requirements satisfy the root's imports, so the build
   cannot hold the root's boundary; `mise run split-check` does, as an allow-list of the standard
-  library and sqlate's engine-agnostic packages.
+  library, sqlate's engine-agnostic packages, and go-core. The root stages what go-core and
+  go-messaging will hold, and go-core depends on the standard library alone, so requiring it
+  crosses no boundary.
 - **`messaging/nats` is a module of its own**, as the Postgres engine is, so nats.go stays out of
   the root. Its integration suite runs the conformance cases against the compose stack's NATS, a
   scratch stream per case. Rejected: an embedded nats-server, whose dependencies are heavy and
@@ -90,7 +92,7 @@ here, this note is the spike's own.
   event and which the inbox already claims on. Both providers keep a two-minute window,
   JetStream's default; nats sends the length-prefixed source and the id as `Nats-Msg-Id`.
   Rejected: the id alone, which silently drops another source's event that reuses an id.
-- **The nats broker's constructor provisions its stream** with `CreateOrUpdateStream`, so every
+- **The nats broker provisions its stream at `Start`** with `CreateOrUpdateStream`, so every
   replica converges on one configuration. The broker owns its connection and is a lifecycle
   component at the lowest stage: its `Shutdown` drains the connection after the reactors, and
   `Ready` reports it. Rejected: a separate provisioning call every root would have to make.
@@ -117,13 +119,33 @@ here, this note is the spike's own.
   its current state again through its own outbox. The republish is built only when a step needs
   it. Rejected: an unbounded stream, which grows without limit, and keeping only the last value
   for each entity, which puts an entity token in the subject and changes the type rule.
-- **A service's broker is a lifecycle component at stage 0.** `nats.New` connects and provisions
-  the stream, which is I/O, and a service's composition root may do none at construction, so the
-  root wraps it in a component that provisions at `Start`, and whose `Subscribe` returns a source
-  that binds at `Receive` (`services/exercise/internal/app/broker.go`). The connection reconnects
-  without limit, so an outage makes the broker not ready rather than ending the process. This is
-  evidence for go-messaging's constructor: it should construct without I/O and provision at a
-  start, as go-database's pool does.
+- **A broker constructs without I/O and starts as a lifecycle component at stage 0.**
+  `nats.New(cfg)` only checks its `Config`, which carries the URL and the connection's name, so a
+  composition root builds it cold, as go-database's pool is built. `Start` connects, reconnecting
+  without limit once up, so an outage makes the broker not ready rather than ending the process,
+  and provisions the stream. A call before `Start` fails with `nats.ErrNotStarted`, and a second
+  `Start` with `nats.ErrStarted`. `Subscribe` returns a source that binds at `Receive`. Rejected:
+  a constructor that dials, which every service root had to wrap in a component of its own.
+- **A service's messaging is one `messaging.Runtime`.** `messaging.New` takes the service's
+  `messaging.Config` (its CloudEvents source and the relay's poll), the broker, the engine's
+  outbox and inbox statements, and a logger, and builds the outbox, the inbox, and the
+  recorder, with no I/O. The root injects the provider and the engine, so `messaging` names
+  neither. `Runtime.Relay` builds the relay reactor with its last pass at a quarter of the drain
+  timeout. `Runtime.Consume[T]`, a generic method, builds a consuming reactor: it decodes each
+  event's data into the consumer's own type, refusing data that does not decode with
+  `event.Permanent`, hands the consumer a claim bound over the inbox under the subscription's
+  name, and logs every permanent refusal as `event refused` with the consumer and the event's
+  id. `messaging.Claim` is an alias, and so is each domain's `Claim`, so a command's method value
+  is a consumer. The migration set and statement verification stay with the engine
+  (`postgres.Migrations`, `postgres.Verify`). The registration stays at the call site
+  (`core/lifecycle.Register`), each at the stage the root chooses.
+- **A service's configuration has a `messaging` block and a provider's block beside it.** The
+  `messaging` block is `messaging.Config`; the `nats` block is `nats.Config` (URL, name, stream,
+  prefix, duplicates, `max_age`), each with `Merge` and `Finalize` in go-core's config
+  conventions. Rejected: one block holding both, which puts NATS's settings into the agnostic
+  package.
+- **A reactor's grace is half the drain timeout,** `reactor.GraceWithin(drain)`, so a handler it
+  cancels is reported before the coordinator's deadline drops the report.
 
 ## Outbox sequencing
 
@@ -192,7 +214,8 @@ The evidence from courier's scenarios:
 - **Readiness lags again.** `request` waits on its responder's own `Ready` before it sends,
   because the coordinator is ready before its services' sources are receiving.
 
-The evidence from the exercise service (`services/exercise/internal/app`):
+The evidence from the exercise service (`services/exercise/internal/app`), gathered before the
+extraction:
 
 - **The stages.** 0: the database and the broker; 1: go-database's schema service; 2: the
   statements' verification; 3: the orders reactor, which consumes; 4: the relay; root: the server
@@ -201,20 +224,34 @@ The evidence from the exercise service (`services/exercise/internal/app`):
 - **A library constant sets a stage.** The verify stage is `admin.Stage + 1`, go-database's
   constant, and every stage above it follows from it: the smell a registration by stage at the
   call site removes.
-- **The adapter recurs.** `reactors.go` has its own `register`, courier's `add` again, with the
-  same four methods.
+- **The adapter recurred.** `reactors.go` had its own `register`, courier's `add` again, with
+  the same four methods.
+
+The result: `core/lifecycle` holds the proposed component interface, `Component` (`Start`,
+`Shutdown`, `Ready`, `Err`), and `Register(lc, name, stage, c)`, which adds the component with its
+readiness check and monitors its `Err`. exercise, operations, and courier all register their
+reactors through it, so one call replaces the adapter, and the stage stays at the call site.
+
+The evidence from operations (`services/operations/internal/app`):
+
+- **The relay sits below every stage that commits events.** exercise's orders consumer emits
+  nothing, so it sits below the relay. operations' consumers raise its orders, so they sit above
+  the relay (3: relay; 4: the four consumers), and the drain stops them before the relay's last
+  pass publishes what they committed. A reactor's stage follows from whether it commits events,
+  not whether it consumes.
 
 ## Open questions
 
-- Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration").
+- Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration");
+  `core/lifecycle` is the candidate, used by every root.
 - The import check in the final validation must let a `_test.go` file import the memory
   provider, its test double, and must hold the exercise services apart from each other.
   `split-check`'s allow-list over `go list -deps -test` is a starting shape for it.
 - How the relay and a nats source report the errors they survive. A database error only makes
   the relay not ready, and a handler error, such as a broker that is down, reaches nothing; a
   source's failing pulls only make it not ready. Both need an error hook or the observability
-  layer. The exercise service's resolver logs a persisting failure once per interval as a
-  stopgap.
+  layer. `Runtime.Consume` logs each permanent refusal, and `core/logging.Throttle` logs a
+  persisting failure once per interval, as stopgaps.
 - A row that can never be published needs a quarantine or dead-letter mark. A corrupt row ends
   the relay on every start, and a handler that always fails holds the outbox back behind its row.
 - Retention: published outbox rows and inbox rows are never purged.

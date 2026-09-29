@@ -20,16 +20,19 @@ Each package sits in a directory named for its intended home. A committed `go.wo
 modules: the root module holds the libraries, `messaging/postgres` is the outbox's and the inbox's
 Postgres engine, `messaging/nats` is the JetStream provider, `courier` is the CLI, and each
 exercise service under `services/` is a module of its own.
-`mise run split-check` holds the root to the standard library and sqlate's engine-agnostic
-packages, and `courier/scenario` to no NATS package.
+`mise run split-check` holds the root to the standard library, sqlate's engine-agnostic packages,
+and go-core, and `courier/scenario` to no NATS package.
 
 - **`core/event`**: the CloudEvents 1.0 type, its codec, `Permanent`, and the vocabulary a domain
   raises its events in: `Define` and `EventKind`, `Queue`, and the `Recorder` that emits them
   through a `Sink` in the command's transaction.
-- **`core/reactor`**: the source contract, registration on go-core's lifecycle coordinator, and
-  the interval source.
+- **`core/reactor`**: the source contract, the interval source, and the grace a reactor drains
+  under.
+- **`core/lifecycle`** and **`core/logging`**: one-call registration of a component on go-core's
+  coordinator, and the throttle that logs a repeating failure once per interval.
 - **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
-  delivery groups.
+  delivery groups, and the `Runtime`, a service's messaging built from its config over an
+  injected broker and engine, with its relay and its consuming reactors.
 - **`messaging/outbox` and `messaging/inbox`**: the engine-agnostic sink and relay, and the
   inbox's claim, each over an `Engine` of statements that an engine's module supplies.
   `messaging/postgres` is the Postgres engine: both packages' statements and the `messaging`
@@ -41,18 +44,16 @@ packages, and `courier/scenario` to no NATS package.
   `--broker nats`. Each step's checkpoint adds its scenarios.
 - **The exercise** (`exercise.md`): four services, `exercise`, `intelligence`, `command`, and
   `operations`, that play a two-faction exercise of sector dominance. Each round runs as a chain
-  of events and commands across all four. `services/exercise`, the world, is built; the other
-  three are planned.
+  of events and commands across all four. `services/exercise`, the world, and
+  `services/operations` are built; intelligence and command are planned.
 
 ## Path
 
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **operations**: first the composition root every service repeats, extracted from exercise's
-   into shared packages, then directives become orders. courier stands in for command.
-2. **intelligence**: observations become assessments, under the suppression rules.
-3. **command and the final validation**: the loop closes and runs on its own. The step covers two
+1. **intelligence**: observations become assessments, under the suppression rules.
+2. **command and the final validation**: the loop closes and runs on its own. The step covers two
    replicas, drain, outages, convergence, and the import check. Its close states the answer.
 
 ## Notes
