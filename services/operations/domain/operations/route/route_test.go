@@ -99,25 +99,43 @@ func TestPlanMovesByKind(t *testing.T) {
 	}
 }
 
-// No two elements of the faction end on one cell: a later element stops
-// short of a cell an earlier one ends on, or of one an element still stands
-// on, and holds when every cell of its reach is taken.
+// No two elements of the faction end on one cell, by exercise's rule: an
+// element may follow another into the cell it leaves, and two may swap;
+// of movers that would share a cell the lowest ID keeps it, and a mover
+// stops short of a cell an element that stays holds.
 func TestPlanKeepsElementsApart(t *testing.T) {
-	line := route.Map{Sectors: []route.Sector{{ID: "l", Width: 5, Height: 1}}}
+	line := route.Map{Sectors: []route.Sector{{ID: "l", Width: 6, Height: 1}}}
 	elements := []route.Element{
 		{ID: "a", Kind: "scout", At: loc("l", 0, 0)},
 		{ID: "b", Kind: "scout", At: loc("l", 1, 0)},
 		{ID: "c", Kind: "force", At: loc("l", 4, 0)},
 		{ID: "d", Kind: "force", At: loc("l", 3, 0)},
+		{ID: "e", Kind: "force", At: loc("l", 5, 0)},
 	}
 	target := loc("l", 2, 0)
-	targets := map[string]route.Location{"a": target, "b": target, "c": target, "d": loc("l", 4, 0)}
+	targets := map[string]route.Location{"a": target, "b": target, "c": target, "d": loc("l", 4, 0), "e": loc("l", 4, 0)}
 	got := route.Plan(line, elements, targets)
-	// a reaches 2,0 over b; b's one step onto 2,0 is taken, so b holds; c's
-	// step onto 3,0 is where d still stands, so c holds; d's step onto 4,0 is
-	// where c stands, so d holds too.
+	// a and b both reach 2,0 and a keeps it, so b holds; c and d swap 3,0
+	// and 4,0; e's step onto 4,0 is where d ends, so e holds.
 	want := []route.Order{
 		{Element: "a", Steps: []route.Location{loc("l", 1, 0), loc("l", 2, 0)}},
+		{Element: "c", Steps: []route.Location{loc("l", 3, 0)}},
+		{Element: "d", Steps: []route.Location{loc("l", 4, 0)}},
+	}
+	if !equal(got, want) {
+		t.Errorf("Plan = %v, want %v", got, want)
+	}
+
+	// A scout two cells behind a force that stays stops one short of it; a
+	// force following the scout steps into the cell the scout leaves.
+	got = route.Plan(line, []route.Element{
+		{ID: "f", Kind: "force", At: loc("l", 0, 0)},
+		{ID: "s", Kind: "scout", At: loc("l", 1, 0)},
+		{ID: "w", Kind: "force", At: loc("l", 3, 0)},
+	}, map[string]route.Location{"f": loc("l", 5, 0), "s": loc("l", 5, 0)})
+	want = []route.Order{
+		{Element: "f", Steps: []route.Location{loc("l", 1, 0)}},
+		{Element: "s", Steps: []route.Location{loc("l", 2, 0)}},
 	}
 	if !equal(got, want) {
 		t.Errorf("Plan = %v, want %v", got, want)

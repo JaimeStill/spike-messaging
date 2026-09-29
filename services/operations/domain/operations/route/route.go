@@ -156,38 +156,64 @@ func (s Sector) open(p Point) bool {
 
 // Plan returns the orders that carry a faction's elements toward their
 // targets this round: each element with a target it does not stand on and
-// can reach takes up to its kind's moves along a shortest path. No two of
-// the faction's elements end on one cell, a rule under which exercise
-// refuses an order whole: elements are planned in ID order, and each ends at
-// the farthest cell of its path that no other element of the faction ends
-// on or still stands on, or holds where it is when there is none. An
-// element that holds gets no order.
+// can reach takes up to its kind's moves along a shortest path.
+//
+// No two of the faction's elements may end on one cell, the rule under
+// which exercise refuses an order whole, so Plan applies exercise's own
+// test to the planned ends: an element that moves, and ends where another
+// element ends, is refused. Where movers alone share a cell, the one with
+// the lowest ID keeps it; where an element that stays is there, none does.
+// Plan shortens each refused element's steps by one and tests again, until
+// no end is shared, so an element can follow another into the cell it
+// leaves, and two can swap cells. An element that ends up with no steps
+// holds, and gets no order.
 func Plan(m Map, elements []Element, targets map[string]Location) []Order {
 	es := slices.Clone(elements)
 	slices.SortFunc(es, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
-	taken := make(map[Location]int, len(es))
-	for _, e := range es {
-		taken[e.At]++
-	}
-	var orders []Order
-	for _, e := range es {
+	paths := make([][]Location, len(es))
+	for i, e := range es {
 		target, ok := targets[e.ID]
 		if !ok {
 			continue
 		}
-		path, ok := m.Path(e.At, target)
-		if !ok {
-			continue
+		if path, ok := m.Path(e.At, target); ok {
+			paths[i] = path[:min(Moves(e.Kind), len(path))]
 		}
-		for k := min(Moves(e.Kind), len(path)); k > 0; k-- {
-			end := path[k-1]
-			if taken[end] > 0 {
+	}
+	end := func(i int) Location {
+		if n := len(paths[i]); n > 0 {
+			return paths[i][n-1]
+		}
+		return es[i].At
+	}
+	for refused := true; refused; {
+		refused = false
+		at := make(map[Location][]int, len(es))
+		for i := range es {
+			at[end(i)] = append(at[end(i)], i)
+		}
+		for _, group := range at {
+			if len(group) < 2 {
 				continue
 			}
-			taken[e.At]--
-			taken[end]++
-			orders = append(orders, Order{Element: e.ID, Steps: path[:k:k]})
-			break
+			// group is in ID order. The lowest-ID mover keeps the cell unless
+			// an element that stays is there.
+			keep := -1
+			if !slices.ContainsFunc(group, func(i int) bool { return len(paths[i]) == 0 }) {
+				keep = group[0]
+			}
+			for _, i := range group {
+				if i != keep && len(paths[i]) > 0 {
+					paths[i] = paths[i][:len(paths[i])-1]
+					refused = true
+				}
+			}
+		}
+	}
+	var orders []Order
+	for i, e := range es {
+		if len(paths[i]) > 0 {
+			orders = append(orders, Order{Element: e.ID, Steps: slices.Clip(paths[i])})
 		}
 	}
 	return orders

@@ -166,9 +166,9 @@ func TestManeuverIssuesOrdersTowardTargets(t *testing.T) {
 	got := ordersRows(t, db)
 	want := []operations.OrdersData{
 		{Exercise: id, Faction: "red", Round: 1, Orders: []route.Order{}},
-		// r1 steps onto 1,0, which r2 leaves: r2 is planned after r1 and
-		// still stands there, so r1 holds and r2 runs ahead.
+		// r1 follows r2 into 1,0, the cell r2 leaves.
 		{Exercise: id, Faction: "red", Round: 1, Orders: []route.Order{
+			{Element: "r1", Steps: steps(loc(1, 0))},
 			{Element: "r2", Steps: steps(loc(2, 0), loc(3, 0))},
 		}},
 		{Exercise: id, Faction: "red", Round: 2, Orders: []route.Order{
