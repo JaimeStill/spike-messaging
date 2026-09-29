@@ -110,7 +110,7 @@ func newInfrastructure(
 		Logger:    logger,
 		DB:        db,
 		SQL:       data.New(session, catalog),
-		Sets:      []migrate.Set{messagingSet},
+		Sets:      data.Migrations(messagingSet),
 		Broker:    b,
 		Messaging: msg,
 	}, nil
