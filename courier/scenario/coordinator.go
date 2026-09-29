@@ -7,24 +7,18 @@ import (
 	"time"
 
 	"github.com/standards-lab/go-core/lifecycle"
+
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 )
 
 // patience bounds every wait for something a scenario expects, so a broken
 // provider fails the step instead of hanging it.
 const patience = 30 * time.Second
 
-// component is what a reactor exposes to the coordinator.
-type component interface {
-	Start(context.Context) error
-	Shutdown(context.Context) error
-	Ready() bool
-	Err() <-chan error
-}
-
 // coordinator runs go-core's lifecycle coordinator across a scenario's steps:
 // one step starts it, later steps wait on what the reactors do, and a final
-// step signals the drain. It is the one hand-written adapter from a reactor
-// to a lifecycle.Service.
+// step signals the drain. It registers each reactor through
+// core/lifecycle.Register.
 type coordinator struct {
 	lc     *lifecycle.Coordinator
 	drain  time.Duration
@@ -45,9 +39,8 @@ func newCoordinator(drain time.Duration) *coordinator {
 }
 
 // add registers r at stage and monitors its Err.
-func (c *coordinator) add(name string, stage int, r component) {
-	c.lc.Add(lifecycle.Service{Name: name, Stage: stage, Start: r.Start, Shutdown: r.Shutdown, Check: r})
-	c.lc.Monitor(r.Err())
+func (c *coordinator) add(name string, stage int, r corelifecycle.Component) {
+	corelifecycle.Register(c.lc, name, stage, r)
 }
 
 // start runs the coordinator under ctx, so an interrupt drains it, and
@@ -89,7 +82,7 @@ func (c *coordinator) await(ctx context.Context, ch <-chan struct{}, what string
 // awaitReady waits until r reports ready. The coordinator's readiness does
 // not wait on its services' checks, so a step that needs a reactor's source
 // to be receiving waits for it here. It fails as await does.
-func (c *coordinator) awaitReady(ctx context.Context, r component, what string) error {
+func (c *coordinator) awaitReady(ctx context.Context, r corelifecycle.Component, what string) error {
 	ready := make(chan struct{})
 	stop := make(chan struct{})
 	defer close(stop)
