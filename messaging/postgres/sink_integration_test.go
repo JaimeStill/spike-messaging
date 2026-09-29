@@ -13,7 +13,7 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/inbox"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
 	"github.com/JaimeStill/spike-messaging/messaging/postgres"
-	"github.com/JaimeStill/spike-messaging/messaging/postgres/internal/pgtest"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres/pgtest"
 )
 
 // ob and in are the outbox and the inbox on the Postgres engine, which every
