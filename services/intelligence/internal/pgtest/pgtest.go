@@ -34,7 +34,7 @@ func Open(t testing.TB) *data.Database {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := migrate.New(db.DB, []migrate.Set{messaging}, migrate.Options{})
+	m, err := migrate.New(db.DB, data.Migrations(messaging), migrate.Options{})
 	if err != nil {
 		t.Fatalf("migrator: %v", err)
 	}
