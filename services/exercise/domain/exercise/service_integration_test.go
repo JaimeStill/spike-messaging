@@ -352,6 +352,7 @@ func TestRecordOrdersRefusals(t *testing.T) {
 		{"not a uuid", exercise.RecordOrders{Exercise: "nope", Faction: "red", Round: 1}, exercise.ErrNotFound},
 		{"unknown faction", exercise.RecordOrders{Exercise: ex.ID, Faction: "green", Round: 1}, exercise.ErrValidation},
 		{"stopped exercise", exercise.RecordOrders{Exercise: stopped.ID, Faction: "red", Round: 1}, exercise.ErrConflict},
+		{"past the round limit", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: ex.RoundLimit + 1}, exercise.ErrValidation},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

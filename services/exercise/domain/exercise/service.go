@@ -195,7 +195,8 @@ func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 // [event.IsPermanent] reports, because no redelivery could succeed:
 //
 //   - an exercise that does not exist ([ErrNotFound]);
-//   - a faction that is not one of the exercise's two ([ErrValidation]);
+//   - a faction that is not one of the exercise's two, or a round past the
+//     round limit ([ErrValidation]);
 //   - an exercise that concluded or stopped, or an order for a round
 //     already resolved ([ErrConflict]).
 //
@@ -229,6 +230,9 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 		case cmd.Round <= ex.Round:
 			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: round %d of exercise %s is already resolved",
 				ErrConflict, cmd.Round, ex.ID))
+		case cmd.Round > ex.RoundLimit:
+			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: round %d is past exercise %s's round limit, %d",
+				ErrValidation, cmd.Round, ex.ID, ex.RoundLimit))
 		}
 		return struct{}{}, s.store.putOrders(ctx, tx, cmd)
 	})
