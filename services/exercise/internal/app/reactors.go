@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/standards-lab/go-core/lifecycle"
@@ -83,11 +84,12 @@ func newReactors(
 
 	// Every ends on a handler error, so the resolver logs a pass's failures
 	// and returns nil: one exercise that fails to resolve never stops the
-	// others' clock.
+	// others' clock. A failure that persists, such as a database that is
+	// down, is logged once per failureLogEvery rather than on every tick.
+	failed := &failures{logger: infra.Logger, every: failureLogEvery, now: time.Now}
 	resolve := reactor.New(reactor.Every(resolveTick), func(ctx context.Context, _ time.Time) error {
-		if _, err := dom.Exercise.ResolveDue(ctx); err != nil {
-			infra.Logger.ErrorContext(ctx, "resolve rounds", "error", err)
-		}
+		_, err := dom.Exercise.ResolveDue(ctx)
+		failed.report(ctx, "resolve rounds", err)
 		return nil
 	}, grace)
 	register(lc, "resolve", lifecycle.StageRoot, resolve)
@@ -134,6 +136,41 @@ func recordOrders(svc *exercise.Service, infra *Infrastructure) reactor.Func[eve
 			return err
 		}
 		return nil
+	}
+}
+
+// failureLogEvery is how often a failure that repeats on every tick is
+// logged while it persists.
+const failureLogEvery = 10 * time.Second
+
+// failures logs the outcome of a repeating operation without flooding the
+// log: the first failure at once, then at most one line per every while
+// failures persist, counting the ones it held back, and one line when the
+// operation succeeds again. One goroutine reports to it, as a reactor's
+// handler does, so it takes no lock.
+type failures struct {
+	logger     *slog.Logger
+	every      time.Duration
+	now        func() time.Time
+	failing    bool
+	last       time.Time
+	suppressed int
+}
+
+// report records one outcome of the operation named msg: err, or nil for a
+// success.
+func (f *failures) report(ctx context.Context, msg string, err error) {
+	now := f.now()
+	switch {
+	case err == nil && f.failing:
+		f.logger.InfoContext(ctx, msg+" recovered", "suppressed", f.suppressed)
+		f.failing, f.suppressed = false, 0
+	case err == nil:
+	case !f.failing || now.Sub(f.last) >= f.every:
+		f.logger.ErrorContext(ctx, msg, "error", err, "suppressed", f.suppressed)
+		f.failing, f.last, f.suppressed = true, now, 0
+	default:
+		f.suppressed++
 	}
 }
 
