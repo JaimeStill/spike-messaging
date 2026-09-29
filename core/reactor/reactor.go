@@ -56,6 +56,13 @@ func Grace(d time.Duration) Option {
 	return func(o *options) { o.grace = d }
 }
 
+// GraceWithin is the grace of a reactor that drains under a coordinator
+// whose drain timeout is drain: half of it, so a handler the reactor cancels
+// is reported well before the coordinator's deadline drops the report.
+func GraceWithin(drain time.Duration) Option {
+	return Grace(drain / 2)
+}
+
 // Reactor runs a Source into a Func. It is single use: Start once, Shutdown
 // once.
 type Reactor[T any] struct {

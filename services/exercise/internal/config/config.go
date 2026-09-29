@@ -9,6 +9,9 @@ import (
 	"github.com/standards-lab/go-core/logging"
 	"github.com/standards-lab/go-database"
 	"github.com/standards-lab/go-web-sdk"
+
+	"github.com/JaimeStill/spike-messaging/messaging"
+	"github.com/JaimeStill/spike-messaging/messaging/nats"
 )
 
 // envPrefix namespaces the service's environment variables ("exercise" →
@@ -18,13 +21,14 @@ const envPrefix = "exercise"
 const defaultShutdownTimeout = 10 * time.Second
 
 // Config is the service's root configuration: the library capability blocks,
-// the database block, and the messaging block, plus the service-owned
-// shutdown timeout.
+// the database block, the messaging block, and the nats block of its
+// broker, plus the service-owned shutdown timeout.
 type Config struct {
 	Log             logging.Config     `json:"log"`
 	Server          web.Config         `json:"server"`
 	Database        database.Config    `json:"database"`
-	Messaging       MessagingConfig    `json:"messaging"`
+	Messaging       messaging.Config   `json:"messaging"`
+	NATS            nats.Config        `json:"nats"`
 	ShutdownTimeout libconfig.Duration `json:"shutdown_timeout"`
 }
 
@@ -41,6 +45,7 @@ func (c *Config) Merge(src *Config) {
 	c.Server.Merge(&src.Server)
 	c.Database.Merge(&src.Database)
 	c.Messaging.Merge(&src.Messaging)
+	c.NATS.Merge(&src.NATS)
 }
 
 // Finalize applies the root default, reads the root's own environment
@@ -76,6 +81,9 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Messaging.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("messaging: %w", err)
+	}
+	if err := c.NATS.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("nats: %w", err)
 	}
 	return nil
 }

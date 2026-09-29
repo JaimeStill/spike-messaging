@@ -35,6 +35,8 @@ func New(stdout, stderr io.Writer) *App {
 		OutboxNeeds:  infra.OutboxNeeds,
 		Exchanges:    infra.Exchange,
 		RequestNeeds: infra.RequestNeeds,
+		Joins:        infra.Join,
+		JoinNeeds:    infra.JoinNeeds,
 	})
 
 	root := newRoot(cfg, infra, scenarios)

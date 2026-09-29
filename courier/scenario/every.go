@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/standards-lab/go-core/lifecycle"
 
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 )
 
@@ -65,7 +66,7 @@ func everyScenario(needs func() []Need) Scenario {
 							return nil
 						}
 						r := reactor.New(reactor.Every(interval), tick, reactor.Grace(grace))
-						c.add("ticker", lifecycle.StageRoot, r)
+						corelifecycle.Register(c.lc, "ticker", lifecycle.StageRoot, r)
 						return c.start(ctx, rep)
 					},
 				},

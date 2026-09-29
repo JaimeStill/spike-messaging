@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	libconfig "github.com/standards-lab/go-core/config"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/messagingtest"
 	"github.com/JaimeStill/spike-messaging/messaging/nats"
-	"github.com/JaimeStill/spike-messaging/messaging/nats/internal/natstest"
+	"github.com/JaimeStill/spike-messaging/messaging/nats/natstest"
 )
 
 const failsafe = 10 * time.Second
@@ -25,10 +26,19 @@ const failsafe = 10 * time.Second
 // broker returns a broker on a scratch stream, shut down when the test ends.
 func broker(t *testing.T) *nats.Broker {
 	t.Helper()
-	nc, stream, prefix := natstest.Scratch(t)
-	b, err := nats.New(t.Context(), nc, nats.Config{Stream: stream, Prefix: prefix})
+	url, stream, prefix := natstest.Scratch(t)
+	return started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix})
+}
+
+// started builds and starts a broker on cfg, shut down when the test ends.
+func started(t *testing.T, cfg nats.Config) *nats.Broker {
+	t.Helper()
+	b, err := nats.New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if err := b.Start(t.Context()); err != nil {
+		t.Fatalf("Start: %v", err)
 	}
 	shutdown(t, b)
 	return b
@@ -112,6 +122,18 @@ func TestLateOutcomeDropped(t *testing.T) {
 	}
 }
 
+// A started broker starts once: a second Start fails and leaves the first
+// connection serving.
+func TestSecondStartFails(t *testing.T) {
+	b := broker(t)
+	if err := b.Start(t.Context()); !errors.Is(err, nats.ErrStarted) {
+		t.Errorf("second Start = %v, want ErrStarted", err)
+	}
+	if !b.Ready() {
+		t.Error("the broker is not ready after a second Start")
+	}
+}
+
 func TestPublishRejectsUncarriableHeader(t *testing.T) {
 	b := broker(t)
 	e := event.Event{ID: "h", Source: "/test", Type: "t", Extensions: map[string]string{"note": "two\r\nlines"}}
@@ -123,19 +145,10 @@ func TestPublishRejectsUncarriableHeader(t *testing.T) {
 // Provisioning is idempotent: a second broker on the same stream, as a
 // replica builds, converges on it and shares its events.
 func TestProvisionIsIdempotent(t *testing.T) {
-	nc, stream, prefix := natstest.Scratch(t)
-	cfg := nats.Config{Stream: stream, Prefix: prefix}
-	first, err := nats.New(t.Context(), nc, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	shutdown(t, first)
-	nc2, _, _ := natstest.Scratch(t)
-	second, err := nats.New(t.Context(), nc2, cfg)
-	if err != nil {
-		t.Fatalf("a second New on the same stream: %v", err)
-	}
-	shutdown(t, second)
+	url, stream, prefix := natstest.Scratch(t)
+	cfg := nats.Config{URL: url, Stream: stream, Prefix: prefix}
+	first := started(t, cfg)
+	second := started(t, cfg)
 	got := make(chan string, 1)
 	start(t, second, messaging.Subscription{Name: "replica"}, func(_ context.Context, e event.Event) error {
 		got <- e.ID
@@ -158,13 +171,9 @@ func TestProvisionIsIdempotent(t *testing.T) {
 // none keeps every event.
 func TestProvisionBoundsRetention(t *testing.T) {
 	for _, age := range []time.Duration{0, time.Hour} {
-		nc, stream, prefix := natstest.Scratch(t)
-		b, err := nats.New(t.Context(), nc, nats.Config{Stream: stream, Prefix: prefix, MaxAge: age})
-		if err != nil {
-			t.Fatal(err)
-		}
-		shutdown(t, b)
-		js, err := jetstream.New(nc)
+		url, stream, prefix := natstest.Scratch(t)
+		b := started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix, MaxAge: libconfig.Duration(age)})
+		js, err := jetstream.New(b.Conn())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,33 +187,12 @@ func TestProvisionBoundsRetention(t *testing.T) {
 	}
 }
 
-func TestConfigValidate(t *testing.T) {
-	for name, cfg := range map[string]nats.Config{
-		"no stream":       {Prefix: "p"},
-		"dotted stream":   {Stream: "a.b", Prefix: "p"},
-		"slashed stream":  {Stream: "a/b", Prefix: "p"},
-		"no prefix":       {Stream: "s"},
-		"wildcard":        {Stream: "s", Prefix: "p.*"},
-		"negative dupes":  {Stream: "s", Prefix: "p", Duplicates: -1},
-		"negative age":    {Stream: "s", Prefix: "p", MaxAge: -1},
-		"age below dupes": {Stream: "s", Prefix: "p", MaxAge: time.Minute},
-	} {
-		if cfg.Validate() == nil {
-			t.Errorf("%s: Validate accepted %+v", name, cfg)
-		}
-	}
-}
-
 // A member whose consumer is deleted while it handles a delivery, so no pull
 // is waiting to hear of it, ends Receive with the error once its next pulls
 // fail, rather than retrying a consumer that is gone.
 func TestDeletedConsumerEndsReceive(t *testing.T) {
-	nc, stream, prefix := natstest.Scratch(t)
-	b, err := nats.New(t.Context(), nc, nats.Config{Stream: stream, Prefix: prefix})
-	if err != nil {
-		t.Fatal(err)
-	}
-	shutdown(t, b)
+	url, stream, prefix := natstest.Scratch(t)
+	b := started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix})
 	src, err := b.Subscribe(messaging.Subscription{Name: "doomed"})
 	if err != nil {
 		t.Fatal(err)

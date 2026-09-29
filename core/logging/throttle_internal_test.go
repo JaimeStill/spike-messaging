@@ -1,4 +1,4 @@
-package app
+package logging
 
 import (
 	"bytes"
@@ -11,22 +11,19 @@ import (
 
 // A failure that repeats on every tick is logged at once, then once per
 // interval with the count held back, and its recovery once.
-func TestFailuresThrottleARepeatingFailure(t *testing.T) {
+func TestThrottleARepeatingFailure(t *testing.T) {
 	var buf bytes.Buffer
 	now := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
-	f := &failures{
-		logger: slog.New(slog.NewTextHandler(&buf, nil)),
-		every:  10 * time.Second,
-		now:    func() time.Time { return now },
-	}
+	th := NewThrottle(slog.New(slog.NewTextHandler(&buf, nil)), 10*time.Second)
+	th.now = func() time.Time { return now }
 	boom := errors.New("database down")
 	for range 200 { // 10s of 50ms ticks, then one more
-		f.report(t.Context(), "resolve rounds", boom)
+		th.Report(t.Context(), "resolve rounds", boom)
 		now = now.Add(50 * time.Millisecond)
 	}
-	f.report(t.Context(), "resolve rounds", boom)
-	f.report(t.Context(), "resolve rounds", nil)
-	f.report(t.Context(), "resolve rounds", nil)
+	th.Report(t.Context(), "resolve rounds", boom)
+	th.Report(t.Context(), "resolve rounds", nil)
+	th.Report(t.Context(), "resolve rounds", nil)
 
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 3 {

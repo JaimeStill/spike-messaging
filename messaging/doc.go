@@ -8,7 +8,15 @@
 // event. The handler's return is the delivery's outcome, so a reactor
 // acknowledges, redelivers, or terminates without a broker type in sight.
 //
-// The package imports no broker. A provider, such as messaging/memory,
-// implements [Broker], and messaging/messagingtest holds the conformance
-// suite every provider passes.
+// A [Runtime] is one service's messaging: the broker, the outbox and inbox
+// over its database engine's statements, and the recorder its domains emit
+// through. Its [Runtime.Relay] publishes the outbox, and its
+// [Runtime.Consume] builds a consuming reactor that decodes each event into
+// the consumer's own type and binds its inbox claim. [Config] is the
+// service's messaging configuration block, beside its provider's.
+//
+// The package imports no broker and no engine: the composition root hands
+// them to [New]. A provider, such as messaging/memory, implements [Broker],
+// and messaging/messagingtest holds the conformance suite every provider
+// passes.
 package messaging

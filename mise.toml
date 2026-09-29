@@ -6,7 +6,7 @@ golangci-lint = "2.13.2"
 # MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
 # root module's packages. A module that imports a workspace sibling carries no require line for
 # it, so go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/exercise/..."
+MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/exercise/... ./services/operations/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 MESSAGING_NATS_URL = "nats://127.0.0.1:4225"
 
@@ -32,7 +32,7 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint in each module with SQL"
-run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/exercise && go tool sqlint)"
+run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/exercise && go tool sqlint) && (cd services/operations && go tool sqlint)"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres and NATS"
@@ -42,6 +42,12 @@ run = "go test -race -tags integration -count=1 $MODULES"
 description = "Run the exercise service locally against the compose stack"
 dir = "services/exercise"
 env = { EXERCISE_ENV = "local" }
+run = "go run ./cmd/server"
+
+[tasks."operations:serve"]
+description = "Run the operations service locally against the compose stack"
+dir = "services/operations"
+env = { OPERATIONS_ENV = "local" }
 run = "go run ./cmd/server"
 
 [tasks.up]
@@ -57,9 +63,9 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module reaches nothing outside the standard library and sqlate's engine-agnostic packages, and that courier's scenarios reach no NATS package"
+description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, and that courier's scenarios reach no NATS package"
 run = '''
-allowed='^github.com/standards-lab/sqlate(/(header|query|sqltest|migrate))?$'
+allowed='^github.com/standards-lab/(sqlate(/(header|query|sqltest|migrate))?|go-core(/.*)?)$'
 # A package outside the standard library has a dot in its first path element.
 # go list runs on its own first, so a package that fails to load fails the check.
 deps=$(go list -deps -test -tags integration ./...) || exit 1
@@ -68,7 +74,7 @@ found=$(echo "$deps" | awk '{print $1}' | grep -E '^[^/]+\.[^/]*/' \
 if [ -n "$found" ]; then
   echo "the root module reaches packages outside its allow-list:"; echo "$found"; exit 1
 fi
-echo "split-check: the root module reaches only the standard library and sqlate's engine-agnostic packages"
+echo "split-check: the root module reaches only the standard library, sqlate's engine-agnostic packages, and go-core"
 # Evidence 8: the native request and reply stays in the nats provider and the composition root, so
 # the broker-agnostic scenarios reach neither nats.go nor the provider.
 deps=$(go list -deps -test -tags integration ./courier/scenario/...) || exit 1

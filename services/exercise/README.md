@@ -46,7 +46,8 @@ the exercise's ID:
 - `exercise.concluded`: the verdict, or a stop.
 
 The service consumes `operations.orders.issued` through the `exercise-orders` subscription. It
-permanently refuses orders for a round already resolved, so the broker does not redeliver them.
+permanently refuses orders for a round already resolved, so the broker does not redeliver them,
+and the messaging runtime logs the refusal as `event refused`.
 
 ## Composition
 
@@ -69,12 +70,14 @@ relay then publishes what they committed while they drained. The broker and data
 
 Configuration is layered: `config.json`, `config.<EXERCISE_ENV>.json`, and the secrets files, with
 `EXERCISE_*` environment variables applied last. `exercise:serve` sets `EXERCISE_ENV=local`, so
-`config.local.json` points the service at the compose stack. The service adds two blocks to the
+`config.local.json` points the service at the compose stack. The service adds three blocks to the
 template's:
 
 - `database`: go-database's connection block.
-- `messaging`: the NATS URL, the shared stream and its prefix, the stream's `max_age`, the
-  service's CloudEvents `source`, and the relay's `relay_poll`.
+- `messaging`: `messaging.Config`, the service's CloudEvents `source` and the relay's
+  `relay_poll`.
+- `nats`: `nats.Config`, the NATS URL, the connection's name, the shared stream and its prefix,
+  and the stream's `max_age`.
 
 ## Testing
 

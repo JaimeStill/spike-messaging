@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 )
 
@@ -74,7 +75,7 @@ func requestScenario(exchanges Exchanges, needs func() []Need) Scenario {
 							return req.Respond(reply(req.Body))
 						}
 						r := reactor.New(ex.Serve, handle, reactor.Grace(defaultGrace))
-						c.add("responder", 0, r)
+						corelifecycle.Register(c.lc, "responder", 0, r)
 						if err := c.start(ctx, rep); err != nil {
 							return err
 						}

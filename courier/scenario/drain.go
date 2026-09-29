@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
@@ -62,7 +63,7 @@ func drainScenario(brokers Brokers, needs func() []Need) Scenario {
 							rep.Note("event %s handling finished", e.ID)
 							return nil
 						}
-						c.add("worker", 0, reactor.New(src, handle, reactor.Grace(grace)))
+						corelifecycle.Register(c.lc, "worker", 0, reactor.New(src, handle, reactor.Grace(grace)))
 						return c.start(ctx, rep)
 					},
 				},

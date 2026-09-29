@@ -5,6 +5,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
 )
 
 // claim claims e for consumer in a transaction of its own, rolling it back
@@ -160,5 +162,58 @@ func TestClaimAcrossAckWait(t *testing.T) {
 	}
 	if claim(t, db, sub.Name, tick("1"), false) {
 		t.Error("the event was claimable after the redelivery committed")
+	}
+}
+
+// A consumer the runtime builds claims each event under its subscription's
+// name, in the consumer's own transaction: the claim it hands over is
+// first once for the delivered event, and the inbox holds that consumer
+// and event.
+func TestConsumeClaimsUnderTheSubscription(t *testing.T) {
+	db := migrated(t)
+	b := memory.New()
+	rt, err := messaging.New(messaging.Config{Source: "/test"}, b, postgres.Outbox(), postgres.Inbox(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firsts := make(chan []bool, 1)
+	sub := messaging.Subscription{Name: "billing", Types: []string{"lab.demo.ticked"}}
+	r, err := rt.Consume(sub, time.Second, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
+		var got []bool
+		for range 2 {
+			first, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (bool, error) { return claim(ctx, tx) })
+			if err != nil {
+				return err
+			}
+			got = append(got, first)
+		}
+		firsts <- got
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
+
+	e := event.Event{ID: "7", Source: "/test", Type: "lab.demo.ticked", DataContentType: "application/json", Data: []byte("{}")}
+	if err := b.Publish(t.Context(), e); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-firsts:
+		if !slices.Equal(got, []bool{true, false}) {
+			t.Errorf("claims = %v, want first once", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the consumer")
+	}
+	if claim(t, db, "billing", e, false) {
+		t.Error("the inbox does not hold the event under the subscription's name")
+	}
+	if !claim(t, db, "another", e, false) {
+		t.Error("the claim was not bound to its own consumer")
 	}
 }

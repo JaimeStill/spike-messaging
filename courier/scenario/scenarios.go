@@ -35,6 +35,11 @@ type Dependencies struct {
 	// RequestNeeds in place of the broker's needs.
 	Exchanges    Exchanges
 	RequestNeeds func() []Need
+	// Joins builds the directives scenario's broker on the exercise
+	// services' stream, which requires JoinNeeds in place of the broker's
+	// needs.
+	Joins     Joins
+	JoinNeeds func() []Need
 }
 
 // Scenarios returns every scenario in presentation order, built on d. The
@@ -48,6 +53,7 @@ func Scenarios(d Dependencies) []Scenario {
 		drainScenario(d.Brokers, d.BrokerNeeds),
 		outboxScenario(d.Brokers, d.Outboxes, concatNeeds(d.BrokerNeeds, d.OutboxNeeds)),
 		requestScenario(d.Exchanges, d.RequestNeeds),
+		directivesScenario(d.Joins, d.JoinNeeds),
 	}
 }
 
