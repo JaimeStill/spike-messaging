@@ -218,6 +218,33 @@ func TestStaleInputsAreSkipped(t *testing.T) {
 	}
 }
 
+// A directive that overtakes its round's observation sets the targets and
+// raises nothing, because the orders out are for a round already resolved;
+// the observation then plans with them.
+func TestADirectiveAheadOfItsObservationWaitsForIt(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	ctx := t.Context()
+	if err := svc.Maneuver(ctx, red(id, 0, loc(0, 0), loc(1, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	target := loc(4, 0)
+	if err := svc.Assign(ctx, assign(id, 1, map[string]*route.Location{"r2": &target}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := ordersRows(t, db); len(got) != 1 || got[0].Round != 1 {
+		t.Fatalf("outbox holds %+v, want round 1's orders alone", got)
+	}
+	if err := svc.Maneuver(ctx, red(id, 1, loc(0, 0), loc(1, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	got := ordersRows(t, db)
+	want := []route.Order{{Element: "r2", Steps: steps(loc(2, 0), loc(3, 0))}}
+	if len(got) != 2 || got[1].Round != 2 || !sameOrders(got[1].Orders, want) {
+		t.Errorf("outbox holds %+v, want round 2's orders toward the directive's target", got)
+	}
+}
+
 // A destroyed element's target is dropped with it.
 func TestDestroyedElementsDropTheirTargets(t *testing.T) {
 	svc, _ := setup(t)

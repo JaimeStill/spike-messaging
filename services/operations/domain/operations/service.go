@@ -73,9 +73,11 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 // Assign sets the targets a faction's directives name: an element's target,
 // or none, which holds it. It skips directives decided on a round earlier
 // than the last the operation acted on, and any for a closed operation.
-// Once the operation has issued orders, a change to its plan raises
-// [OrdersIssued] again for the round those orders were for, so the new
-// directives take effect without waiting a round.
+// A directive decided on the round the operation last acted on, which
+// changes its plan, raises [OrdersIssued] again for the round those orders
+// were for, so the new directives take effect without waiting a round. A
+// directive on a later round, which overtook that round's observation,
+// only sets the targets the observation's Maneuver plans with.
 func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("assign: %w", err))
@@ -97,7 +99,11 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 				op.Targets[d.Element] = *d.Target
 			}
 		}
-		if after := op.orders(); op.LastRound >= 0 && !sameOrders(before, after) {
+		// Only a directive on the round the operation last acted on can
+		// reshape orders still to come: one on a later round overtook that
+		// round's observation, whose Maneuver plans with its targets, and the
+		// orders out now are for a round already resolved.
+		if after := op.orders(); c.Round == op.LastRound && !sameOrders(before, after) {
 			op.raise(q, after)
 		}
 		return s.store.save(ctx, tx, op)
