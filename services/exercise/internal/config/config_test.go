@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JaimeStill/spike-messaging/messaging"
+	"github.com/JaimeStill/spike-messaging/messaging/nats"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config/configtest"
 	libconfig "github.com/standards-lab/go-core/config"
@@ -122,22 +124,21 @@ func TestMessaging_FinalizeDefaults(t *testing.T) {
 		t.Fatalf("Finalize: %v", err)
 	}
 
-	// Pins the documented messaging defaults.
-	m := cfg.Messaging
-	if m.URL != "nats://127.0.0.1:4222" {
-		t.Errorf("URL = %s, want the default NATS URL", m.URL)
+	// Pins the documented messaging and nats defaults.
+	if cfg.NATS.URL != nats.DefaultURL {
+		t.Errorf("URL = %s, want the default NATS URL", cfg.NATS.URL)
 	}
-	if m.MaxAge.Duration() != 24*time.Hour || m.RelayPoll.Duration() != 250*time.Millisecond {
-		t.Errorf("MaxAge = %s, RelayPoll = %s; want 24h, 250ms", m.MaxAge, m.RelayPoll)
+	if cfg.Messaging.RelayPoll.Duration() != messaging.DefaultRelayPoll {
+		t.Errorf("RelayPoll = %s, want %s", cfg.Messaging.RelayPoll, messaging.DefaultRelayPoll)
 	}
 }
 
 func TestMessaging_FinalizeEnvOverrides(t *testing.T) {
-	t.Setenv("EXERCISE_MESSAGING_URL", "nats://nats.internal:4222")
-	t.Setenv("EXERCISE_MESSAGING_STREAM", "scratch")
-	t.Setenv("EXERCISE_MESSAGING_PREFIX", "scratch.a1")
+	t.Setenv("EXERCISE_NATS_URL", "nats://nats.internal:4222")
+	t.Setenv("EXERCISE_NATS_STREAM", "scratch")
+	t.Setenv("EXERCISE_NATS_PREFIX", "scratch.a1")
+	t.Setenv("EXERCISE_NATS_MAX_AGE", "1h")
 	t.Setenv("EXERCISE_MESSAGING_SOURCE", "/exercise-b")
-	t.Setenv("EXERCISE_MESSAGING_MAX_AGE", "1h")
 	t.Setenv("EXERCISE_MESSAGING_RELAY_POLL", "1s")
 
 	cfg := configtest.Minimal()
@@ -145,31 +146,39 @@ func TestMessaging_FinalizeEnvOverrides(t *testing.T) {
 		t.Fatalf("Finalize: %v", err)
 	}
 
-	want := config.MessagingConfig{
-		URL:       "nats://nats.internal:4222",
-		Stream:    "scratch",
-		Prefix:    "scratch.a1",
-		MaxAge:    libconfig.Duration(time.Hour),
-		Source:    "/exercise-b",
-		RelayPoll: libconfig.Duration(time.Second),
+	wantMessaging := messaging.Config{Source: "/exercise-b", RelayPoll: libconfig.Duration(time.Second)}
+	if cfg.Messaging != wantMessaging {
+		t.Errorf("Messaging = %+v, want %+v", cfg.Messaging, wantMessaging)
 	}
-	if cfg.Messaging != want {
-		t.Errorf("Messaging = %+v, want %+v", cfg.Messaging, want)
+	wantNATS := nats.Config{
+		URL:    "nats://nats.internal:4222",
+		Stream: "scratch",
+		Prefix: "scratch.a1",
+		MaxAge: libconfig.Duration(time.Hour),
+	}
+	if cfg.NATS != wantNATS {
+		t.Errorf("NATS = %+v, want %+v", cfg.NATS, wantNATS)
 	}
 }
 
 func TestMessaging_FinalizeRejectsAnIncompleteBlock(t *testing.T) {
 	cfg := configtest.Minimal()
-	cfg.Messaging.Stream = ""
 	cfg.Messaging.Source = ""
 	cfg.Messaging.RelayPoll = libconfig.Duration(-time.Second)
 	err := cfg.Finalize("")
 	if err == nil {
 		t.Fatal("Finalize accepted an incomplete messaging block")
 	}
-	for _, want := range []string{"messaging:", "stream is required", "source is required", "relay_poll must be positive"} {
+	for _, want := range []string{"messaging:", "source is required", "relay_poll must be positive"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to name %q", err, want)
 		}
+	}
+
+	cfg = configtest.Minimal()
+	cfg.NATS.Stream = ""
+	err = cfg.Finalize("")
+	if err == nil || !strings.Contains(err.Error(), "nats:") || !strings.Contains(err.Error(), "stream") {
+		t.Errorf("Finalize = %v, want the nats block's missing stream", err)
 	}
 }

@@ -15,14 +15,14 @@ import (
 )
 
 // Minimal returns an unfinalized Config carrying only the fields no default
-// supplies: the database's name and the messaging block's stream, prefix,
-// and source.
+// supplies: the database's name, the messaging block's source, and the nats
+// block's stream and prefix.
 func Minimal() *config.Config {
 	cfg := &config.Config{}
 	cfg.Database.Name = "exercise"
-	cfg.Messaging.Stream = "test"
-	cfg.Messaging.Prefix = "test"
 	cfg.Messaging.Source = "/exercise"
+	cfg.NATS.Stream = "test"
+	cfg.NATS.Prefix = "test"
 	return cfg
 }
 
@@ -41,7 +41,7 @@ func Config(t *testing.T) *config.Config {
 	cfg.Database.User = "app"
 	port := ClosedPort(t)
 	cfg.Database.Port = &port
-	cfg.Messaging.URL = fmt.Sprintf("nats://127.0.0.1:%d", ClosedPort(t))
+	cfg.NATS.URL = fmt.Sprintf("nats://127.0.0.1:%d", ClosedPort(t))
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("finalize hermetic config: %v", err)
 	}

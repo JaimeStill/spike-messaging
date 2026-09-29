@@ -19,12 +19,15 @@
     }
   },
   "messaging": {
-    "url": "nats://127.0.0.1:4222",
-    "stream": "exercise",
-    "prefix": "exercise",
-    "max_age": "24h",
     "source": "/exercise",
     "relay_poll": "250ms"
+  },
+  "nats": {
+    "url": "nats://127.0.0.1:4222",
+    "name": "exercise",
+    "stream": "exercise",
+    "prefix": "exercise",
+    "max_age": "24h"
   },
   "shutdown_timeout": "10s"
 }

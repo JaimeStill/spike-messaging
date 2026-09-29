@@ -232,7 +232,7 @@ func TestExercise_PastRoundOrdersAreTerminated(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	await(t, "the refusal", 10*time.Second, func() bool { return strings.Contains(s.Output(), "orders refused") })
+	await(t, "the refusal", 10*time.Second, func() bool { return strings.Contains(s.Output(), "event refused") })
 	time.Sleep(time.Second) // a redelivery would log the refusal again
 	if n := strings.Count(s.Output(), "event="+id); n != 1 {
 		t.Errorf("the refusal of %s was logged %d times, want once: the delivery must terminate", id, n)

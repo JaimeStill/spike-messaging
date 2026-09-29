@@ -16,10 +16,8 @@ import (
 	pgdialect "github.com/standards-lab/sqlate/postgres"
 	"github.com/standards-lab/sqlate/query"
 
-	"github.com/JaimeStill/spike-messaging/core/event"
-	"github.com/JaimeStill/spike-messaging/messaging/inbox"
+	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/nats"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox"
 	"github.com/JaimeStill/spike-messaging/messaging/postgres"
 	"github.com/JaimeStill/spike-messaging/services/exercise/data"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
@@ -30,21 +28,18 @@ import (
 // the admin service administers; the domains never see it. SQL is the
 // database as the domains see it. Sets are the migration sets the admin
 // service's migrator runs, the messaging set beneath the service's own.
-// Broker carries events to and from NATS. Outbox stores the events a
-// command emits until the relay publishes them, and Inbox records the
-// events a consumer has handled. Recorder is the one value a domain takes
-// to emit the events it raises. The struct stays in the composition root:
+// Broker is the NATS broker, a lifecycle component. Messaging is the
+// service's messaging over it: the outbox, the inbox, and the recorder, the
+// one value a domain takes to emit the events it raises. The struct stays in the composition root:
 // the layer files read its fields, and a package receives its dependencies
 // as constructor parameters, never the struct itself.
 type Infrastructure struct {
-	Logger   *slog.Logger
-	DB       *database.DB
-	SQL      *data.Database
-	Sets     []migrate.Set
-	Broker   *nats.Broker
-	Outbox   *outbox.Outbox
-	Inbox    *inbox.Inbox
-	Recorder *event.Recorder[*sqlate.Tx]
+	Logger    *slog.Logger
+	DB        *database.DB
+	SQL       *data.Database
+	Sets      []migrate.Set
+	Broker    *nats.Broker
+	Messaging *messaging.Runtime
 }
 
 // verifyStage is the stage that prepares the messaging statements, and each
@@ -81,13 +76,7 @@ func newInfrastructure(
 		Check:    db,
 	})
 
-	b, err := nats.New(nats.Config{
-		URL:    cfg.Messaging.URL,
-		Name:   "exercise",
-		Stream: cfg.Messaging.Stream,
-		Prefix: cfg.Messaging.Prefix,
-		MaxAge: cfg.Messaging.MaxAge,
-	})
+	b, err := nats.New(cfg.NATS)
 	if err != nil {
 		return nil, fmt.Errorf("broker: %w", err)
 	}
@@ -102,11 +91,7 @@ func newInfrastructure(
 	catalog := query.MustCatalog(query.Patterns())
 	session := sqlate.Wrap(db.Conn(), pgdialect.Dialect{})
 
-	ob, err := outbox.New(postgres.Outbox())
-	if err != nil {
-		return nil, err
-	}
-	in, err := inbox.New(postgres.Inbox())
+	msg, err := messaging.New(cfg.Messaging, b, postgres.Outbox(), postgres.Inbox(), logger)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +106,11 @@ func newInfrastructure(
 	}
 
 	return &Infrastructure{
-		Logger:   logger,
-		DB:       db,
-		SQL:      data.New(session, catalog),
-		Sets:     data.Migrations(messagingSet),
-		Broker:   b,
-		Outbox:   ob,
-		Inbox:    in,
-		Recorder: event.NewRecorder(ob.Sink(), cfg.Messaging.Source),
+		Logger:    logger,
+		DB:        db,
+		SQL:       data.New(session, catalog),
+		Sets:      data.Migrations(messagingSet),
+		Broker:    b,
+		Messaging: msg,
 	}, nil
 }

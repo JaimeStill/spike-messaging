@@ -1,7 +1,11 @@
 package messaging_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -43,13 +47,13 @@ func engines(t *testing.T) (outbox.Engine, inbox.Engine) {
 func TestNewRequiresTheEngines(t *testing.T) {
 	ob, in := engines(t)
 	cfg := messaging.Config{Source: "/test"}
-	if _, err := messaging.New(cfg, memory.New(), outbox.Engine{}, in); err == nil {
+	if _, err := messaging.New(cfg, memory.New(), outbox.Engine{}, in, slog.Default()); err == nil {
 		t.Error("New accepted an empty outbox engine")
 	}
-	if _, err := messaging.New(cfg, memory.New(), ob, inbox.Engine{}); err == nil {
+	if _, err := messaging.New(cfg, memory.New(), ob, inbox.Engine{}, slog.Default()); err == nil {
 		t.Error("New accepted an empty inbox engine")
 	}
-	rt, err := messaging.New(cfg, memory.New(), ob, in)
+	rt, err := messaging.New(cfg, memory.New(), ob, in, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +68,13 @@ type payload struct {
 
 // Consume decodes each event's data into the consumer's type and hands it
 // over with a claim; an event whose data does not decode never reaches the
-// consumer and is not redelivered, so the next event still arrives.
+// consumer and is not redelivered, so the next event still arrives, and
+// its refusal is logged once.
 func TestConsume(t *testing.T) {
 	ob, in := engines(t)
 	b := memory.New()
-	rt, err := messaging.New(messaging.Config{Source: "/test"}, b, ob, in)
+	var log syncBuffer
+	rt, err := messaging.New(messaging.Config{Source: "/test"}, b, ob, in, slog.New(slog.NewTextHandler(&log, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +118,10 @@ func TestConsume(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
+	if n := strings.Count(log.String(), "event=bad"); n != 1 || !strings.Contains(log.String(), "consumer=consumer") {
+		t.Errorf("the refusal was logged %d times, want once with its consumer:\n%s", n, log.String())
+	}
+
 	if _, err := rt.Consume(messaging.Subscription{Name: "a.b"}, time.Second, func(context.Context, payload, messaging.Claim) error { return nil }); err == nil {
 		t.Error("Consume accepted an invalid subscription")
 	}
@@ -135,4 +145,22 @@ func TestConfigFinalize(t *testing.T) {
 	if empty.RelayPoll.Duration() != messaging.DefaultRelayPoll {
 		t.Errorf("RelayPoll = %v, want the default", empty.RelayPoll)
 	}
+}
+
+// syncBuffer serializes the reactor's writes and the test's read.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

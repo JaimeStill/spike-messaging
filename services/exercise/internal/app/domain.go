@@ -21,7 +21,7 @@ type Domain struct {
 // statements against the migrated schema at verifyStage, after the schema
 // service at admin.Stage has corrected it.
 func newDomain(infra *Infrastructure, lc *lifecycle.Coordinator) *Domain {
-	ex := exercise.New(infra.SQL, infra.Recorder)
+	ex := exercise.New(infra.SQL, infra.Messaging.Recorder)
 	lc.Add(lifecycle.Service{Name: "exercise", Stage: verifyStage, Start: ex.Verify})
 	return &Domain{Exercise: ex}
 }

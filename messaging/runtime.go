@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/standards-lab/sqlate"
@@ -30,12 +31,14 @@ type Runtime struct {
 	Inbox    *inbox.Inbox
 	Recorder *event.Recorder[*sqlate.Tx]
 
-	cfg Config
+	cfg    Config
+	logger *slog.Logger
 }
 
 // New builds a service's messaging from cfg, a finalized configuration,
-// over broker and the engine's statements. It does no I/O.
-func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbox.Engine) (*Runtime, error) {
+// over broker and the engine's statements, logging to logger. It does no
+// I/O.
+func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbox.Engine, logger *slog.Logger) (*Runtime, error) {
 	ob, err := outbox.New(outboxEngine)
 	if err != nil {
 		return nil, fmt.Errorf("messaging: %w", err)
@@ -50,6 +53,7 @@ func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbo
 		Inbox:    in,
 		Recorder: event.NewRecorder(ob.Sink(), cfg.Source),
 		cfg:      cfg,
+		logger:   logger,
 	}, nil
 }
 
@@ -81,7 +85,10 @@ type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 // own type for the payload, and handed to fn with a [Claim] over the inbox
 // under sub.Name, bound to the event, so fn's domain never sees the event
 // and a redelivery changes nothing. Data that does not decode is refused
-// with [event.Permanent], because no redelivery can fix it.
+// with [event.Permanent], because no redelivery can fix it. Every permanent
+// refusal, a decode's or fn's, is logged with the consumer and the event's
+// id, because the broker terminates the delivery and nothing else reports
+// it.
 func (r *Runtime) Consume[T any](sub Subscription, shutdown time.Duration, fn func(ctx context.Context, data T, claim Claim) error) (*reactor.Reactor[event.Event], error) {
 	src, err := r.Broker.Subscribe(sub)
 	if err != nil {
@@ -89,13 +96,19 @@ func (r *Runtime) Consume[T any](sub Subscription, shutdown time.Duration, fn fu
 	}
 	handle := func(ctx context.Context, e event.Event) error {
 		var data T
-		if err := json.Unmarshal(e.Data, &data); err != nil {
-			return event.Permanent(fmt.Errorf("%s: event %s: decode: %w", sub.Name, e.ID, err))
+		err := json.Unmarshal(e.Data, &data)
+		if err != nil {
+			err = event.Permanent(fmt.Errorf("decode: %w", err))
+		} else {
+			claim := func(ctx context.Context, tx *sqlate.Tx) (bool, error) {
+				return r.Inbox.Claim(ctx, tx, sub.Name, e)
+			}
+			err = fn(ctx, data, claim)
 		}
-		claim := func(ctx context.Context, tx *sqlate.Tx) (bool, error) {
-			return r.Inbox.Claim(ctx, tx, sub.Name, e)
+		if event.IsPermanent(err) {
+			r.logger.WarnContext(ctx, "event refused", "consumer", sub.Name, "type", e.Type, "event", e.ID, "error", err)
 		}
-		return fn(ctx, data, claim)
+		return err
 	}
 	return reactor.New(src, handle, Grace(shutdown)), nil
 }

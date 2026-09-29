@@ -10,7 +10,7 @@
     "port": 5435,
     "password": "app"
   },
-  "messaging": {
+  "nats": {
     "url": "nats://127.0.0.1:4225"
   }
 }

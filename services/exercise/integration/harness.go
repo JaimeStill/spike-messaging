@@ -1,25 +1,20 @@
 package integration
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"net"
 	"os"
 	"strconv"
 	"testing"
-	"time"
 
-	natsgo "github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/standards-lab/go-core/process/processtest"
 	"github.com/standards-lab/go-web-sdk/webtest"
 
+	"github.com/JaimeStill/spike-messaging/messaging/nats/natstest"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/pgtest"
 )
 
 // The compose stack's defaults, the values config.local.json pairs with.
-// The harness reads the same EXERCISE_DATABASE_* and EXERCISE_MESSAGING_URL
+// The harness reads the same EXERCISE_DATABASE_* and EXERCISE_NATS_URL
 // variables first, so a run against another stack sets them.
 const (
 	defaultDatabaseHost     = "127.0.0.1"
@@ -68,43 +63,20 @@ func Start(t testing.TB, opts Options) *Service {
 func Launch(t testing.TB, opts Options) *Service {
 	t.Helper()
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(processtest.FreePort(t)))
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	tag := hex.EncodeToString(b)
 	s := &Service{
 		addr:     addr,
 		client:   webtest.NewClient("http://" + addr),
 		Database: pgtest.Scratch(t),
-		Stream:   "test_" + tag,
-		Prefix:   "test." + tag,
 	}
-	t.Cleanup(func() { deleteStream(t, s.Stream) })
+	s.Stream, s.Prefix = natstest.Stream(t, NATSURL())
 	s.Process = processtest.Launch(t, environment(opts, addr, s)...)
 	return s
 }
 
 // NATSURL is the NATS server the service's broker connects to: the parent's
-// EXERCISE_MESSAGING_URL, else the compose stack's.
+// EXERCISE_NATS_URL, else the compose stack's.
 func NATSURL() string {
-	return getenv("EXERCISE_MESSAGING_URL", defaultNATSURL)
-}
-
-// deleteStream removes a process's scratch stream, if it provisioned one.
-func deleteStream(t testing.TB, stream string) {
-	nc, err := natsgo.Connect(NATSURL())
-	if err != nil {
-		t.Logf("delete stream %s: %v", stream, err)
-		return
-	}
-	defer nc.Close()
-	js, err := jetstream.New(nc)
-	if err != nil {
-		t.Logf("delete stream %s: %v", stream, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = js.DeleteStream(ctx, stream)
+	return getenv("EXERCISE_NATS_URL", defaultNATSURL)
 }
 
 func getenv(name, fallback string) string {
@@ -141,9 +113,9 @@ func environment(opts Options, addr string, s *Service) []string {
 		"EXERCISE_DATABASE_PORT=" + getenv("EXERCISE_DATABASE_PORT", defaultDatabasePort),
 		"EXERCISE_DATABASE_PASSWORD=" + getenv("EXERCISE_DATABASE_PASSWORD", defaultDatabasePassword),
 		"EXERCISE_DATABASE_NAME=" + s.Database,
-		"EXERCISE_MESSAGING_URL=" + NATSURL(),
-		"EXERCISE_MESSAGING_STREAM=" + s.Stream,
-		"EXERCISE_MESSAGING_PREFIX=" + s.Prefix,
+		"EXERCISE_NATS_URL=" + NATSURL(),
+		"EXERCISE_NATS_STREAM=" + s.Stream,
+		"EXERCISE_NATS_PREFIX=" + s.Prefix,
 	}
 	return append(env, opts.Env...)
 }
