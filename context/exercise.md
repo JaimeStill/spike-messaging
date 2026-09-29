@@ -31,8 +31,8 @@ the sector layout, is what changes to make an exercise show the layer well.
 - A **sector** holds one **level**, a W×H grid. A cell is open, or carries one feature:
   - an **obstacle**, which is impassable
   - an **objective**, held by the last faction to end a round alone on it
-  - a **gate**, linked to a gate in another sector; entering it moves the element into the
-    linked sector
+  - a **gate**, linked to a gate in another sector; from a gate's cell, one step traverses the
+    link to the linked gate's cell
 - The map, meaning the grids and their features, is public. The elements are not.
 - Time runs in **rounds**. The exercise service resolves one round per interval, and every order
   for that round applies at once. An order for a round already resolved is dropped, so a late or
@@ -47,9 +47,11 @@ the sector layout, is what changes to make an exercise show the layer well.
 
 A round resolves in one transaction, in this order:
 
-1. **Move.** Every order applies at once. A move off the grid, into an obstacle, or onto a cell
-   where another element of the same faction ends is refused, and the element stays. Elements
-   that pass through each other do not meet.
+1. **Move.** Every order applies at once. A step enters an orthogonally adjacent cell, or
+   traverses a gate, and entering a gate and traversing it are separate steps. An order that
+   leaves the grid or enters an obstacle is refused whole, and the element stays; so is one that
+   ends where another element of the same faction ends. Elements that pass through each other do
+   not meet.
 2. **Engage.** In each cell holding both factions' elements, each faction's strength is summed.
    The stronger faction survives, reduced by the weaker's strength, and its losses fall on its
    weakest element first. A tie destroys both.
@@ -57,8 +59,9 @@ A round resolves in one transaction, in this order:
 4. **Observe.** Each faction observes its own elements, and every enemy element within sight of
    any of them, measured as Chebyshev distance within the same sector. An observation carries each
    element's kind and strength.
-5. **Judge.** A faction that holds every objective wins, and a faction with no elements loses. At
-   the round limit, the faction holding more objectives wins, or the exercise is a draw.
+5. **Judge.** A faction with no elements loses, which outranks holding every objective; otherwise
+   a faction that holds every objective wins. At the round limit, the faction holding more
+   objectives wins, or the exercise is a draw.
 
 ## The services
 
@@ -73,10 +76,12 @@ it.
 | **command**, deciding | `Open`, `Decide`, `Close` | `command.directive.issued` (only when an element's target changes) | `exercise.started`, `intelligence.assessment.issued`, `exercise.concluded` |
 | **operations**, maneuvering | `Open`, `Assign`, `Maneuver`, `Close` | `operations.orders.issued` (per faction per round) | `exercise.started`, `command.directive.issued`, `exercise.round.observed`, `exercise.concluded` |
 
-- **exercise** is the source of truth for conditions. `ResolveRound` runs on its own
-  `reactor.Every` at the round interval. `RecordOrders` refuses orders for a past round with
-  `event.Permanent`, so they are never redelivered. Its queries serve the umpire's full view and
-  the round history.
+- **exercise** is the source of truth for conditions, and is built: `services/exercise`. Its
+  README states its API, stages, and events, and `domain/exercise/events.go` its event entities,
+  the payloads the other services decode into types of their own. It reads orders from
+  `operations.orders.issued` in the shape `ordersIssued` in its `internal/app/reactors.go`
+  states, which operations confirms or reshapes. `RecordOrders` refuses an order for a resolved
+  round or past the round limit with `event.Permanent`, so it is never redelivered.
 - **intelligence** fuses its faction's observations into an assessment: its own elements, the
   contacts it knows of with their age, and the status of each objective. Five suppression rules
   limit what it can know:
@@ -130,11 +135,17 @@ it.
 
 - **Modules.** The services are four modules in `go.work`: `services/exercise`,
   `services/intelligence`, `services/command`, and `services/operations`.
-- **Scaffold.** Each is generated from go-web-sdk-template (`template/v0.3.0`).
-- **Persistence.** Each persists through sqlate and the outbox's Postgres engine, in a database of
-  its own on the compose Postgres.
-- **Wiring.** Each composition root wires its broker, outbox, relay, and reactors itself. The
-  repetition across four roots is evidence for what go-messaging should package.
+- **Scaffold.** Each is generated from go-web-sdk-template `template/v0.9.0` and bumped to the
+  SDK versions go-web-service uses.
+- **Persistence.** Each persists through go-database and sqlate, in a database of its own on the
+  compose Postgres. The environment provisions the empty database (`compose/postgres/init.sql`),
+  and the service owns everything in it: go-database's schema service migrates the messaging set
+  and the service's own at startup.
+- **Tasks.** A service's tasks are named `<service>:<action>`, such as `exercise:serve`.
+- **Wiring.** Each composition root wires its broker, outbox, inbox, recorder, relay, and
+  reactors. What exercise's root holds that every service repeats (the broker component, the
+  reactor registration, the relay's wiring, the failure throttle) is evidence for what
+  go-messaging should package.
 
 ## Assumptions
 

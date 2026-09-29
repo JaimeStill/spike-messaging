@@ -16,48 +16,49 @@ The answer decides go-messaging's module API, which primitives go-core gains, an
 
 ## Capabilities
 
-Each package sits in a directory named for its intended home. A committed `go.work` layers four
-modules: the root module holds the libraries, `messaging/outbox/postgres` is the outbox's Postgres
-engine, `messaging/nats` is the JetStream provider, and `courier` is the application.
+Each package sits in a directory named for its intended home. A committed `go.work` layers the
+modules: the root module holds the libraries, `messaging/postgres` is the outbox's and the inbox's
+Postgres engine, `messaging/nats` is the JetStream provider, `courier` is the CLI, and each
+exercise service under `services/` is a module of its own.
 `mise run split-check` holds the root to the standard library and sqlate's engine-agnostic
 packages, and `courier/scenario` to no NATS package.
 
-- **`core/event`**: the CloudEvents 1.0 type, its codec, the emitter interface a domain depends
-  on, and `Permanent`.
+- **`core/event`**: the CloudEvents 1.0 type, its codec, `Permanent`, and the vocabulary a domain
+  raises its events in: `Define` and `EventKind`, `Queue`, and the `Recorder` that emits them
+  through a `Sink` in the command's transaction.
 - **`core/reactor`**: the source contract, registration on go-core's lifecycle coordinator, and
   the interval source.
 - **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
   delivery groups.
-- **`messaging/outbox`**: the engine-agnostic emitter, relay, and inbox, over an `Engine` of
-  statements that an engine's module supplies. `messaging/outbox/postgres` is the Postgres engine:
-  its statements and the `messaging` migration set.
+- **`messaging/outbox` and `messaging/inbox`**: the engine-agnostic sink and relay, and the
+  inbox's claim, each over an `Engine` of statements that an engine's module supplies.
+  `messaging/postgres` is the Postgres engine: both packages' statements and the `messaging`
+  migration set.
 - **`messaging/memory` and `messaging/nats`**: the providers. Both pass the conformance suite,
   `messaging/messagingtest`.
 - **courier** (`courier/cmd/courier`, its own module): the spike's CLI, in the Elemental CLI
   layout. Its narrated scenarios each show one capability on a broker, `--broker memory` or
   `--broker nats`. Each step's checkpoint adds its scenarios.
-- **The exercise** (planned, `exercise.md`): four services, `exercise`, `intelligence`, `command`,
-  and `operations`, that play a two-faction exercise of sector dominance. Each round runs as a
-  chain of events and commands across all four.
+- **The exercise** (`exercise.md`): four services, `exercise`, `intelligence`, `command`, and
+  `operations`, that play a two-faction exercise of sector dominance. Each round runs as a chain
+  of events and commands across all four. `services/exercise`, the world, is built; the other
+  three are planned.
 
 ## Path
 
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **exercise**: the scaffold every service follows, and the world: rounds, resolution, its API,
-   and its events. It is proven by an exercise that runs to its round limit while both factions
-   stand idle.
-2. **operations**: directives become orders. courier stands in for command.
-3. **intelligence**: observations become assessments, under the suppression rules.
-4. **command and the final validation**: the loop closes and runs on its own. The step covers two
+1. **operations**: first the composition root every service repeats, extracted from exercise's
+   into shared packages, then directives become orders. courier stands in for command.
+2. **intelligence**: observations become assessments, under the suppression rules.
+3. **command and the final validation**: the loop closes and runs on its own. The step covers two
    replicas, drain, outages, convergence, and the import check. Its close states the answer.
 
 ## Notes
 
 - `design.md`: the decisions the spike starts from, the outbox-sequencing rule, and the open
   questions it settles.
-- `api.md`: the starting API.
 - `exercise.md`: the final demonstration, its guidelines, rules, and services.
 
 ## The final validation
