@@ -18,7 +18,7 @@ func execute(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return a.Run(t.Context()), out.String(), errs.String()
 }
 
-var names = []string{"every", "group", "retry", "permanent", "drain", "outbox", "request", "directives"}
+var names = []string{"every", "group", "retry", "permanent", "drain", "outbox", "request", "directives", "assessments"}
 
 func TestListNamesEveryScenario(t *testing.T) {
 	code, out, _ := execute(t, "list")

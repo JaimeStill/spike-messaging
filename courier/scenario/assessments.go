@@ -1,0 +1,295 @@
+package scenario
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+	"uuid"
+
+	"github.com/spf13/pflag"
+
+	"github.com/JaimeStill/spike-messaging/core/event"
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
+	"github.com/JaimeStill/spike-messaging/core/reactor"
+	"github.com/JaimeStill/spike-messaging/messaging"
+)
+
+// AssessmentsDurable prefixes the durable consumer each assessments run
+// subscribes under, so a release can find the ones a run left.
+const AssessmentsDurable = "courier-assessments-"
+
+// assessmentType is the event the assessments scenario narrates.
+const assessmentType = "intelligence.assessment.issued"
+
+// The scenario's own reading of intelligence's assessment: the services
+// share no Go types. It reuses the location and concludedData readings of
+// the directives scenario.
+type (
+	assessedElement struct {
+		ID string   `json:"id"`
+		At location `json:"at"`
+	}
+	assessedContact struct {
+		ID   string   `json:"id"`
+		At   location `json:"at"`
+		Seen int      `json:"seen"`
+		Age  int      `json:"age"`
+	}
+	assessedObjective struct {
+		At     location `json:"at"`
+		Holder string   `json:"holder"`
+		Known  bool     `json:"known"`
+		Seen   int      `json:"seen"`
+		Age    int      `json:"age"`
+	}
+	assessmentData struct {
+		Exercise   string              `json:"exercise"`
+		Faction    string              `json:"faction"`
+		Round      int                 `json:"round"`
+		Own        []assessedElement   `json:"own"`
+		Contacts   []assessedContact   `json:"contacts"`
+		Objectives []assessedObjective `json:"objectives"`
+	}
+)
+
+// assessmentsScenario stands in for the command service as a reader: it
+// joins the exercise services' stream and narrates the assessments the
+// intelligence service issues for one exercise, a faction's or both, until
+// the exercise concludes and the assessment of its last round has arrived.
+func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
+	var exercise, faction, stream, prefix string
+	maxAge := 24 * time.Hour
+	wait := 2 * time.Minute
+	return Scenario{
+		Name:    "assessments",
+		Summary: "Stand in for command as a reader: narrate the assessments issued for an exercise until it concludes",
+		Needs:   needs,
+		Flags: func(fs *pflag.FlagSet) {
+			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to follow (required)")
+			fs.StringVar(&faction, "faction", "", "the faction whose assessments to narrate (default: both)")
+			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
+			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
+			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
+			fs.DurationVar(&wait, "wait", wait, "how long to wait for the exercise to conclude")
+		},
+		Validate: func() error {
+			var errs []error
+			if _, err := uuid.Parse(exercise); err != nil {
+				errs = append(errs, errors.New("--exercise must be an exercise's ID"))
+			}
+			if wait <= 0 {
+				errs = append(errs, errors.New("--wait must be positive"))
+			}
+			return errors.Join(errs...)
+		},
+		Steps: func() ([]Step, func() error) {
+			c := newCoordinator(defaultDrain)
+			var l lease
+			w := &assessmentWatch{
+				exercise: exercise, faction: faction,
+				last: map[string]int{}, prev: map[string]map[string]bool{},
+				first: newSignal(), concluded: newSignal(), done: newSignal(),
+			}
+			who := faction
+			if who == "" {
+				who = "either faction"
+			}
+			return []Step{
+				{
+					Intent: fmt.Sprintf("Join the %s stream, and wait for %s's first assessment of exercise %s", stream, who, exercise),
+					Action: func(ctx context.Context, rep *Reporter) error {
+						if joins == nil {
+							return errors.New("no stream to join is configured")
+						}
+						b, release, err := joins(stream, prefix, maxAge)
+						if err != nil {
+							return err
+						}
+						l.release = release
+						src, err := b.Subscribe(messaging.Subscription{
+							Name:  AssessmentsDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
+							Types: []string{assessmentType, concludedType},
+						})
+						if err != nil {
+							return err
+						}
+						w.rep = rep
+						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, w.handle, reactor.Grace(defaultGrace)))
+						if err := c.start(ctx, rep); err != nil {
+							return err
+						}
+						return c.await(ctx, w.first.ch, who+"'s first assessment")
+					},
+				},
+				{
+					Intent: "Narrate each assessment as it arrives, until the exercise concludes and its last round is assessed",
+					Action: func(ctx context.Context, _ *Reporter) error {
+						wctx, cancel := context.WithTimeout(ctx, wait)
+						defer cancel()
+						select {
+						case <-w.done.ch:
+							return nil
+						case <-wctx.Done():
+							if w.concluded.isFired() {
+								return fmt.Errorf("the assessments of round %d did not all arrive within %s", w.verdict().Round, wait)
+							}
+							return fmt.Errorf("exercise %s did not conclude within %s", exercise, wait)
+						}
+					},
+				},
+				{
+					Intent: "Note the conclusion",
+					Action: func(_ context.Context, rep *Reporter) error {
+						v := w.verdict()
+						if v.Winner == "" {
+							rep.Note("concluded after round %d with no winner: %s", v.Round, v.Reason)
+						} else {
+							rep.Note("concluded after round %d: %s wins by %s", v.Round, v.Winner, v.Reason)
+						}
+						return nil
+					},
+				},
+				{
+					Intent: "Signal the drain: the watch stops receiving",
+					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
+				},
+			}, afterDrain(c, &l)
+		},
+	}
+}
+
+// assessmentWatch narrates one exercise's assessments as its reactor
+// receives them and keeps what it needs to notice a faction's dropped
+// contacts and to know when the last round has been assessed.
+type assessmentWatch struct {
+	exercise, faction      string
+	first, concluded, done *signal
+	rep                    *Reporter
+
+	mu   sync.Mutex
+	last map[string]int             // the round of each faction's last narrated assessment
+	prev map[string]map[string]bool // the contacts of each faction's last narrated assessment
+	end  concludedData
+}
+
+// handle reads one event of the stream, ignoring every other exercise's,
+// and narrates an assessment of a round later than its faction's last
+// narrated one. It is called from the reactor's goroutine; the Reporter is
+// safe for that.
+func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
+	var head struct {
+		Exercise string `json:"exercise"`
+	}
+	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != w.exercise {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch e.Type {
+	case assessmentType:
+		var d assessmentData
+		if err := json.Unmarshal(e.Data, &d); err != nil {
+			return event.Permanent(err)
+		}
+		if w.faction != "" && d.Faction != w.faction {
+			return nil
+		}
+		if r, ok := w.last[d.Faction]; ok && d.Round <= r {
+			return nil
+		}
+		w.narrate(d)
+		w.last[d.Faction] = d.Round
+		w.first.fire()
+	case concludedType:
+		if err := json.Unmarshal(e.Data, &w.end); err != nil {
+			return event.Permanent(err)
+		}
+		w.concluded.fire()
+	}
+	w.check()
+	return nil
+}
+
+// check fires done once the exercise has concluded and every narrated
+// faction's last narrated assessment is of the concluded round or later.
+func (w *assessmentWatch) check() {
+	if !w.concluded.isFired() {
+		return
+	}
+	for _, r := range w.last {
+		if r < w.end.Round {
+			return
+		}
+	}
+	w.done.fire()
+}
+
+func (w *assessmentWatch) verdict() concludedData {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.end
+}
+
+// narrate notes the assessment, and any contact the faction's previous
+// narrated assessment knew that this one lacks. The caller holds mu.
+func (w *assessmentWatch) narrate(d assessmentData) {
+	w.rep.Note("%s", assessmentLine(d))
+	now := map[string]bool{}
+	for _, c := range d.Contacts {
+		now[c.ID] = true
+	}
+	var dropped []string
+	for id := range w.prev[d.Faction] {
+		if !now[id] {
+			dropped = append(dropped, id)
+		}
+	}
+	slices.Sort(dropped)
+	for _, id := range dropped {
+		w.rep.Note("dropped %s", id)
+	}
+	w.prev[d.Faction] = now
+}
+
+// assessmentLine renders an assessment on one line: the faction's own
+// elements, the contacts it knows, and the objectives.
+func assessmentLine(d assessmentData) string {
+	var own, contacts, objectives []string
+	for _, e := range d.Own {
+		own = append(own, fmt.Sprintf("%s %s", e.ID, place(e.At)))
+	}
+	for _, c := range d.Contacts {
+		contacts = append(contacts, fmt.Sprintf("%s %s seen %d age %d", c.ID, place(c.At), c.Seen, c.Age))
+	}
+	for _, o := range d.Objectives {
+		s := place(o.At)
+		switch {
+		case !o.Known:
+			s += " unknown"
+		case o.Holder == "":
+			s += " unheld"
+		default:
+			s += " " + o.Holder
+		}
+		if o.Known && o.Age > 0 {
+			s += fmt.Sprintf(" age %d", o.Age)
+		}
+		objectives = append(objectives, s)
+	}
+	return fmt.Sprintf("round %d %s: own %s | contacts %s | objectives %s",
+		d.Round, d.Faction, orNone(own, " · "), orNone(contacts, " · "), orNone(objectives, " · "))
+}
+
+func place(l location) string { return fmt.Sprintf("%s:%d,%d", l.Sector, l.X, l.Y) }
+
+func orNone(parts []string, sep string) string {
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, sep)
+}
