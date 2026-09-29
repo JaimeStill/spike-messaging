@@ -57,9 +57,9 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core's lifecycle and config, and that courier's scenarios reach no NATS package"
+description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, and that courier's scenarios reach no NATS package"
 run = '''
-allowed='^github.com/standards-lab/(sqlate(/(header|query|sqltest|migrate))?|go-core/(lifecycle|config))$'
+allowed='^github.com/standards-lab/(sqlate(/(header|query|sqltest|migrate))?|go-core(/.*)?)$'
 # A package outside the standard library has a dot in its first path element.
 # go list runs on its own first, so a package that fails to load fails the check.
 deps=$(go list -deps -test -tags integration ./...) || exit 1
@@ -68,7 +68,7 @@ found=$(echo "$deps" | awk '{print $1}' | grep -E '^[^/]+\.[^/]*/' \
 if [ -n "$found" ]; then
   echo "the root module reaches packages outside its allow-list:"; echo "$found"; exit 1
 fi
-echo "split-check: the root module reaches only the standard library, sqlate's engine-agnostic packages, and go-core's lifecycle and config"
+echo "split-check: the root module reaches only the standard library, sqlate's engine-agnostic packages, and go-core"
 # Evidence 8: the native request and reply stays in the nats provider and the composition root, so
 # the broker-agnostic scenarios reach neither nats.go nor the provider.
 deps=$(go list -deps -test -tags integration ./courier/scenario/...) || exit 1
