@@ -35,9 +35,9 @@ type Dependencies struct {
 	// RequestNeeds in place of the broker's needs.
 	Exchanges    Exchanges
 	RequestNeeds func() []Need
-	// Joins builds the directives scenario's broker on the exercise
-	// services' stream, which requires JoinNeeds in place of the broker's
-	// needs.
+	// Joins builds the directives and assessments scenarios' broker on the
+	// exercise services' stream, which requires JoinNeeds in place of the
+	// broker's needs.
 	Joins     Joins
 	JoinNeeds func() []Need
 }
@@ -54,6 +54,7 @@ func Scenarios(d Dependencies) []Scenario {
 		outboxScenario(d.Brokers, d.Outboxes, concatNeeds(d.BrokerNeeds, d.OutboxNeeds)),
 		requestScenario(d.Exchanges, d.RequestNeeds),
 		directivesScenario(d.Joins, d.JoinNeeds),
+		assessmentsScenario(d.Joins, d.JoinNeeds),
 	}
 }
 
@@ -103,6 +104,16 @@ type signal struct {
 func newSignal() *signal { return &signal{ch: make(chan struct{})} }
 
 func (s *signal) fire() { s.once.Do(func() { close(s.ch) }) }
+
+// isFired reports whether the signal has fired.
+func (s *signal) isFired() bool {
+	select {
+	case <-s.ch:
+		return true
+	default:
+		return false
+	}
+}
 
 // sleep waits d, or until ctx ends, and reports whether it waited in full.
 func sleep(ctx context.Context, d time.Duration) bool {

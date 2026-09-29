@@ -83,13 +83,22 @@ it.
   states, which operations confirms or reshapes. `RecordOrders` refuses an order for a resolved
   round or past the round limit with `event.Permanent`, so it is never redelivered.
 - **intelligence** fuses its faction's observations into an assessment: its own elements, the
-  contacts it knows of with their age, and the status of each objective. Five suppression rules
-  limit what it can know:
-  - sight radius by kind
-  - sight stopping at the sector's edge
-  - a contact kept at its last-seen cell and dropped after K rounds unseen
-  - nothing that a round did not reveal
-  - the chain's own lag
+  contacts it knows of with their age, and the status of each objective. It is built:
+  `services/intelligence`, whose README states its API, stages, and events.
+  - Five suppression rules limit what it can know. exercise's observation already enforces
+    sight radius by kind and sight stopping at the sector's edge. `domain/intelligence/fusion`
+    enforces the other three:
+    - A contact is kept at its last-seen cell, and dropped after K rounds unseen, or as soon as
+      a friendly element sees that cell empty.
+    - Nothing a round did not reveal is reported: an objective no element has seen is
+      `known: false`.
+    - The chain's own lag: ages count in rounds.
+  - K is the service's `contact_rounds` setting, 3 by default.
+  - Its payload is
+    `{exercise, faction, round, own, contacts: [{…element, seen, age}], objectives: [{at, holder, known, seen, age}]}`.
+  - exercise raises a round's final observations with its conclusion, and intelligence consumes
+    them on separate subscriptions. So `Close` records the concluded round, and a closed
+    assessment still takes an observation up to it.
 - **command** decides, for each live element on each assessment:
   1. **Engage** a weaker known contact within 3 cells. Forces only.
   2. Otherwise, **secure** the nearest objective that its faction does not hold and that none of
@@ -112,6 +121,19 @@ it.
     start that opens its operation: it fails with `ErrNotOpen`, which is not permanent, and is
     redelivered after 250ms.
   - courier's `directives` scenario stands in for command.
+- **For command, from intelligence's assessments:**
+  - An unknown objective's `holder` is `""` too, so command tests `known` before treating an
+    objective as unheld.
+  - A belief about an objective stays stale until an element sees it again. In the theater,
+    red ended believing it held an objective blue had retaken.
+  - A faction never learns it destroyed a contact. The destroyed element is out of the next
+    observation, so intelligence keeps it until it ages out or its cell is seen empty.
+  - Own elements carry `kind`, which the forces-only rule needs, and contacts carry `strength`,
+    which the weaker test needs.
+  - Any consumer of a final round's events must allow for the conclusion arriving first, as
+    intelligence's `Close` does.
+- courier's `directives` stand-in decides once, on round 0. A run that starts late issues a
+  directive operations skips as stale, so the faction stands still without any sign.
 - command and operations each skip an input from an earlier round than the last they acted on.
   command issues a directive only when a target changes, so when operations skips a lagging
   one, that change is lost: command resends its faction's full target state in each directive,
@@ -154,7 +176,8 @@ it.
     boot replays every retained exercise: operations issued orders for all of them, which
     exercise refused.
   - Orders issued after an exercise's last round, before its conclusion is handled, are refused.
-  - An input for an exercise never opened is redelivered without bound.
+  - An input for an exercise never opened is redelivered without bound, in operations and in
+    intelligence.
   - Every broker on the stream sets its configuration, so each service, and courier's
     `--max-age`, must set `max_age` alike.
 
@@ -168,7 +191,8 @@ it.
   compose Postgres. The environment provisions the empty database (`compose/postgres/init.sql`),
   and the service owns everything in it: go-database's schema service migrates the messaging set
   and the service's own at startup.
-- **Tasks.** A service's tasks are named `<service>:<action>`, such as `exercise:serve`.
+- **Tasks.** The mise tasks are named `<category>-<action>`, such as `exercise-serve`,
+  `demo-theater`, and `demo-theater-check`.
 - **Wiring.** Each composition root builds its broker with `nats.New` and its messaging with
   `messaging.New`, and registers the broker, the relay (`Runtime.Relay`), and each consumer
   (`Runtime.Consume`) through `core/lifecycle.Register`. A service's configuration carries a

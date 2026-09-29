@@ -195,7 +195,8 @@ The evidence from step 1's `cmd/every`, now courier's `every` scenario:
   to the coordinator's drain timeout. A single registration could carry all of it.
 - **Readiness lags `Start`.** The coordinator marks the process ready as soon as `Start`
   returns, before the reactor's source is receiving, so a probe of the component's check can
-  briefly read not ready.
+  briefly read not ready. Each service's lifecycle test awaits readiness before it reads the
+  checks.
 - **The coordinator drops errors in two windows.** It stops reading monitored channels at the
   signal, and it drops a drain error that arrives at its deadline. The reactor covers both
   itself: `Shutdown` returns a failure that was sent on `Err` but never read, and `Grace`, set
@@ -260,6 +261,9 @@ The evidence from operations (`services/operations/internal/app`):
   and one set to an unbounded `MaxAge` removes the retention. go-messaging needs a way to bind a
   stream without provisioning it, or one owner for its configuration.
 - The relay's 10s default `Timeout` is untested against a slow broker.
+- A durable consumer outlives the process that made it. courier's release deletes only the
+  consumers its own run subscribed, so a run that dies without its release leaves its consumer
+  on the stream. The nats provider sets no `InactiveThreshold`, so nothing reaps it.
 - At promotion, the engine module and any other sibling module need real `require` lines. They
   build today only through `go.work`.
 - How trace context propagates as the CloudEvents `traceparent` extension alongside

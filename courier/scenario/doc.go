@@ -21,4 +21,9 @@
 // than a scratch one, reads the map and a faction's first observation from
 // it, and issues one command.directive.issued that sends each of the
 // faction's elements to secure an objective.
+//
+// The assessments scenario stands in for command as a reader. It joins the
+// same stream and narrates the intelligence.assessment.issued events of one
+// exercise until it concludes, in full or, with --summary, as counts for an
+// exercise with many elements.
 package scenario

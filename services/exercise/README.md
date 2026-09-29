@@ -13,12 +13,21 @@ The service runs on the host against the repository's compose stack: Postgres, w
 
 ```sh
 mise run up               # start Postgres and NATS
-mise run exercise:serve   # run the service on 127.0.0.1:8081
+mise run exercise-serve   # run the service on 127.0.0.1:8081
 ```
 
 `mise run reset` recreates the stack's volumes. `compose/postgres/init.sql` creates the service
 databases when the volume is first initialized. The service migrates only its own schema, at
 startup.
+
+`fixtures/theater.json` is a larger exercise: three sectors joined by gates, walls and obstacle
+fields, five objectives, and six elements a side, each faction starting in its home sector. With
+exercise, intelligence, and operations running, `mise run demo-theater` creates and starts it,
+directs both factions through courier's `directives` scenario, and narrates both factions'
+assessments through courier's `assessments --summary`, a block per faction per round.
+`mise run demo-theater-check` then reconciles every assessment of the run against this service's
+history, the umpire's record, under the suppression rules, and reports what each faction wrongly
+believes at the end.
 
 ## API
 
@@ -69,7 +78,7 @@ relay then publishes what they committed while they drained. The broker and data
 ## Configuration
 
 Configuration is layered: `config.json`, `config.<EXERCISE_ENV>.json`, and the secrets files, with
-`EXERCISE_*` environment variables applied last. `exercise:serve` sets `EXERCISE_ENV=local`, so
+`EXERCISE_*` environment variables applied last. `exercise-serve` sets `EXERCISE_ENV=local`, so
 `config.local.json` points the service at the compose stack. The service adds three blocks to the
 template's:
 

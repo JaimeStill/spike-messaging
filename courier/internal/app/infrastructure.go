@@ -8,7 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/standards-lab/sqlate/migrate"
 	pgdialect "github.com/standards-lab/sqlate/postgres"
 
+	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/courier/scenario"
 	"github.com/JaimeStill/spike-messaging/messaging"
@@ -202,9 +204,10 @@ func (i *Infrastructure) natsPing(ctx context.Context) error {
 
 // Join returns a nats broker on the named stream, the one the exercise
 // services share, provisioned with maxAge as they provision it, and its
-// release. The release deletes the durable consumers the directives
-// scenario left on the stream, then drains the connection; it leaves the
-// stream and its events.
+// release. The broker records each durable consumer the run subscribes, and
+// the release deletes those alone, so another run on the stream, such as a
+// directives run beside an assessments run, keeps its own. The release then
+// drains the connection; it leaves the stream and its events.
 func (i *Infrastructure) Join(stream, prefix string, maxAge time.Duration) (messaging.Broker, func() error, error) {
 	if i.cfg.Broker != "nats" {
 		return nil, nil, fmt.Errorf("the %s broker cannot join the services' stream", i.cfg.Broker)
@@ -220,18 +223,48 @@ func (i *Infrastructure) Join(stream, prefix string, maxAge time.Duration) (mess
 	if err := broker.Start(ctx); err != nil {
 		return nil, nil, err
 	}
+	j := &joined{Broker: broker}
 	release := func() error {
-		derr := deleteConsumers(broker.Conn(), stream, scenario.DirectivesDurable)
+		derr := deleteConsumers(broker.Conn(), stream, j.subscribed())
 		ctx, cancel := context.WithTimeout(context.Background(), natsWait)
 		defer cancel()
 		return errors.Join(derr, broker.Shutdown(ctx))
 	}
-	return broker, release, nil
+	return j, release, nil
 }
 
-// deleteConsumers deletes every durable consumer on the stream whose name
-// begins with prefix.
-func deleteConsumers(nc *natsgo.Conn, stream, prefix string) error {
+// joined is a broker on the services' stream that records the name of each
+// durable consumer its run subscribes, for the run's release to delete.
+type joined struct {
+	*nats.Broker
+	mu    sync.Mutex
+	names []string
+}
+
+// Subscribe subscribes through the broker and records sub's name.
+func (j *joined) Subscribe(sub messaging.Subscription) (reactor.Source[event.Event], error) {
+	src, err := j.Broker.Subscribe(sub)
+	if err == nil {
+		j.mu.Lock()
+		j.names = append(j.names, sub.Name)
+		j.mu.Unlock()
+	}
+	return src, err
+}
+
+// subscribed returns the names of the consumers the run subscribed.
+func (j *joined) subscribed() []string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return slices.Clone(j.names)
+}
+
+// deleteConsumers deletes the named durable consumers from the stream. A
+// consumer already gone is not an error.
+func deleteConsumers(nc *natsgo.Conn, stream string, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return err
@@ -242,20 +275,18 @@ func deleteConsumers(nc *natsgo.Conn, stream, prefix string) error {
 	if err != nil {
 		return fmt.Errorf("stream %s: %w", stream, err)
 	}
-	names := s.ConsumerNames(ctx)
 	var errs []error
-	for name := range names.Name() {
-		if strings.HasPrefix(name, prefix) {
-			if err := s.DeleteConsumer(ctx, name); err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
-				errs = append(errs, fmt.Errorf("delete consumer %s: %w", name, err))
-			}
+	for _, name := range names {
+		if err := s.DeleteConsumer(ctx, name); err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+			errs = append(errs, fmt.Errorf("delete consumer %s: %w", name, err))
 		}
 	}
-	return errors.Join(append(errs, names.Err())...)
+	return errors.Join(errs...)
 }
 
-// JoinNeeds returns what the directives scenario requires: the nats broker,
-// which alone reaches the services' stream, and then what it needs.
+// JoinNeeds returns what the directives and assessments scenarios require:
+// the nats broker, which alone reaches the services' stream, and then what
+// it needs.
 func (i *Infrastructure) JoinNeeds() []scenario.Need {
 	if i.cfg.Broker != "nats" {
 		return []scenario.Need{{
