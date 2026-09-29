@@ -41,7 +41,9 @@ const (
 )
 
 // The scenario's own readings of exercise's payloads, as far as it reads
-// them, and the directive it issues: the services share no Go types.
+// them, and the directive it issues: the services share no Go types. A
+// directive's rule and contact are command's, which the assessments
+// scenario narrates; this stand-in sets neither.
 type (
 	point struct {
 		X int `json:"x"`
@@ -78,6 +80,8 @@ type (
 	}
 	directive struct {
 		Element string    `json:"element"`
+		Rule    string    `json:"rule,omitempty"`
+		Contact string    `json:"contact,omitempty"`
 		Target  *location `json:"target"`
 	}
 	directiveData struct {

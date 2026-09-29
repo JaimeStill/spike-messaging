@@ -262,6 +262,88 @@ func TestAssessmentsSummaryNarratesALateFirstRound(t *testing.T) {
 	}
 }
 
+// Each round's block ends with the directives decided on it: each element
+// whose directive changed, with what it was doing before, and none for an
+// element whose directive stands. A directive without a rule, as courier's
+// stand-in issues, heads for its target. Unsummarized, a directive is
+// narrated as it arrives.
+func TestAssessmentsNarratesDirectives(t *testing.T) {
+	b := memory.New()
+	at := func(x, y int) map[string]any { return map[string]any{"sector": "a", "x": x, "y": y} }
+	publishJSON(t, b, "s", "exercise.started", map[string]any{"exercise": exerciseID, "factions": []string{"red", "blue"}})
+	for r := range 3 {
+		for _, f := range []string{"red", "blue"} {
+			publishJSON(t, b, f+strconv.Itoa(r), "intelligence.assessment.issued", map[string]any{
+				"exercise": exerciseID, "faction": f, "round": r,
+				"own": []any{map[string]any{"id": f[:1] + "1", "strength": 2, "at": at(0, 0)}},
+			})
+		}
+		direct := func(f string, ds ...any) {
+			publishJSON(t, b, "d"+f+strconv.Itoa(r), "command.directive.issued", map[string]any{
+				"exercise": exerciseID, "faction": f, "round": r, "directives": ds,
+			})
+		}
+		switch r {
+		case 0:
+			direct("red",
+				map[string]any{"element": "r1", "rule": "secure", "target": at(4, 4)},
+				map[string]any{"element": "r2", "rule": "hold", "target": nil})
+			direct("blue", map[string]any{"element": "b1", "target": at(0, 4)})
+		case 1:
+			direct("red",
+				map[string]any{"element": "r1", "rule": "engage", "contact": "b2", "target": at(5, 5)},
+				map[string]any{"element": "r2", "rule": "hold", "target": nil})
+		}
+	}
+	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 2, "reason": "limit"})
+	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
+		if s.Name != "assessments" {
+			continue
+		}
+		for _, args := range [][]string{{"--summary"}, {}} {
+			rep, out := reporter()
+			cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+			cmd.SetArgs(append([]string{"--exercise", exerciseID, "--wait", "5s"}, args...))
+			if err := cmd.ExecuteContext(t.Context()); err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			got := out.String()
+			want := []string{
+				"round 0 red directs: r1 secures a:4,4 · r2 holds",
+				"round 1 red directs: r1 engages b2 at a:5,5 (was securing a:4,4)\n",
+				"round 0 blue directs: b1 heads for a:0,4",
+			}
+			if len(args) > 0 {
+				want = []string{
+					"  round 0\n" +
+						"    red   1 element, strength 2\n" +
+						"          sees       none\n" +
+						"          objectives none\n" +
+						"          directs    r1 secures a:4,4\n" +
+						"                     r2 holds\n" +
+						"    blue  1 element, strength 2\n" +
+						"          sees       none\n" +
+						"          objectives none\n" +
+						"          directs    b1 heads for a:0,4\n",
+					"  round 1\n" +
+						"    red   1 element, strength 2\n" +
+						"          sees       none\n" +
+						"          objectives none\n" +
+						"          directs    r1 engages b2 at a:5,5 (was securing a:4,4)\n" +
+						"    blue  1 element, strength 2\n",
+					"round 2: no change",
+				}
+			}
+			for _, w := range want {
+				if !strings.Contains(got, w) {
+					t.Errorf("%v: narration lacks %q:\n%s", args, w, got)
+				}
+			}
+		}
+	}
+}
+
 func TestAssessmentsValidatesItsFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{},

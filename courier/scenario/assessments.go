@@ -23,7 +23,8 @@ import (
 // subscribes under, so the stream's consumers show which are courier's.
 const AssessmentsDurable = "courier-assessments-"
 
-// assessmentType is the event the assessments scenario narrates.
+// assessmentType is the event the assessments scenario narrates, beside the
+// directives command decides on each assessment, directiveType.
 const assessmentType = "intelligence.assessment.issued"
 
 // The scenario's own reading of intelligence's assessment: the services
@@ -59,10 +60,11 @@ type (
 	}
 )
 
-// assessmentsScenario stands in for the command service as a reader: it
-// joins the exercise services' stream and narrates the assessments the
-// intelligence service issues for one exercise, a faction's or both, until
-// the exercise concludes and the assessment of its last round has arrived.
+// assessmentsScenario joins the exercise services' stream and narrates the
+// assessments the intelligence service issues for one exercise, a
+// faction's or both, and the directives the command service decides on
+// them, until the exercise concludes and the assessment of its last round
+// has arrived.
 func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, faction, stream, prefix string
 	var summary bool
@@ -70,7 +72,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 	wait := 2 * time.Minute
 	return Scenario{
 		Name:    "assessments",
-		Summary: "Stand in for command as a reader: narrate the assessments issued for an exercise until it concludes",
+		Summary: "Narrate the assessments issued for an exercise, and the directives decided on them, until it concludes",
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to follow (required)")
@@ -118,7 +120,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 						l.release = release
 						src, err := b.Subscribe(messaging.Subscription{
 							Name:  AssessmentsDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
-							Types: []string{startedType, assessmentType, concludedType},
+							Types: []string{startedType, assessmentType, directiveType, concludedType},
 						})
 						if err != nil {
 							return err
@@ -132,7 +134,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 					},
 				},
 				{
-					Intent: "Narrate each assessment as it arrives, until the exercise concludes and its last round is assessed",
+					Intent: "Narrate each assessment and directive as it arrives, until the exercise concludes and its last round is assessed",
 					Action: func(ctx context.Context, _ *Reporter) error {
 						wctx, cancel := context.WithTimeout(ctx, wait)
 						defer cancel()
@@ -227,6 +229,19 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 			w.narrate(d)
 		}
 		w.first.fire()
+	case directiveType:
+		var d directiveData
+		if err := json.Unmarshal(e.Data, &d); err != nil {
+			return event.Permanent(err)
+		}
+		if w.faction != "" && d.Faction != w.faction {
+			return nil
+		}
+		if w.summary {
+			w.book.direct(d)
+		} else if lines := w.book.directs(d); len(lines) > 0 {
+			w.rep.Note("round %d %s directs: %s", d.Round, d.Faction, strings.Join(lines, " · "))
+		}
 	case concludedType:
 		if err := json.Unmarshal(e.Data, &w.end); err != nil {
 			return event.Permanent(err)
@@ -241,7 +256,7 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		w.concluded.fire()
 	}
 	if w.summary {
-		w.book.flush(w.rep.Note, w.last)
+		w.book.flush(w.rep.Note, w.last, w.concluded.isFired())
 	}
 	w.check()
 	return nil

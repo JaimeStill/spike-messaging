@@ -6,26 +6,34 @@ import (
 	"strings"
 )
 
-// roundBook groups one exercise's assessments by round for the summary
-// narration, and narrates a round once every faction's assessment of it is
-// in: a block per faction, with what changed since its last round, and
-// quiet rounds collapsed into one line.
+// roundBook groups one exercise's assessments and directives by round for
+// the summary narration, and narrates a round once every faction has been
+// assessed on a later one, or, once the exercise concluded, once every
+// faction's assessment of it is in: a block per faction, with what changed
+// since its last round and the directives decided on it, and quiet rounds
+// collapsed into one line. A directive decided on a round is issued after
+// the round's assessment, and ahead of the next round's on the stream, so
+// waiting for the next round is what puts it in its round's block.
 type roundBook struct {
-	factions []string // the factions narrated, once known
-	pending  map[int]map[string]assessmentData
-	next     int  // the next round to narrate
-	begun    bool // whether a round was narrated yet
-	prev     map[string]assessmentData
-	prevKey  map[string][]string // each faction's last narrated picture, without ages
-	quiet    [2]int              // the open run of quiet rounds, or -1s
+	factions   []string // the factions narrated, once known
+	pending    map[int]map[string]assessmentData
+	directives map[int]map[string]directiveData // by the round they are narrated with
+	standing   map[string]map[string]directive  // each faction's last directive, by element
+	next       int                              // the next round to narrate
+	begun      bool                             // whether a round was narrated yet
+	prev       map[string]assessmentData
+	prevKey    map[string][]string // each faction's last narrated picture, without ages
+	quiet      [2]int              // the open run of quiet rounds, or -1s
 }
 
 func newRoundBook(faction string) *roundBook {
 	b := &roundBook{
-		pending: map[int]map[string]assessmentData{},
-		prev:    map[string]assessmentData{},
-		prevKey: map[string][]string{},
-		quiet:   [2]int{-1, -1},
+		pending:    map[int]map[string]assessmentData{},
+		directives: map[int]map[string]directiveData{},
+		standing:   map[string]map[string]directive{},
+		prev:       map[string]assessmentData{},
+		prevKey:    map[string][]string{},
+		quiet:      [2]int{-1, -1},
 	}
 	if faction != "" {
 		b.factions = []string{faction}
@@ -41,11 +49,23 @@ func (b *roundBook) add(d assessmentData) {
 	b.pending[d.Round][d.Faction] = d
 }
 
-// flush narrates, in order, every round that is complete: each faction's
-// assessment of it is in, or the faction has been assessed on a later
-// round, so this one will never come for it. last holds each faction's
-// latest assessed round.
-func (b *roundBook) flush(note func(string, ...any), last map[string]int) {
+// direct files d under its round, or under the next round to narrate when
+// its own was narrated already, as a directive held up on the stream would
+// be.
+func (b *roundBook) direct(d directiveData) {
+	r := max(d.Round, b.next)
+	if b.directives[r] == nil {
+		b.directives[r] = map[string]directiveData{}
+	}
+	b.directives[r][d.Faction] = d
+}
+
+// flush narrates, in order, every round that is complete: each faction has
+// been assessed on a later round, so the round's directives are in and a
+// missing assessment will never come. Once the exercise has concluded, a
+// round is complete as soon as each faction's assessment of it is in. last
+// holds each faction's latest assessed round.
+func (b *roundBook) flush(note func(string, ...any), last map[string]int, concluded bool) {
 	// The run reads the stream from its start, so it begins at round 0; a
 	// round no faction will be assessed on is passed once each faction has
 	// been assessed on a later one.
@@ -56,7 +76,7 @@ func (b *roundBook) flush(note func(string, ...any), last map[string]int) {
 	for {
 		set := b.pending[b.next]
 		for _, f := range b.factions {
-			if _, ok := set[f]; !ok {
+			if _, ok := set[f]; !ok || !concluded {
 				if r, seen := last[f]; !seen || r <= b.next {
 					return
 				}
@@ -64,6 +84,7 @@ func (b *roundBook) flush(note func(string, ...any), last map[string]int) {
 		}
 		b.narrate(note, b.next, set)
 		delete(b.pending, b.next)
+		delete(b.directives, b.next)
 		b.next++
 	}
 }
@@ -104,6 +125,15 @@ func (b *roundBook) narrate(note func(string, ...any), r int, set map[string]ass
 		prev, had := b.prev[f]
 		head, changed := header(d, prev, had)
 		body := b.body(d, prev, had, r, true)
+		if dir, ok := b.directives[r][f]; ok {
+			for i, l := range b.directs(dir) {
+				label := "           "
+				if i == 0 {
+					label = "directs    "
+				}
+				body = append(body, label+l)
+			}
+		}
 		key := b.body(d, prev, had, r, false)
 		if changed || len(body) > len(key) || !slices.Equal(key, b.prevKey[f]) {
 			quiet = false
@@ -234,6 +264,57 @@ func objectivesLine(d assessmentData, ages bool) string {
 		}
 	}
 	return orNone(parts, " · ")
+}
+
+// directs renders each directive of d that differs from its element's last
+// one, and records d as the faction's standing directives. Each line names
+// what the element now does and, when it was doing something else, what
+// that was.
+func (b *roundBook) directs(d directiveData) []string {
+	was := b.standing[d.Faction]
+	now := make(map[string]directive, len(d.Directives))
+	var lines []string
+	for _, x := range d.Directives {
+		now[x.Element] = x
+		prev, ok := was[x.Element]
+		if ok && sameDirective(prev, x) {
+			continue
+		}
+		l := x.Element + " " + doing(x, false)
+		if ok {
+			l += " (was " + doing(prev, true) + ")"
+		}
+		lines = append(lines, l)
+	}
+	b.standing[d.Faction] = now
+	return lines
+}
+
+func sameDirective(a, b directive) bool {
+	return a.Rule == b.Rule && a.Contact == b.Contact && (a.Target == nil) == (b.Target == nil) &&
+		(a.Target == nil || *a.Target == *b.Target)
+}
+
+// doing renders what a directive has its element do, as a present tense
+// ("engages b2 at a:5,5") or, for what it was doing, a participle
+// ("engaging b2 at a:5,5"). A directive without a rule, as courier's
+// stand-in issues, heads for its target or holds.
+func doing(x directive, was bool) string {
+	verb := func(present, participle string) string {
+		if was {
+			return participle
+		}
+		return present
+	}
+	switch {
+	case x.Target == nil:
+		return verb("holds", "holding")
+	case x.Rule == "engage":
+		return verb("engages ", "engaging ") + x.Contact + " at " + place(*x.Target)
+	case x.Rule == "secure":
+		return verb("secures ", "securing ") + place(*x.Target)
+	}
+	return verb("heads for ", "heading for ") + place(*x.Target)
 }
 
 func ago(n int) string { return fmt.Sprintf("%d %s ago", n, plural(n, "round")) }
