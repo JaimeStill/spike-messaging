@@ -26,9 +26,5 @@
     "source": "/exercise",
     "relay_poll": "250ms"
   },
-  "reads": {
-    "default_size": 20,
-    "max_size": 100
-  },
   "shutdown_timeout": "10s"
 }
