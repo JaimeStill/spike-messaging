@@ -12,7 +12,7 @@ The service runs on the host against the repository's compose stack: Postgres, w
 
 ```sh
 mise run up                 # start Postgres and NATS
-mise run intelligence:serve   # run the service on 127.0.0.1:8082
+mise run intelligence-serve   # run the service on 127.0.0.1:8082
 ```
 
 ## API
@@ -70,7 +70,7 @@ broker and database close last.
 ## Configuration
 
 Configuration is layered: `config.json`, `config.<INTELLIGENCE_ENV>.json`, and the secrets files,
-with `INTELLIGENCE_*` environment variables applied last. `intelligence:serve` sets
+with `INTELLIGENCE_*` environment variables applied last. `intelligence-serve` sets
 `INTELLIGENCE_ENV=local`, so `config.local.json` points the service at the compose stack. The
 service adds four blocks to the template's:
 

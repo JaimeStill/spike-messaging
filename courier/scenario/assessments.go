@@ -31,14 +31,16 @@ const assessmentType = "intelligence.assessment.issued"
 // the directives scenario.
 type (
 	assessedElement struct {
-		ID string   `json:"id"`
-		At location `json:"at"`
+		ID       string   `json:"id"`
+		Strength int      `json:"strength"`
+		At       location `json:"at"`
 	}
 	assessedContact struct {
-		ID   string   `json:"id"`
-		At   location `json:"at"`
-		Seen int      `json:"seen"`
-		Age  int      `json:"age"`
+		ID       string   `json:"id"`
+		Strength int      `json:"strength"`
+		At       location `json:"at"`
+		Seen     int      `json:"seen"`
+		Age      int      `json:"age"`
 	}
 	assessedObjective struct {
 		At     location `json:"at"`
@@ -63,6 +65,7 @@ type (
 // the exercise concludes and the assessment of its last round has arrived.
 func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, faction, stream, prefix string
+	var summary bool
 	maxAge := 24 * time.Hour
 	wait := 2 * time.Minute
 	return Scenario{
@@ -72,6 +75,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to follow (required)")
 			fs.StringVar(&faction, "faction", "", "the faction whose assessments to narrate (default: both)")
+			fs.BoolVar(&summary, "summary", false, "narrate each assessment as counts and contact IDs, for an exercise with many elements")
 			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
 			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
 			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
@@ -91,8 +95,8 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 			c := newCoordinator(defaultDrain)
 			var l lease
 			w := &assessmentWatch{
-				exercise: exercise, faction: faction,
-				last: map[string]int{}, prev: map[string]map[string]bool{},
+				exercise: exercise, faction: faction, summary: summary,
+				last: map[string]int{}, prev: map[string]map[string]bool{}, prevOwn: map[string]map[string]bool{},
 				first: newSignal(), concluded: newSignal(), done: newSignal(),
 			}
 			who := faction
@@ -168,13 +172,15 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 // contacts and to know when the last round has been assessed.
 type assessmentWatch struct {
 	exercise, faction      string
+	summary                bool
 	first, concluded, done *signal
 	rep                    *Reporter
 
-	mu   sync.Mutex
-	last map[string]int             // the round of each faction's last narrated assessment
-	prev map[string]map[string]bool // the contacts of each faction's last narrated assessment
-	end  concludedData
+	mu      sync.Mutex
+	last    map[string]int             // the round of each faction's last narrated assessment
+	prev    map[string]map[string]bool // the contacts of each faction's last narrated assessment
+	prevOwn map[string]map[string]bool // the own elements of each faction's last narrated assessment
+	end     concludedData
 }
 
 // handle reads one event of the stream, ignoring every other exercise's,
@@ -235,25 +241,83 @@ func (w *assessmentWatch) verdict() concludedData {
 	return w.end
 }
 
-// narrate notes the assessment, and any contact the faction's previous
-// narrated assessment knew that this one lacks. The caller holds mu.
+// narrate notes the assessment, in full or as a summary, then each own
+// element the faction's previous narrated assessment held that this one
+// lacks, which the faction lost, and each contact it knew that this one
+// lacks, which intelligence dropped. The caller holds mu.
 func (w *assessmentWatch) narrate(d assessmentData) {
-	w.rep.Note("%s", assessmentLine(d))
-	now := map[string]bool{}
+	if w.summary {
+		w.rep.Note("%s", summaryLine(d))
+	} else {
+		w.rep.Note("%s", assessmentLine(d))
+	}
+	own := map[string]bool{}
+	for _, e := range d.Own {
+		own[e.ID] = true
+	}
+	contacts := map[string]bool{}
 	for _, c := range d.Contacts {
-		now[c.ID] = true
+		contacts[c.ID] = true
 	}
-	var dropped []string
-	for id := range w.prev[d.Faction] {
-		if !now[id] {
-			dropped = append(dropped, id)
-		}
+	for _, id := range gone(w.prevOwn[d.Faction], own) {
+		w.rep.Note("lost %s", id)
 	}
-	slices.Sort(dropped)
-	for _, id := range dropped {
+	for _, id := range gone(w.prev[d.Faction], contacts) {
 		w.rep.Note("dropped %s", id)
 	}
-	w.prev[d.Faction] = now
+	w.prevOwn[d.Faction] = own
+	w.prev[d.Faction] = contacts
+}
+
+// gone returns, sorted, the IDs in before that now lacks.
+func gone(before, now map[string]bool) []string {
+	var out []string
+	for id := range before {
+		if !now[id] {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// summaryLine renders an assessment as counts: the faction's own elements
+// and their total strength, each contact by ID with its strength and age,
+// and how many objectives each faction holds, how many are unheld, and how
+// many the faction has never seen.
+func summaryLine(d assessmentData) string {
+	strength := 0
+	for _, e := range d.Own {
+		strength += e.Strength
+	}
+	var contacts []string
+	for _, c := range d.Contacts {
+		contacts = append(contacts, fmt.Sprintf("%s(%d) age %d", c.ID, c.Strength, c.Age))
+	}
+	held := map[string]int{}
+	var holders []string
+	unheld, unknown := 0, 0
+	for _, o := range d.Objectives {
+		switch {
+		case !o.Known:
+			unknown++
+		case o.Holder == "":
+			unheld++
+		default:
+			if held[o.Holder] == 0 {
+				holders = append(holders, o.Holder)
+			}
+			held[o.Holder]++
+		}
+	}
+	slices.Sort(holders)
+	var objectives []string
+	for _, h := range holders {
+		objectives = append(objectives, fmt.Sprintf("%s %d", h, held[h]))
+	}
+	objectives = append(objectives, fmt.Sprintf("unheld %d", unheld), fmt.Sprintf("unknown %d", unknown))
+	return fmt.Sprintf("round %d %s: own %d, strength %d | contacts %s | objectives %s",
+		d.Round, d.Faction, len(d.Own), strength, orNone(contacts, " · "), strings.Join(objectives, " · "))
 }
 
 // assessmentLine renders an assessment on one line: the faction's own

@@ -113,6 +113,58 @@ func TestAssessmentsNarratesOneFaction(t *testing.T) {
 	}
 }
 
+// With --summary, each assessment is narrated as counts: own elements and
+// their strength, contacts by ID, strength, and age, and objectives by
+// holder. An own element a later assessment lacks is noted as lost.
+func TestAssessmentsSummarizes(t *testing.T) {
+	b := memory.New()
+	at := func(s string, x, y int) map[string]any { return map[string]any{"sector": s, "x": x, "y": y} }
+	own := func(id string, strength int) map[string]any {
+		return map[string]any{"id": id, "strength": strength, "at": at("a", 0, 0)}
+	}
+	objectives := []any{
+		map[string]any{"at": at("a", 0, 0), "holder": "red", "known": true},
+		map[string]any{"at": at("a", 0, 4), "holder": "blue", "known": true},
+		map[string]any{"at": at("a", 4, 4), "known": true},
+		map[string]any{"at": at("b", 3, 3), "known": false},
+	}
+	publishJSON(t, b, "r0", "intelligence.assessment.issued", map[string]any{
+		"exercise": exerciseID, "faction": "red", "round": 0,
+		"own":        []any{own("r1", 4), own("r2", 3), own("r3", 1)},
+		"contacts":   []any{map[string]any{"id": "b2", "strength": 3, "at": at("a", 5, 5), "seen": 0, "age": 0}},
+		"objectives": objectives,
+	})
+	publishJSON(t, b, "r1", "intelligence.assessment.issued", map[string]any{
+		"exercise": exerciseID, "faction": "red", "round": 1,
+		"own":        []any{own("r1", 4), own("r2", 1)},
+		"contacts":   []any{map[string]any{"id": "b2", "strength": 3, "at": at("a", 5, 5), "seen": 0, "age": 1}},
+		"objectives": objectives,
+	})
+	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 1, "reason": "limit"})
+	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
+		if s.Name != "assessments" {
+			continue
+		}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--exercise", exerciseID, "--summary", "--wait", "5s"})
+		if err := cmd.ExecuteContext(t.Context()); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		got := out.String()
+		for _, w := range []string{
+			"round 0 red: own 3, strength 8 | contacts b2(3) age 0 | objectives blue 1 · red 1 · unheld 1 · unknown 1",
+			"round 1 red: own 2, strength 5 | contacts b2(3) age 1 |",
+			"lost r3",
+		} {
+			if !strings.Contains(got, w) {
+				t.Errorf("narration lacks %q:\n%s", w, got)
+			}
+		}
+	}
+}
+
 func TestAssessmentsValidatesItsFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{},

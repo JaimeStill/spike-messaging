@@ -1,0 +1,62 @@
+{
+  "name": "theater",
+  "round_interval": "2s",
+  "round_limit": 50,
+  "factions": [
+    "red",
+    "blue"
+  ],
+  "map": {
+    "sectors": [
+      {
+        "id": "west",
+        "width": 12,
+        "height": 8,
+        "obstacles": [{"x": 8, "y": 0}, {"x": 8, "y": 2}, {"x": 8, "y": 3}, {"x": 8, "y": 4}, {"x": 8, "y": 5}, {"x": 8, "y": 7}, {"x": 5, "y": 3}, {"x": 5, "y": 4}],
+        "objectives": [{"x": 2, "y": 4}],
+        "gates": [
+          {"at": {"x": 11, "y": 2}, "to": {"sector": "center", "x": 0, "y": 2}},
+          {"at": {"x": 11, "y": 5}, "to": {"sector": "center", "x": 0, "y": 7}}
+        ]
+      },
+      {
+        "id": "center",
+        "width": 14,
+        "height": 10,
+        "obstacles": [{"x": 6, "y": 2}, {"x": 6, "y": 3}, {"x": 6, "y": 4}, {"x": 6, "y": 5}, {"x": 6, "y": 6}, {"x": 6, "y": 7}, {"x": 7, "y": 2}, {"x": 7, "y": 3}, {"x": 7, "y": 4}, {"x": 7, "y": 5}, {"x": 7, "y": 6}, {"x": 7, "y": 7}, {"x": 3, "y": 0}, {"x": 3, "y": 1}, {"x": 3, "y": 2}, {"x": 10, "y": 7}, {"x": 10, "y": 8}, {"x": 10, "y": 9}, {"x": 4, "y": 6}, {"x": 9, "y": 3}],
+        "objectives": [{"x": 3, "y": 5}, {"x": 10, "y": 4}, {"x": 7, "y": 9}],
+        "gates": [
+          {"at": {"x": 0, "y": 2}, "to": {"sector": "west", "x": 11, "y": 2}},
+          {"at": {"x": 0, "y": 7}, "to": {"sector": "west", "x": 11, "y": 5}},
+          {"at": {"x": 13, "y": 2}, "to": {"sector": "east", "x": 0, "y": 2}},
+          {"at": {"x": 13, "y": 7}, "to": {"sector": "east", "x": 0, "y": 5}}
+        ]
+      },
+      {
+        "id": "east",
+        "width": 12,
+        "height": 8,
+        "obstacles": [{"x": 3, "y": 0}, {"x": 3, "y": 2}, {"x": 3, "y": 3}, {"x": 3, "y": 4}, {"x": 3, "y": 5}, {"x": 3, "y": 7}, {"x": 6, "y": 3}, {"x": 6, "y": 4}],
+        "objectives": [{"x": 9, "y": 4}],
+        "gates": [
+          {"at": {"x": 0, "y": 2}, "to": {"sector": "center", "x": 13, "y": 2}},
+          {"at": {"x": 0, "y": 5}, "to": {"sector": "center", "x": 13, "y": 7}}
+        ]
+      }
+    ]
+  },
+  "elements": [
+    {"id": "r1", "faction": "red", "kind": "force", "strength": 4, "at": {"sector": "west", "x": 1, "y": 1}},
+    {"id": "r2", "faction": "red", "kind": "force", "strength": 3, "at": {"sector": "west", "x": 1, "y": 3}},
+    {"id": "r3", "faction": "red", "kind": "force", "strength": 3, "at": {"sector": "west", "x": 1, "y": 5}},
+    {"id": "r4", "faction": "red", "kind": "force", "strength": 2, "at": {"sector": "west", "x": 1, "y": 7}},
+    {"id": "r5", "faction": "red", "kind": "scout", "strength": 1, "at": {"sector": "west", "x": 3, "y": 2}},
+    {"id": "r6", "faction": "red", "kind": "scout", "strength": 1, "at": {"sector": "west", "x": 3, "y": 5}},
+    {"id": "b1", "faction": "blue", "kind": "force", "strength": 4, "at": {"sector": "east", "x": 10, "y": 1}},
+    {"id": "b2", "faction": "blue", "kind": "force", "strength": 3, "at": {"sector": "east", "x": 10, "y": 3}},
+    {"id": "b3", "faction": "blue", "kind": "force", "strength": 3, "at": {"sector": "east", "x": 10, "y": 5}},
+    {"id": "b4", "faction": "blue", "kind": "force", "strength": 2, "at": {"sector": "east", "x": 10, "y": 7}},
+    {"id": "b5", "faction": "blue", "kind": "scout", "strength": 1, "at": {"sector": "east", "x": 8, "y": 2}},
+    {"id": "b6", "faction": "blue", "kind": "scout", "strength": 1, "at": {"sector": "east", "x": 8, "y": 5}}
+  ]
+}

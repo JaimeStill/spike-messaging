@@ -24,5 +24,6 @@
 //
 // The assessments scenario stands in for command as a reader. It joins the
 // same stream and narrates the intelligence.assessment.issued events of one
-// exercise until it concludes.
+// exercise until it concludes, in full or, with --summary, as counts for an
+// exercise with many elements.
 package scenario

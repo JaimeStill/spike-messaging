@@ -38,19 +38,19 @@ run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/post
 description = "Run tests, including those against the compose stack's Postgres and NATS"
 run = "go test -race -tags integration -count=1 $MODULES"
 
-[tasks."exercise:serve"]
+[tasks."exercise-serve"]
 description = "Run the exercise service locally against the compose stack"
 dir = "services/exercise"
 env = { EXERCISE_ENV = "local" }
 run = "go run ./cmd/server"
 
-[tasks."intelligence:serve"]
+[tasks."intelligence-serve"]
 description = "Run the intelligence service locally against the compose stack"
 dir = "services/intelligence"
 env = { INTELLIGENCE_ENV = "local" }
 run = "go run ./cmd/server"
 
-[tasks."operations:serve"]
+[tasks."operations-serve"]
 description = "Run the operations service locally against the compose stack"
 dir = "services/operations"
 env = { OPERATIONS_ENV = "local" }
@@ -90,4 +90,26 @@ if [ -n "$found" ]; then
   echo "courier/scenario reaches NATS packages:"; echo "$found"; exit 1
 fi
 echo "split-check: courier/scenario reaches neither nats.go nor the nats provider"
+'''
+
+[tasks."demo-theater"]
+description = "Play the theater exercise on the running services: both factions directed, their assessments narrated"
+run = '''
+set -eu
+for port in 8081 8082 8084; do
+  curl -sf -o /dev/null "localhost:$port/readyz" || { echo "no service is ready on :$port; run exercise-serve, intelligence-serve, and operations-serve first"; exit 1; }
+done
+out=$(mktemp -d)
+go build -o "$out/courier" ./courier/cmd/courier
+id=$(curl -sf -XPOST localhost:8081/api/exercises -d @services/exercise/fixtures/theater.json | jq -r .id)
+echo "theater $id; the directives runs log to $out"
+# Every run joins the stream before the start, so none misses round 0.
+"$out/courier" --broker nats scenario directives --exercise "$id" --faction red --wait 5m > "$out/red.log" 2>&1 &
+"$out/courier" --broker nats scenario directives --exercise "$id" --faction blue --wait 5m > "$out/blue.log" 2>&1 &
+"$out/courier" --broker nats scenario assessments --exercise "$id" --summary --wait 5m &
+sleep 2
+curl -sf -o /dev/null -XPOST "localhost:8081/api/exercises/$id/start"
+sleep 1
+for f in red blue; do echo "$f's directives:"; grep "heads for\|holds" "$out/$f.log" || echo "  none yet; see $out/$f.log"; done
+wait
 '''
