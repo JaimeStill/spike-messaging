@@ -91,7 +91,8 @@ type (
 // exercise services' stream, reads the map and a faction's first
 // observation, issues a directive that sends each of the faction's
 // elements to secure an objective, and waits for the exercise to conclude.
-// operations turns the directive into orders, and exercise resolves them.
+// The operations service turns the directive into orders, and the exercise
+// service resolves them.
 func directivesScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, faction, stream, prefix string
 	maxAge := 24 * time.Hour

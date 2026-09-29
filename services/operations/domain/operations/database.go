@@ -20,10 +20,10 @@ import (
 var files embed.FS
 
 // store is the domain's SQL client. It binds each statement in statements/
-// once to a typed handle and exposes the operations as methods. It is the
-// package's only importer of the query library, and the only place where
-// route's values are encoded to JSON for their jsonb columns and decoded
-// back. Every method that writes takes the command's transaction.
+// once to a typed handle and exposes them as methods. It is the only file
+// that imports the query library and the only place that encodes route's
+// values to JSON for their jsonb columns and decodes them back. Every
+// method that writes takes the command's transaction.
 type store struct {
 	db      *data.Database
 	stmts   *query.Statements

@@ -11,14 +11,14 @@
 // that reaches the broker before Start fails with [ErrNotStarted], which the
 // coordinator's stage order prevents.
 //
-// Config is also the service's nats configuration block: its JSON form,
+// Config is also a service's nats configuration block. Its JSON form,
 // [Config.Merge], and [Config.Finalize] follow go-core's config conventions.
 //
 // An event is published in binary content mode to the subject
 // Prefix.<type>, so a type must pass [messaging.CheckType], with its source
 // and id as Nats-Msg-Id: the stream's deduplication window drops a repeat,
-// such as an outbox relay's republish. A header value is sent verbatim, and one that
-// NATS cannot carry, holding a CR or LF, fails Publish.
+// such as an outbox relay's republish. A header value is sent verbatim, and
+// one that NATS cannot carry, holding a CR or LF, fails Publish.
 //
 // A subscription's source binds its consumer when it starts receiving: a
 // durable named for the subscription, filtered to its types, delivering the
@@ -29,10 +29,11 @@
 // subscription's AckWait; the consumer's own AckWait is longer by
 // [AckMargin], so an outcome settled before the deadline reaches the server
 // before it redelivers on a fast enough link, and an outcome that misses the
-// deadline is dropped unsent. nil acknowledges and waits for the server to confirm it, so a
-// drained handler's acknowledgement holds; an error naks with the
-// subscription's RetryDelay; an error marked by [event.Permanent], or a
-// message that cannot decode, terminates.
+// deadline is dropped unsent. A handler that returns nil acknowledges the
+// message and waits for the server to confirm it, so a drained handler's
+// acknowledgement holds. Any other error naks it with the subscription's
+// RetryDelay. An error marked by [event.Permanent], or a message that cannot
+// decode, terminates it.
 //
 // [Broker.Conn] is the native handle, for uses beyond the standard tier such
 // as request and reply. It belongs in the composition root.

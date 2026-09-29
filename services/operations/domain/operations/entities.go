@@ -17,8 +17,9 @@ import (
 // of its own fields. The returned error wraps it with every reason found.
 var ErrValidation = errors.New("invalid command")
 
-// ErrNotFound reports an exercise operations has opened nothing for. It
-// wraps sql.ErrNoRows, so a caller that tests for either finds it.
+// ErrNotFound reports an exercise for which the service has opened no
+// operation. It wraps sql.ErrNoRows, so a caller that tests for either
+// finds it.
 var ErrNotFound = fmt.Errorf("operation not found: %w", sql.ErrNoRows)
 
 // ErrNotOpen reports an input for a faction's operation that is not open
@@ -137,7 +138,7 @@ func (c Close) Validate() error {
 
 // Claim is an idempotency claim that a command runs in its transaction
 // before it does anything else. It reports whether this is the first time
-// the command's input was handled; on false the command changes nothing and
+// the command's input was handled. On false the command changes nothing and
 // succeeds. A reactor's adapter binds a Claim over its inbox and the event
 // it handles. A caller without an inbox, such as a test, passes a nil
 // Claim, which claims nothing.

@@ -173,8 +173,8 @@ func (b *Broker) Ready() bool {
 // Shutdown drains the connection: its subscriptions stop, pending
 // publishes and acknowledgements flush, and it closes. It returns once the
 // connection is closed, at once for a broker that never started. When ctx
-// ends first, it closes the connection
-// without finishing the drain and returns ctx's error.
+// ends first, it closes the connection without finishing the drain and
+// returns ctx's error.
 func (b *Broker) Shutdown(ctx context.Context) error {
 	c := b.conn.Load()
 	if c == nil {

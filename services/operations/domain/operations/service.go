@@ -23,7 +23,7 @@ type Service struct {
 	rec   *event.Recorder[*sqlate.Tx]
 }
 
-// New constructs the service over the service's database and the recorder
+// New constructs the service over the operations database and the recorder
 // its commands emit through. New compiles and binds the statements and
 // performs no I/O. A compile failure or a nil recorder is a wiring defect,
 // so New panics.

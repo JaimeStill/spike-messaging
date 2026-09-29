@@ -20,20 +20,20 @@ import (
 // drained.
 const relayStage = verifyStage + 1
 
-// consumeStage places the consuming reactors above the relay: unlike
-// exercise's, operations' consumers raise the service's events, so they
-// produce, and the drain stops them before the relay.
+// consumeStage places the consuming reactors above the relay. Their
+// commands raise events, so the drain stops the consumers before the relay
+// and the relay publishes what they committed.
 const consumeStage = relayStage + 1
 
 // retryDelay is how long an input for an operation not open yet waits
-// before it is redelivered: the start that opens it arrives on another
-// subscription, and is handled well within it.
+// before its redelivery. The start that opens the operation arrives on
+// another subscription and is handled well within that time.
 const retryDelay = 250 * time.Millisecond
 
-// The subscriptions, one per event type operations consumes, each a durable
-// consumer and delivery group whose Name is also the consumer the inbox
-// records its claims under. A replica joins each group, so replicas share
-// every kind of input.
+// The subscriptions, one per event type the service consumes. Each is a
+// durable consumer and delivery group, and its Name is also the consumer the
+// inbox records its claims under. A replica joins each group, so replicas
+// share every kind of input.
 var (
 	startedSubscription = messaging.Subscription{
 		Name: "operations-started", Types: []string{"exercise.started"},
@@ -65,7 +65,7 @@ type Reactors struct {
 // newReactors constructs the reactors and registers each on lc. It takes
 // infra for the sources a reactor watches and dom for the domain calls it
 // dispatches to — the two halves a reactor joins. Each consumer decodes its
-// event's data straight into the command's input, operations' own reading
+// event's data into the command's input, which is the service's own reading
 // of the payload, and hands the command a claim bound to the event.
 func newReactors(
 	infra *Infrastructure,
