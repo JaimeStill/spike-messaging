@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -68,8 +69,9 @@ type payload struct {
 
 // Consume decodes each event's data into the consumer's type and hands it
 // over with a claim; an event whose data does not decode never reaches the
-// consumer and is not redelivered, so the next event still arrives, and
-// its refusal is logged once.
+// consumer and is not redelivered, and neither is one the consumer refuses
+// permanently, so the next event still arrives; each refusal is logged
+// once.
 func TestConsume(t *testing.T) {
 	ob, in := engines(t)
 	b := memory.New()
@@ -85,6 +87,9 @@ func TestConsume(t *testing.T) {
 	calls := make(chan got, 4)
 	sub := messaging.Subscription{Name: "consumer", Types: []string{"t"}}
 	r, err := rt.Consume(sub, time.Second, func(_ context.Context, d payload, claim messaging.Claim) error {
+		if d.N == 9 {
+			return event.Permanent(errors.New("nine is refused"))
+		}
 		calls <- got{data: d, claim: claim != nil}
 		return nil
 	})
@@ -98,6 +103,7 @@ func TestConsume(t *testing.T) {
 
 	for _, e := range []event.Event{
 		{ID: "bad", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte("{")},
+		{ID: "refused", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte(`{"n":9}`)},
 		{ID: "good", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte(`{"n":7}`)},
 	} {
 		if err := b.Publish(t.Context(), e); err != nil {
@@ -118,8 +124,13 @@ func TestConsume(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	if n := strings.Count(log.String(), "event=bad"); n != 1 || !strings.Contains(log.String(), "consumer=consumer") {
-		t.Errorf("the refusal was logged %d times, want once with its consumer:\n%s", n, log.String())
+	for _, id := range []string{"bad", "refused"} {
+		if n := strings.Count(log.String(), "event="+id); n != 1 {
+			t.Errorf("the refusal of %s was logged %d times, want once:\n%s", id, n, log.String())
+		}
+	}
+	if !strings.Contains(log.String(), "consumer=consumer") || !strings.Contains(log.String(), "nine is refused") {
+		t.Errorf("a refusal lacks its consumer or its error:\n%s", log.String())
 	}
 
 	if _, err := rt.Consume(messaging.Subscription{Name: "a.b"}, time.Second, func(context.Context, payload, messaging.Claim) error { return nil }); err == nil {

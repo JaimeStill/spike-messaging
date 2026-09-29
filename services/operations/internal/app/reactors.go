@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"time"
 
 	"github.com/standards-lab/go-core/lifecycle"
@@ -10,7 +9,6 @@ import (
 	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
-	"github.com/JaimeStill/spike-messaging/services/operations/domain/operations"
 	"github.com/JaimeStill/spike-messaging/services/operations/internal/config"
 )
 
@@ -79,16 +77,16 @@ func newReactors(
 	corelifecycle.Register(lc, "relay", relayStage, rs.Relay)
 
 	var err error
-	if rs.Started, err = infra.Messaging.Consume(startedSubscription, shutdown, command(svc.Open)); err != nil {
+	if rs.Started, err = infra.Messaging.Consume(startedSubscription, shutdown, svc.Open); err != nil {
 		return nil, err
 	}
-	if rs.Directives, err = infra.Messaging.Consume(directivesSubscription, shutdown, command(svc.Assign)); err != nil {
+	if rs.Directives, err = infra.Messaging.Consume(directivesSubscription, shutdown, svc.Assign); err != nil {
 		return nil, err
 	}
-	if rs.Observed, err = infra.Messaging.Consume(observedSubscription, shutdown, command(svc.Maneuver)); err != nil {
+	if rs.Observed, err = infra.Messaging.Consume(observedSubscription, shutdown, svc.Maneuver); err != nil {
 		return nil, err
 	}
-	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, shutdown, command(svc.Close)); err != nil {
+	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, shutdown, svc.Close); err != nil {
 		return nil, err
 	}
 	corelifecycle.Register(lc, "started", consumeStage, rs.Started)
@@ -96,12 +94,4 @@ func newReactors(
 	corelifecycle.Register(lc, "observed", consumeStage, rs.Observed)
 	corelifecycle.Register(lc, "concluded", consumeStage, rs.Concluded)
 	return rs, nil
-}
-
-// command adapts a domain command, which takes the domain's own Claim, to
-// the consumer a Consume call runs.
-func command[T any](cmd func(context.Context, T, operations.Claim) error) func(context.Context, T, messaging.Claim) error {
-	return func(ctx context.Context, c T, claim messaging.Claim) error {
-		return cmd(ctx, c, claim)
-	}
 }

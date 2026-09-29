@@ -141,8 +141,9 @@ func (c Close) Validate() error {
 // the command's input was handled. On false the command changes nothing and
 // succeeds. A reactor's adapter binds a Claim over its inbox and the event
 // it handles. A caller without an inbox, such as a test, passes a nil
-// Claim, which claims nothing.
-type Claim func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
+// Claim, which claims nothing. It is an alias, so the claim a consumer
+// built by messaging's Consume hands over is one.
+type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 
 func checkExercise(id string) error {
 	if _, err := uuid.Parse(id); err != nil {
