@@ -6,7 +6,7 @@ golangci-lint = "2.13.2"
 # MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
 # root module's packages. A module that imports a workspace sibling carries no require line for
 # it, so go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/exercise/..."
+MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/exercise/... ./services/operations/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 MESSAGING_NATS_URL = "nats://127.0.0.1:4225"
 
@@ -42,6 +42,12 @@ run = "go test -race -tags integration -count=1 $MODULES"
 description = "Run the exercise service locally against the compose stack"
 dir = "services/exercise"
 env = { EXERCISE_ENV = "local" }
+run = "go run ./cmd/server"
+
+[tasks."operations:serve"]
+description = "Run the operations service locally against the compose stack"
+dir = "services/operations"
+env = { OPERATIONS_ENV = "local" }
 run = "go run ./cmd/server"
 
 [tasks.up]
