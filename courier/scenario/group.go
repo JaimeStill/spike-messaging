@@ -13,6 +13,7 @@ import (
 	"github.com/standards-lab/go-core/lifecycle"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
@@ -60,7 +61,7 @@ func groupScenario(brokers Brokers, needs func() []Need) Scenario {
 							published++
 							return publish(ctx, b, rep, numbered(published))
 						})
-						c.add("publisher", lifecycle.StageRoot, pub)
+						corelifecycle.Register(c.lc, "publisher", lifecycle.StageRoot, pub)
 						for _, name := range []string{"worker-a", "worker-b"} {
 							src, err := b.Subscribe(messaging.Subscription{Name: group})
 							if err != nil {
@@ -79,7 +80,7 @@ func groupScenario(brokers Brokers, needs func() []Need) Scenario {
 								mu.Unlock()
 								return nil
 							}
-							c.add(name, 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
+							corelifecycle.Register(c.lc, name, 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
 						}
 						return c.start(ctx, rep)
 					},

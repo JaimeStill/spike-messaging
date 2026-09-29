@@ -17,7 +17,7 @@ const patience = 30 * time.Second
 
 // coordinator runs go-core's lifecycle coordinator across a scenario's steps:
 // one step starts it, later steps wait on what the reactors do, and a final
-// step signals the drain. It registers each reactor through
+// step signals the drain. A step registers each reactor on lc through
 // core/lifecycle.Register.
 type coordinator struct {
 	lc     *lifecycle.Coordinator
@@ -36,11 +36,6 @@ func newCoordinator(drain time.Duration) *coordinator {
 		ready: make(chan struct{}),
 		ended: make(chan struct{}),
 	}
-}
-
-// add registers r at stage and monitors its Err.
-func (c *coordinator) add(name string, stage int, r corelifecycle.Component) {
-	corelifecycle.Register(c.lc, name, stage, r)
 }
 
 // start runs the coordinator under ctx, so an interrupt drains it, and

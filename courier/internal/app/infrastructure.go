@@ -106,9 +106,11 @@ func (i *Infrastructure) scratchBroker() (*scratch, error) {
 	defer cancel()
 	if err := broker.Start(ctx); err != nil {
 		// A create cut short by the timeout can still finish on the server,
-		// so the stream is deleted if it exists.
-		derr := i.deleteScratchStream(stream)
-		return nil, errors.Join(err, derr)
+		// so the stream is deleted if it exists, unless no server was reached.
+		if errors.Is(err, natsgo.ErrNoServers) {
+			return nil, err
+		}
+		return nil, errors.Join(err, i.deleteScratchStream(stream))
 	}
 	release := func() error {
 		derr := deleteStream(broker.Conn(), stream)

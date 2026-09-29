@@ -57,21 +57,15 @@ func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbo
 	}, nil
 }
 
-// Grace is the grace period of every reactor a service runs under a drain
-// timeout of shutdown: half of it, so a handler the reactor cancels is
-// reported before the coordinator's deadline drops the report.
-func Grace(shutdown time.Duration) reactor.Option {
-	return reactor.Grace(shutdown / 2)
-}
-
 // Relay returns the reactor that publishes the outbox's committed events on
-// db to the broker, under a drain timeout of shutdown. Its last pass,
-// bounded at a quarter of shutdown, below its grace, publishes what the
-// producers above it committed while they drained, so the root registers
-// it below every stage that commits events.
+// db to the broker, under a drain timeout of shutdown, with the grace
+// [reactor.GraceWithin] gives it. Its last pass, bounded at a quarter of
+// shutdown, below its grace, publishes what the producers above it
+// committed while they drained, so the root registers it below every stage
+// that commits events.
 func (r *Runtime) Relay(db sqlate.Beginner, shutdown time.Duration) *reactor.Reactor[event.Event] {
 	src := r.Outbox.Relay(db, outbox.Poll(r.cfg.RelayPoll.Duration()), outbox.Drain(shutdown/4))
-	return reactor.New(src, r.Broker.Publish, Grace(shutdown))
+	return reactor.New(src, r.Broker.Publish, reactor.GraceWithin(shutdown))
 }
 
 // Claim records, in a command's transaction, that the consumer is handling
@@ -110,5 +104,5 @@ func (r *Runtime) Consume[T any](sub Subscription, shutdown time.Duration, fn fu
 		}
 		return err
 	}
-	return reactor.New(src, handle, Grace(shutdown)), nil
+	return reactor.New(src, handle, reactor.GraceWithin(shutdown)), nil
 }

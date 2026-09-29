@@ -120,4 +120,8 @@ func TestBrokerStartFailsWithoutNATS(t *testing.T) {
 	if b.Ready() {
 		t.Error("a broker that failed to start is ready")
 	}
+	// A failed Start leaves the broker free to start again.
+	if err := b.Start(ctx); errors.Is(err, nats.ErrStarted) {
+		t.Error("a Start after a failed one reports the broker started")
+	}
 }

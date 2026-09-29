@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
@@ -62,7 +63,7 @@ func retryScenario(brokers Brokers, needs func() []Need) Scenario {
 							rep.Note("event %s attempt 1 failed; it will be redelivered", e.ID)
 							return fmt.Errorf("event %s: transient failure", e.ID)
 						}
-						c.add("worker", 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
+						corelifecycle.Register(c.lc, "worker", 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
 						return c.start(ctx, rep)
 					},
 				},

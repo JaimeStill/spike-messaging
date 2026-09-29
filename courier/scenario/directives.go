@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
@@ -146,7 +147,7 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 						if err != nil {
 							return err
 						}
-						c.add("watch", 0, reactor.New(src, w.handle, reactor.Grace(defaultGrace)))
+						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, w.handle, reactor.Grace(defaultGrace)))
 						if err := c.start(ctx, rep); err != nil {
 							return err
 						}

@@ -41,6 +41,9 @@ const (
 // before [Broker.Start].
 var ErrNotStarted = errors.New("nats: broker not started")
 
+// ErrStarted is the failure of a second [Broker.Start].
+var ErrStarted = errors.New("nats: broker already started")
+
 // Config names the NATS server a broker connects to and the stream it
 // publishes to and subscribes on.
 type Config struct {
@@ -98,8 +101,9 @@ func (cfg Config) Validate() error {
 
 // Broker is a [messaging.Broker] on a JetStream stream.
 type Broker struct {
-	cfg  Config
-	conn atomic.Pointer[conn]
+	cfg      Config
+	starting atomic.Bool
+	conn     atomic.Pointer[conn]
 }
 
 // conn is the connection a started broker owns, and its JetStream context.
@@ -124,8 +128,18 @@ func New(cfg Config) (*Broker, error) {
 // Start connects to the server, waiting until ctx's deadline or 10s, and
 // provisions the stream, creating it or updating it to the broker's
 // configuration. Once up, the connection reconnects without limit. A
-// failed Start closes what it opened.
-func (b *Broker) Start(ctx context.Context) error {
+// failed Start closes what it opened, and the broker can start again. A
+// broker starts once: a Start while another is in progress or has
+// succeeded fails with [ErrStarted] and opens nothing.
+func (b *Broker) Start(ctx context.Context) (err error) {
+	if !b.starting.CompareAndSwap(false, true) {
+		return ErrStarted
+	}
+	defer func() {
+		if err != nil {
+			b.starting.Store(false)
+		}
+	}()
 	timeout := 10 * time.Second
 	if d, ok := ctx.Deadline(); ok {
 		timeout = time.Until(d)

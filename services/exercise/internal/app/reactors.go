@@ -57,8 +57,8 @@ type Reactors struct {
 // stops both first. The relay sits at relayStage, below them, so it drains
 // after them and publishes the events they committed while they drained.
 // The orders reactor consumes, so it sits at ordersStage, below the relay.
-// Each reactor's grace, messaging.Grace of the shutdown timeout, stays
-// below the coordinator's drain deadline.
+// Each reactor's grace, which reactor.GraceWithin derives from the shutdown
+// timeout, stays below the coordinator's drain deadline.
 func newReactors(
 	infra *Infrastructure,
 	dom *Domain,
@@ -79,7 +79,7 @@ func newReactors(
 		_, err := dom.Exercise.ResolveDue(ctx)
 		failed.Report(ctx, "resolve rounds", err)
 		return nil
-	}, messaging.Grace(shutdown))
+	}, reactor.GraceWithin(shutdown))
 	corelifecycle.Register(lc, "resolve", lifecycle.StageRoot, resolve)
 
 	orders, err := infra.Messaging.Consume(ordersSubscription, shutdown, recordOrders(dom.Exercise))

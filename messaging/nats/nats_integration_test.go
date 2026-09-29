@@ -122,6 +122,18 @@ func TestLateOutcomeDropped(t *testing.T) {
 	}
 }
 
+// A started broker starts once: a second Start fails and leaves the first
+// connection serving.
+func TestSecondStartFails(t *testing.T) {
+	b := broker(t)
+	if err := b.Start(t.Context()); !errors.Is(err, nats.ErrStarted) {
+		t.Errorf("second Start = %v, want ErrStarted", err)
+	}
+	if !b.Ready() {
+		t.Error("the broker is not ready after a second Start")
+	}
+}
+
 func TestPublishRejectsUncarriableHeader(t *testing.T) {
 	b := broker(t)
 	e := event.Event{ID: "h", Source: "/test", Type: "t", Extensions: map[string]string{"note": "two\r\nlines"}}
