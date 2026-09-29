@@ -6,9 +6,8 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
 
-// Outbox runs the outbox on one engine's statements: the emitter a domain
-// writes events with, the relay that publishes them, and the inbox a
-// handler claims events in.
+// Outbox runs the outbox on one engine's statements: the sink a recorder
+// writes events through, and the relay that publishes them.
 type Outbox struct {
 	eng Engine
 }
@@ -22,9 +21,10 @@ func New(eng Engine) (*Outbox, error) {
 	return &Outbox{eng: eng}, nil
 }
 
-// Emitter returns the [event.Emitter] a composition root injects into a
-// domain.
-func (o *Outbox) Emitter() event.Emitter { return emitter{o} }
+// Sink returns the [event.Sink] a composition root builds a service's
+// [event.Recorder] over: it writes the events a command raises into the
+// command's own transaction.
+func (o *Outbox) Sink() event.Sink[*sqlate.Tx] { return sink{o} }
 
 // Relay returns a relay over the outbox in db. Poll and Timeout must be
 // positive.

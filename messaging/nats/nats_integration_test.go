@@ -154,14 +154,40 @@ func TestProvisionIsIdempotent(t *testing.T) {
 	}
 }
 
+// The stream's retention is the configured MaxAge, and a broker that sets
+// none keeps every event.
+func TestProvisionBoundsRetention(t *testing.T) {
+	for _, age := range []time.Duration{0, time.Hour} {
+		nc, stream, prefix := natstest.Scratch(t)
+		b, err := nats.New(t.Context(), nc, nats.Config{Stream: stream, Prefix: prefix, MaxAge: age})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shutdown(t, b)
+		js, err := jetstream.New(nc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := js.Stream(t.Context(), stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.CachedInfo().Config.MaxAge; got != age {
+			t.Errorf("stream MaxAge = %v, want %v", got, age)
+		}
+	}
+}
+
 func TestConfigValidate(t *testing.T) {
 	for name, cfg := range map[string]nats.Config{
-		"no stream":      {Prefix: "p"},
-		"dotted stream":  {Stream: "a.b", Prefix: "p"},
-		"slashed stream": {Stream: "a/b", Prefix: "p"},
-		"no prefix":      {Stream: "s"},
-		"wildcard":       {Stream: "s", Prefix: "p.*"},
-		"negative dupes": {Stream: "s", Prefix: "p", Duplicates: -1},
+		"no stream":       {Prefix: "p"},
+		"dotted stream":   {Stream: "a.b", Prefix: "p"},
+		"slashed stream":  {Stream: "a/b", Prefix: "p"},
+		"no prefix":       {Stream: "s"},
+		"wildcard":        {Stream: "s", Prefix: "p.*"},
+		"negative dupes":  {Stream: "s", Prefix: "p", Duplicates: -1},
+		"negative age":    {Stream: "s", Prefix: "p", MaxAge: -1},
+		"age below dupes": {Stream: "s", Prefix: "p", MaxAge: time.Minute},
 	} {
 		if cfg.Validate() == nil {
 			t.Errorf("%s: Validate accepted %+v", name, cfg)

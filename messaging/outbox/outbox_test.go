@@ -13,8 +13,8 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
 )
 
-// sqlate's *Tx is the transaction a service hands the emitter.
-var _ event.Tx = (*sqlate.Tx)(nil)
+// The outbox is the sink a recorder writes through, on sqlate's *Tx.
+var _ = event.NewRecorder[*sqlate.Tx]
 
 // compile builds statements from text keyed by name, over sqlate's test
 // dialect, so the engine contract is tested without a driver.
@@ -33,13 +33,11 @@ func engine(t *testing.T, emit string) outbox.Engine {
 		"emit":           emit,
 		"claim_row":      "SELECT seq, header, data FROM o",
 		"mark_published": "UPDATE o SET p = 1 WHERE seq = {{seq}}",
-		"claim_inbox":    "INSERT INTO i (c, s, id) VALUES ({{consumer}}, {{source}}, {{id}})",
 	})
 	return outbox.Engine{
 		Emit:          s.Statement("emit"),
 		ClaimRow:      s.Statement("claim_row"),
 		MarkPublished: s.Statement("mark_published"),
-		ClaimInbox:    s.Statement("claim_inbox"),
 	}
 }
 
@@ -56,7 +54,7 @@ func TestNewRequiresEveryStatement(t *testing.T) {
 	if err == nil {
 		t.Fatal("New accepted an engine with no statements")
 	}
-	for _, field := range []string{"Emit", "ClaimRow", "MarkPublished", "ClaimInbox"} {
+	for _, field := range []string{"Emit", "ClaimRow", "MarkPublished"} {
 		if !strings.Contains(err.Error(), field+" is not defined") {
 			t.Errorf("error %q does not name the undefined %s", err, field)
 		}
@@ -71,9 +69,8 @@ func TestNewChecksEachStatementsParameters(t *testing.T) {
 	}
 }
 
-func TestNewRejectsARequiredTransactionOnTheCallersStatements(t *testing.T) {
-	_, err := outbox.New(engine(t, "--| transaction: required\n"+emit))
-	if err == nil || !strings.Contains(err.Error(), "Emit (emit) declares a transaction required") {
-		t.Fatalf("New = %v, want Emit's transaction declaration refused", err)
+func TestNewAcceptsARequiredTransactionOnEmit(t *testing.T) {
+	if _, err := outbox.New(engine(t, "--| transaction: required\n"+emit)); err != nil {
+		t.Fatalf("New = %v; Emit runs on a sqlate *Tx, so it may require one", err)
 	}
 }

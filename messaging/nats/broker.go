@@ -42,6 +42,13 @@ type Config struct {
 	// Duplicates is the stream's deduplication window; 0 is
 	// DefaultDuplicates.
 	Duplicates time.Duration
+	// MaxAge bounds the stream's retention: the stream discards an event
+	// older than MaxAge, whether or not every consumer has received it. A
+	// consumer that falls further behind than MaxAge recovers when the
+	// event's producer republishes its current state. 0 keeps every event.
+	// JetStream requires a positive MaxAge to be at least the
+	// deduplication window.
+	MaxAge time.Duration
 }
 
 // Validate reports every way cfg is unusable.
@@ -55,6 +62,16 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Duplicates < 0 {
 		errs = append(errs, errors.New("duplicates must not be negative"))
+	}
+	dupes := cfg.Duplicates
+	if dupes == 0 {
+		dupes = DefaultDuplicates
+	}
+	switch {
+	case cfg.MaxAge < 0:
+		errs = append(errs, errors.New("max age must not be negative"))
+	case cfg.MaxAge > 0 && cfg.MaxAge < dupes:
+		errs = append(errs, fmt.Errorf("max age %v must be at least the deduplication window, %v", cfg.MaxAge, dupes))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("nats: config: %w", errors.Join(errs...))
@@ -91,6 +108,7 @@ func New(ctx context.Context, nc *natsgo.Conn, cfg Config) (*Broker, error) {
 		Storage:    jetstream.FileStorage,
 		Retention:  jetstream.LimitsPolicy,
 		Duplicates: cfg.Duplicates,
+		MaxAge:     cfg.MaxAge,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("nats: provision stream %s: %w", cfg.Stream, err)

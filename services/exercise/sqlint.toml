@@ -1,0 +1,20 @@
+# sqlint: the service's SQL conventions. The engine and the sources mirror the catalog the
+# composition root builds (internal/app/infrastructure.go): sqlate's own patterns, against
+# PostgreSQL's native forms. messaging/postgres lints the messaging set's SQL itself.
+engine = "github.com/standards-lab/sqlate/postgres"
+
+[sources]
+sql = "github.com/standards-lab/sqlate"
+
+# The domains' statements must be named for their operation, keep the delimiter out of comments and
+# literals, and use no native form in a standard-tier file.
+[statements]
+dirs = ["domain/*/statements"]
+verb_named = true
+delimiter = true
+native_forms = true
+
+# The exercise migration set's DDL is Postgres by design.
+[migrations]
+dirs = ["data/migrations"]
+single_statement = true

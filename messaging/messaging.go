@@ -110,23 +110,9 @@ func IsToken(s string) bool {
 
 // CheckType reports whether t is an event type a broker can route: one or
 // more tokens separated by '.', none of them empty, with no whitespace, '*',
-// or '>'. The rule is a subject's, so a provider can route on the type
-// itself, and it admits the reverse-DNS types CloudEvents recommends, such as
-// "lab.grant.approved".
-func CheckType(t string) error {
-	if t == "" {
-		return errors.New("type: an empty type matches nothing")
-	}
-	for tok := range strings.SplitSeq(t, ".") {
-		if tok == "" {
-			return fmt.Errorf("type %q: an empty token", t)
-		}
-		if strings.ContainsFunc(tok, func(r rune) bool { return r == '*' || r == '>' || unicode.IsSpace(r) || unicode.IsControl(r) }) {
-			return fmt.Errorf("type %q must not contain whitespace, '*', or '>'", t)
-		}
-	}
-	return nil
-}
+// or '>'. It is [event.CheckType], the rule a domain's event kinds are
+// declared under, so a type a domain can define is a type a broker routes.
+func CheckType(t string) error { return event.CheckType(t) }
 
 // Matches reports whether sub's type filter admits an event of type t.
 func (sub Subscription) Matches(t string) bool {

@@ -24,7 +24,7 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 	"github.com/JaimeStill/spike-messaging/messaging/nats"
 	"github.com/JaimeStill/spike-messaging/messaging/outbox"
-	"github.com/JaimeStill/spike-messaging/messaging/outbox/postgres"
+	"github.com/JaimeStill/spike-messaging/messaging/postgres"
 )
 
 // Infrastructure builds the broker the flags name, the outbox store on the
@@ -365,7 +365,7 @@ func (i *Infrastructure) Outbox(ctx context.Context) (_ *scenario.OutboxStore, e
 	if err := postgres.Verify(ctx, db); err != nil {
 		return nil, fmt.Errorf("verify %s: %w", name, err)
 	}
-	ob, err := outbox.New(postgres.Engine())
+	ob, err := outbox.New(postgres.Outbox())
 	if err != nil {
 		return nil, err
 	}

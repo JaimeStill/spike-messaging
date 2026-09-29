@@ -1,0 +1,112 @@
+package exercise
+
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+
+	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
+)
+
+var testState = rules.State{
+	Map: rules.Map{Sectors: []rules.Sector{{
+		ID: "a", Width: 6, Height: 6,
+		Objectives: []rules.Point{{X: 3, Y: 0}},
+	}}},
+	Factions: [2]string{"red", "blue"},
+	Elements: []rules.Element{
+		{ID: "r1", Faction: "red", Kind: rules.Scout, Strength: 1, At: rules.Location{Sector: "a", Point: rules.Point{X: 1, Y: 0}}},
+		{ID: "b1", Faction: "blue", Kind: rules.Force, Strength: 2, At: rules.Location{Sector: "a", Point: rules.Point{X: 5, Y: 5}}},
+	},
+	Holders: map[string]string{},
+}
+
+// decode returns the data of e as a T.
+func decode[T any](t *testing.T, e event.Event) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(e.Data, &v); err != nil {
+		t.Fatalf("decode %s: %v", e.Type, err)
+	}
+	return v
+}
+
+// Each faction's observation becomes one observed event about the
+// exercise, in the factions' order, carrying the observation's lists as
+// they are.
+func TestRaiseObserved(t *testing.T) {
+	obs := rules.Observe(testState, 4)
+	q := &event.Queue{}
+	raiseObserved(q, "ex-1", obs)
+	es := q.Events()
+	if len(es) != 2 {
+		t.Fatalf("raised %d events, want 2", len(es))
+	}
+	for i, e := range es {
+		if e.Type != "exercise.round.observed" || e.Subject != "ex-1" {
+			t.Errorf("event %d = %s about %q", i, e.Type, e.Subject)
+		}
+		got := decode[ObservedData](t, e)
+		want := ObservedData{
+			Exercise: "ex-1", Faction: obs[i].Faction, Round: 4,
+			Own: obs[i].Own, Contacts: obs[i].Contacts, Objectives: obs[i].Objectives,
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("event %d data = %+v, want %+v", i, got, want)
+		}
+	}
+	// The red scout sees four cells: the objective, but not the blue force.
+	red := decode[ObservedData](t, es[0])
+	if red.Faction != "red" || len(red.Own) != 1 || len(red.Contacts) != 0 || len(red.Objectives) != 1 {
+		t.Errorf("red's observation = %+v", red)
+	}
+}
+
+// The started event carries the public settings and no element.
+func TestRaiseStarted(t *testing.T) {
+	ex := Exercise{ID: "ex-1", Name: "n", RoundLimit: 5, Factions: testState.Factions, State: testState, intervalMS: 2000}
+	q := &event.Queue{}
+	raiseStarted(q, ex)
+	es := q.Events()
+	if len(es) != 1 || es[0].Type != "exercise.started" || es[0].Subject != "ex-1" {
+		t.Fatalf("raised %+v", es)
+	}
+	got := decode[StartedData](t, es[0])
+	want := StartedData{Exercise: "ex-1", Name: "n", Map: testState.Map, Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("data = %+v, want %+v", got, want)
+	}
+	var raw map[string]any
+	_ = json.Unmarshal(es[0].Data, &raw)
+	if _, ok := raw["elements"]; ok {
+		t.Errorf("started carries elements: %s", es[0].Data)
+	}
+}
+
+func TestRaiseConcluded(t *testing.T) {
+	q := &event.Queue{}
+	raiseConcluded(q, "ex-1", 3, rules.Verdict{Over: true, Winner: "red", Reason: "objectives"})
+	es := q.Events()
+	if len(es) != 1 || es[0].Type != "exercise.concluded" || es[0].Subject != "ex-1" {
+		t.Fatalf("raised %+v", es)
+	}
+	if got, want := decode[ConcludedData](t, es[0]), (ConcludedData{Exercise: "ex-1", Round: 3, Winner: "red", Reason: "objectives"}); got != want {
+		t.Errorf("data = %+v, want %+v", got, want)
+	}
+}
+
+// A faction commands its own elements alone: an order for the other
+// faction's element, or for an element that does not exist, is dropped.
+func TestOwnOrders(t *testing.T) {
+	step := []rules.Location{{Sector: "a", Point: rules.Point{X: 2, Y: 0}}}
+	got := ownOrders(testState, map[string][]rules.Order{
+		"red":   {{Element: "r1", Steps: step}, {Element: "b1", Steps: step}},
+		"blue":  {{Element: "r1"}, {Element: "b1"}, {Element: "ghost"}},
+		"green": {{Element: "r1"}},
+	})
+	want := []rules.Order{{Element: "r1", Steps: step}, {Element: "b1"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ownOrders = %+v, want %+v", got, want)
+	}
+}

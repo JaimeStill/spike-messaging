@@ -42,6 +42,17 @@ func Timeout(d time.Duration) RelayOption {
 	return func(r *Relay) { r.timeout = d }
 }
 
+// Drain sets how long a relay keeps publishing once it is cancelled. The
+// relay makes one last pass on a context of its own, bounded by d, and
+// returns when the outbox is empty, a row fails, or d runs out, so the
+// events committed while the producers drained are published before the
+// process exits rather than at its next start. Set d below the reactor's
+// [reactor.Grace], which cancels the pass's handlers when it runs out. The
+// default, 0, makes no last pass. It must not be negative.
+func Drain(d time.Duration) RelayOption {
+	return func(r *Relay) { r.drain = d }
+}
+
 // Relay is the source of the outbox's committed, unpublished events. A
 // composition root runs it into a reactor whose handler publishes each
 // event to the broker.
@@ -68,6 +79,7 @@ type Relay struct {
 	db      sqlate.Beginner
 	poll    time.Duration
 	timeout time.Duration
+	drain   time.Duration
 	ready   atomic.Bool
 }
 
@@ -78,8 +90,8 @@ func newRelay(o *Outbox, db sqlate.Beginner, opts ...RelayOption) *Relay {
 	for _, opt := range opts {
 		opt(r)
 	}
-	if r.poll <= 0 || r.timeout <= 0 {
-		panic("outbox: relay poll and timeout must be positive")
+	if r.poll <= 0 || r.timeout <= 0 || r.drain < 0 {
+		panic("outbox: relay poll and timeout must be positive, and drain not negative")
 	}
 	return r
 }
@@ -92,7 +104,7 @@ var errCorrupt = errors.New("corrupt row")
 // the relay not ready until a pass succeeds. Receive fails only on a row
 // that cannot be decoded, which would otherwise hold the outbox back
 // forever. A row whose handler is running when ctx ends is settled before
-// Receive returns.
+// Receive returns, and a relay with a [Drain] then makes its last pass.
 func (r *Relay) Receive(ctx context.Context, fn reactor.Func[event.Event]) error {
 	r.ready.Store(true)
 	defer r.ready.Store(false)
@@ -113,6 +125,13 @@ func (r *Relay) Receive(ctx context.Context, fn reactor.Func[event.Event]) error
 		case <-t.C:
 		}
 		t.Stop()
+	}
+	if r.drain > 0 {
+		// The last pass's failure leaves its row for the next start, as any
+		// failed pass does, so it is not Receive's error.
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.drain)
+		defer cancel()
+		_ = r.pass(dctx, fn)
 	}
 	return nil
 }
