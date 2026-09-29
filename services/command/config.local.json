@@ -1,0 +1,16 @@
+{
+  "log": {
+    "level": "debug"
+  },
+  "server": {
+    "host": "127.0.0.1"
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 5435,
+    "password": "app"
+  },
+  "nats": {
+    "url": "nats://127.0.0.1:4225"
+  }
+}
