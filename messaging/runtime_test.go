@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -70,8 +71,9 @@ type payload struct {
 // Consume decodes each event's data into the consumer's type and hands it
 // over with a claim; an event whose data does not decode never reaches the
 // consumer and is not redelivered, and neither is one the consumer refuses
-// permanently, so the next event still arrives; each refusal is logged
-// once.
+// permanently, so the next event still arrives. Each delivery is logged
+// once with its outcome: a refusal at warn with its error, a failure the
+// broker redelivers as retried, and a success as handled.
 func TestConsume(t *testing.T) {
 	ob, in := engines(t)
 	b := memory.New()
@@ -85,10 +87,18 @@ func TestConsume(t *testing.T) {
 		claim bool
 	}
 	calls := make(chan got, 4)
-	sub := messaging.Subscription{Name: "consumer", Types: []string{"t"}}
+	var failed sync.Once
+	sub := messaging.Subscription{Name: "consumer", Types: []string{"t"}, RetryDelay: 10 * time.Millisecond}
 	r, err := rt.Consume(sub, time.Second, func(_ context.Context, d payload, claim messaging.Claim) error {
 		if d.N == 9 {
 			return event.Permanent(errors.New("nine is refused"))
+		}
+		retry := false
+		if d.N == 5 {
+			failed.Do(func() { retry = true })
+		}
+		if retry {
+			return errors.New("five fails once")
 		}
 		calls <- got{data: d, claim: claim != nil}
 		return nil
@@ -104,19 +114,24 @@ func TestConsume(t *testing.T) {
 	for _, e := range []event.Event{
 		{ID: "bad", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte("{")},
 		{ID: "refused", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte(`{"n":9}`)},
-		{ID: "good", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte(`{"n":7}`)},
+		{ID: "flaky", Source: "/test", Type: "t", DataContentType: "application/json", Data: []byte(`{"n":5}`)},
+		{ID: "good", Source: "/test", Type: "t", Subject: "s1", DataContentType: "application/json", Data: []byte(`{"n":7}`)},
 	} {
 		if err := b.Publish(t.Context(), e); err != nil {
 			t.Fatal(err)
 		}
 	}
-	select {
-	case c := <-calls:
-		if c.data.N != 7 || !c.claim {
-			t.Errorf("consumer got %+v, want n=7 with a claim", c)
+	handled := map[int]bool{}
+	for len(handled) < 2 {
+		select {
+		case c := <-calls:
+			if handled[c.data.N] || c.data.N != 5 && c.data.N != 7 || !c.claim {
+				t.Fatalf("consumer got %+v, want n=5 and n=7 once each, with a claim", c)
+			}
+			handled[c.data.N] = true
+		case <-time.After(failsafe):
+			t.Fatal("timed out waiting for the good events")
 		}
-	case <-time.After(failsafe):
-		t.Fatal("timed out waiting for the good event")
 	}
 	select {
 	case c := <-calls:
@@ -124,13 +139,34 @@ func TestConsume(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	for _, id := range []string{"bad", "refused"} {
-		if n := strings.Count(log.String(), "event="+id); n != 1 {
-			t.Errorf("the refusal of %s was logged %d times, want once:\n%s", id, n, log.String())
+	lines := strings.Split(strings.TrimSpace(log.String()), "\n")
+	outcomes := func(id string) []string {
+		var out []string
+		for _, l := range lines {
+			if strings.Contains(l, "event="+id+" ") {
+				_, o, _ := strings.Cut(l, "outcome=")
+				o, _, _ = strings.Cut(o, " ")
+				out = append(out, o)
+			}
+		}
+		return out
+	}
+	for id, want := range map[string][]string{
+		"bad": {"refused"}, "refused": {"refused"}, "flaky": {"retried", "handled"}, "good": {"handled"},
+	} {
+		if got := outcomes(id); !slices.Equal(got, want) {
+			t.Errorf("%s's deliveries were logged as %v, want %v:\n%s", id, got, want, log.String())
 		}
 	}
-	if !strings.Contains(log.String(), "consumer=consumer") || !strings.Contains(log.String(), "nine is refused") {
-		t.Errorf("a refusal lacks its consumer or its error:\n%s", log.String())
+	for _, want := range []string{
+		`level=WARN msg="event refused" consumer=consumer type=t event=refused`,
+		`error="permanent: nine is refused"`,
+		`msg="event consumed" consumer=consumer type=t event=flaky subject="" outcome=retried error="five fails once"`,
+		`level=INFO msg="event consumed" consumer=consumer type=t event=good subject=s1 outcome=handled`,
+	} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the log lacks %s:\n%s", want, log.String())
+		}
 	}
 
 	if _, err := rt.Consume(messaging.Subscription{Name: "a.b"}, time.Second, func(context.Context, payload, messaging.Claim) error { return nil }); err == nil {

@@ -62,10 +62,18 @@ func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbo
 // [reactor.GraceWithin] gives it. Its last pass, bounded at a quarter of
 // shutdown, below its grace, publishes what the producers above it
 // committed while they drained, so the root registers it below every stage
-// that commits events.
+// that commits events. Each event it publishes is logged at info with its
+// type, id, and subject, so the service's log shows the traffic it sends.
 func (r *Runtime) Relay(db sqlate.Beginner, shutdown time.Duration) *reactor.Reactor[event.Event] {
 	src := r.Outbox.Relay(db, outbox.Poll(r.cfg.RelayPoll.Duration()), outbox.Drain(shutdown/4))
-	return reactor.New(src, r.Broker.Publish, reactor.GraceWithin(shutdown))
+	publish := func(ctx context.Context, e event.Event) error {
+		if err := r.Broker.Publish(ctx, e); err != nil {
+			return err
+		}
+		r.logger.InfoContext(ctx, "event published", "type", e.Type, "event", e.ID, "subject", e.Subject)
+		return nil
+	}
+	return reactor.New(src, publish, reactor.GraceWithin(shutdown))
 }
 
 // Claim records, in a command's transaction, that the consumer is handling
@@ -79,10 +87,15 @@ type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 // own type for the payload, and handed to fn with a [Claim] over the inbox
 // under sub.Name, bound to the event, so fn's domain never sees the event
 // and a redelivery changes nothing. Data that does not decode is refused
-// with [event.Permanent], because no redelivery can fix it. Every permanent
-// refusal, a decode's or fn's, is logged with the consumer and the event's
-// id, because the broker terminates the delivery and nothing else reports
-// it.
+// with [event.Permanent], because no redelivery can fix it.
+//
+// Each delivery is logged with the consumer, the event's type, id, and
+// subject, and its outcome, so the service's log shows the traffic it
+// receives. It is "event consumed" at info when handled; repeat, when the
+// claim found the event handled already; or retried, with the error, when
+// the broker will redeliver it. A permanent refusal, a decode's or fn's, is
+// "event refused" at warn with the error, because the broker terminates the
+// delivery and nothing else reports it.
 func (r *Runtime) Consume[T any](sub Subscription, shutdown time.Duration, fn func(ctx context.Context, data T, claim Claim) error) (*reactor.Reactor[event.Event], error) {
 	src, err := r.Broker.Subscribe(sub)
 	if err != nil {
@@ -90,17 +103,28 @@ func (r *Runtime) Consume[T any](sub Subscription, shutdown time.Duration, fn fu
 	}
 	handle := func(ctx context.Context, e event.Event) error {
 		var data T
+		repeat := false
 		err := json.Unmarshal(e.Data, &data)
 		if err != nil {
 			err = event.Permanent(fmt.Errorf("decode: %w", err))
 		} else {
 			claim := func(ctx context.Context, tx *sqlate.Tx) (bool, error) {
-				return r.Inbox.Claim(ctx, tx, sub.Name, e)
+				first, err := r.Inbox.Claim(ctx, tx, sub.Name, e)
+				repeat = err == nil && !first
+				return first, err
 			}
 			err = fn(ctx, data, claim)
 		}
-		if event.IsPermanent(err) {
-			r.logger.WarnContext(ctx, "event refused", "consumer", sub.Name, "type", e.Type, "event", e.ID, "error", err)
+		attrs := []any{"consumer", sub.Name, "type", e.Type, "event", e.ID, "subject", e.Subject}
+		switch {
+		case event.IsPermanent(err):
+			r.logger.WarnContext(ctx, "event refused", append(attrs, "outcome", "refused", "error", err)...)
+		case err != nil:
+			r.logger.InfoContext(ctx, "event consumed", append(attrs, "outcome", "retried", "error", err)...)
+		case repeat:
+			r.logger.InfoContext(ctx, "event consumed", append(attrs, "outcome", "repeat")...)
+		default:
+			r.logger.InfoContext(ctx, "event consumed", append(attrs, "outcome", "handled")...)
 		}
 		return err
 	}
