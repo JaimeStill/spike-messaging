@@ -32,7 +32,7 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint in each module with SQL"
-run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/exercise && go tool sqlint)"
+run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/exercise && go tool sqlint) && (cd services/operations && go tool sqlint)"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres and NATS"
