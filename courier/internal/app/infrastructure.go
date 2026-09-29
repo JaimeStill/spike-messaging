@@ -85,35 +85,47 @@ type scratch struct {
 	release func() error
 }
 
-// scratchBroker connects to the NATS server and builds a broker on a stream
-// of its own.
+// scratchBroker starts a broker on a stream of its own on the NATS server.
 func (i *Infrastructure) scratchBroker() (*scratch, error) {
-	nc, err := i.natsConnect()
-	if err != nil {
-		return nil, err
+	url := i.cfg.natsURL()
+	if url == "" {
+		return nil, errors.New("no NATS URL: set --nats-url or MESSAGING_NATS_URL")
 	}
 	suffix, err := randomSuffix()
 	if err != nil {
-		nc.Close()
+		return nil, err
+	}
+	stream := "courier_" + suffix
+	broker, err := nats.New(nats.Config{URL: url, Name: "courier", Stream: stream, Prefix: "courier." + suffix})
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), natsWait)
 	defer cancel()
-	broker, err := nats.New(ctx, nc, nats.Config{Stream: "courier_" + suffix, Prefix: "courier." + suffix})
-	if err != nil {
+	if err := broker.Start(ctx); err != nil {
 		// A create cut short by the timeout can still finish on the server,
-		// so the stream is deleted if it exists before the connection closes.
-		derr := deleteStream(nc, "courier_"+suffix)
-		nc.Close()
+		// so the stream is deleted if it exists.
+		derr := i.deleteScratchStream(stream)
 		return nil, errors.Join(err, derr)
 	}
 	release := func() error {
-		derr := deleteStream(broker.Conn(), "courier_"+suffix)
+		derr := deleteStream(broker.Conn(), stream)
 		ctx, cancel := context.WithTimeout(context.Background(), natsWait)
 		defer cancel()
 		return errors.Join(derr, broker.Shutdown(ctx))
 	}
 	return &scratch{broker: broker, suffix: suffix, release: release}, nil
+}
+
+// deleteScratchStream deletes the named stream on a connection of its own,
+// for a broker whose Start failed and left none.
+func (i *Infrastructure) deleteScratchStream(name string) error {
+	nc, err := i.natsConnect()
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	return deleteStream(nc, name)
 }
 
 // randomSuffix returns eight hex digits that make a run's scratch names

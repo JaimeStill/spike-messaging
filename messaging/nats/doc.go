@@ -1,12 +1,18 @@
 // Package nats is the NATS JetStream messaging provider.
 //
 // A [Broker] publishes to one stream and subscribes durable pull consumers
-// on it. The composition root connects to NATS and hands the connection to
-// [New], which provisions the stream idempotently, so every replica
-// converges on the same configuration. The broker then owns the connection:
-// it is a lifecycle component at the lowest stage, whose [Broker.Shutdown]
-// drains the connection once the reactors above it have drained, and whose
-// [Broker.Ready] reports it.
+// on it. It is a lifecycle component at the lowest stage. [New] checks its
+// [Config] and does no I/O, so a composition root can build it cold;
+// [Broker.Start] connects to Config.URL, reconnecting without limit once it
+// is up, and provisions the stream idempotently, so every replica converges
+// on the same configuration. [Broker.Shutdown] drains the connection once
+// the reactors above it have drained, and [Broker.Ready] reports it: an
+// outage makes the broker not ready rather than ending the process. A call
+// that reaches the broker before Start fails with [ErrNotStarted], which the
+// coordinator's stage order prevents.
+//
+// Config is also the service's nats configuration block: its JSON form,
+// [Config.Merge], and [Config.Finalize] follow go-core's config conventions.
 //
 // An event is published in binary content mode to the subject
 // Prefix.<type>, so a type must pass [messaging.CheckType], with its source

@@ -44,7 +44,11 @@ type source struct {
 // and the source reports not ready until a pull succeeds again. A handler
 // error never ends Receive.
 func (s *source) Receive(ctx context.Context, fn reactor.Func[event.Event]) error {
-	cons, err := s.b.js.CreateConsumer(ctx, s.b.cfg.Stream, s.cfg)
+	c := s.b.conn.Load()
+	if c == nil {
+		return ErrNotStarted
+	}
+	cons, err := c.js.CreateConsumer(ctx, s.b.cfg.Stream, s.cfg)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil

@@ -41,7 +41,7 @@ type Infrastructure struct {
 	DB       *database.DB
 	SQL      *data.Database
 	Sets     []migrate.Set
-	Broker   *broker
+	Broker   *nats.Broker
 	Outbox   *outbox.Outbox
 	Inbox    *inbox.Inbox
 	Recorder *event.Recorder[*sqlate.Tx]
@@ -81,10 +81,12 @@ func newInfrastructure(
 		Check:    db,
 	})
 
-	b, err := newBroker(cfg.Messaging.URL, "exercise", nats.Config{
+	b, err := nats.New(nats.Config{
+		URL:    cfg.Messaging.URL,
+		Name:   "exercise",
 		Stream: cfg.Messaging.Stream,
 		Prefix: cfg.Messaging.Prefix,
-		MaxAge: cfg.Messaging.MaxAge.Duration(),
+		MaxAge: cfg.Messaging.MaxAge,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("broker: %w", err)

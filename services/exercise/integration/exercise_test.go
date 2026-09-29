@@ -12,7 +12,7 @@ import (
 	"time"
 	"uuid"
 
-	natsgo "github.com/nats-io/nats.go"
+	libconfig "github.com/standards-lab/go-core/config"
 	"github.com/standards-lab/go-web-sdk/webtest"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
@@ -78,15 +78,19 @@ type watcher struct {
 
 func watch(t *testing.T, s *integration.Service) *watcher {
 	t.Helper()
-	nc, err := natsgo.Connect(integration.NATSURL())
-	if err != nil {
-		t.Fatal(err)
-	}
 	// Every broker on a stream provisions it, and the last to provision sets
 	// its configuration, so the watcher matches the service's: its default
 	// MaxAge, and the default deduplication window.
-	b, err := nats.New(t.Context(), nc, nats.Config{Stream: s.Stream, Prefix: s.Prefix, MaxAge: 24 * time.Hour})
+	b, err := nats.New(nats.Config{
+		URL:    integration.NATSURL(),
+		Stream: s.Stream,
+		Prefix: s.Prefix,
+		MaxAge: libconfig.Duration(24 * time.Hour),
+	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	w := &watcher{broker: b}

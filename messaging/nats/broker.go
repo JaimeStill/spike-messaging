@@ -7,10 +7,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	libconfig "github.com/standards-lab/go-core/config"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
@@ -18,6 +20,9 @@ import (
 )
 
 const (
+	// DefaultURL is the NATS server Finalize fills in when a configuration
+	// names none.
+	DefaultURL = "nats://127.0.0.1:4222"
 	// DefaultDuplicates is the stream's deduplication window when Config
 	// sets none: JetStream's own default.
 	DefaultDuplicates = 2 * time.Minute
@@ -32,28 +37,40 @@ const (
 	AckMargin = 250 * time.Millisecond
 )
 
-// Config names the stream a broker publishes to and subscribes on.
+// ErrNotStarted is the failure of a call that needs the connection, made
+// before [Broker.Start].
+var ErrNotStarted = errors.New("nats: broker not started")
+
+// Config names the NATS server a broker connects to and the stream it
+// publishes to and subscribes on.
 type Config struct {
+	// URL is the NATS server; Finalize defaults it to DefaultURL.
+	URL string `json:"url"`
+	// Name is the connection's name, which the server reports; optional.
+	Name string `json:"name"`
 	// Stream is the stream's name: a token, as a subscription's Name is.
-	Stream string
+	Stream string `json:"stream"`
 	// Prefix is the subject prefix, one or more tokens; the stream captures
 	// Prefix.> and an event is published to Prefix.<type>.
-	Prefix string
+	Prefix string `json:"prefix"`
 	// Duplicates is the stream's deduplication window; 0 is
 	// DefaultDuplicates.
-	Duplicates time.Duration
+	Duplicates libconfig.Duration `json:"duplicates"`
 	// MaxAge bounds the stream's retention: the stream discards an event
 	// older than MaxAge, whether or not every consumer has received it. A
 	// consumer that falls further behind than MaxAge recovers when the
 	// event's producer republishes its current state. 0 keeps every event.
 	// JetStream requires a positive MaxAge to be at least the
 	// deduplication window.
-	MaxAge time.Duration
+	MaxAge libconfig.Duration `json:"max_age"`
 }
 
 // Validate reports every way cfg is unusable.
 func (cfg Config) Validate() error {
 	var errs []error
+	if cfg.URL == "" {
+		errs = append(errs, errors.New("url is required"))
+	}
 	if !messaging.IsToken(cfg.Stream) {
 		errs = append(errs, fmt.Errorf("stream %q must be a token, as a subscription's name is", cfg.Stream))
 	}
@@ -63,14 +80,14 @@ func (cfg Config) Validate() error {
 	if cfg.Duplicates < 0 {
 		errs = append(errs, errors.New("duplicates must not be negative"))
 	}
-	dupes := cfg.Duplicates
+	dupes := cfg.Duplicates.Duration()
 	if dupes == 0 {
 		dupes = DefaultDuplicates
 	}
 	switch {
 	case cfg.MaxAge < 0:
 		errs = append(errs, errors.New("max age must not be negative"))
-	case cfg.MaxAge > 0 && cfg.MaxAge < dupes:
+	case cfg.MaxAge > 0 && cfg.MaxAge.Duration() < dupes:
 		errs = append(errs, fmt.Errorf("max age %v must be at least the deduplication window, %v", cfg.MaxAge, dupes))
 	}
 	if len(errs) > 0 {
@@ -81,64 +98,99 @@ func (cfg Config) Validate() error {
 
 // Broker is a [messaging.Broker] on a JetStream stream.
 type Broker struct {
-	nc  *natsgo.Conn
-	js  jetstream.JetStream
-	cfg Config
+	cfg  Config
+	conn atomic.Pointer[conn]
+}
+
+// conn is the connection a started broker owns, and its JetStream context.
+type conn struct {
+	nc *natsgo.Conn
+	js jetstream.JetStream
 }
 
 var _ messaging.Broker = (*Broker)(nil)
 
-// New provisions cfg's stream on nc, creating it or updating it to cfg, and
-// returns a broker on it. The broker owns nc from here: its Shutdown drains
-// it.
-func New(ctx context.Context, nc *natsgo.Conn, cfg Config) (*Broker, error) {
+// New checks cfg and returns a broker on it, unconnected. It does no I/O.
+func New(cfg Config) (*Broker, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	if cfg.Duplicates == 0 {
-		cfg.Duplicates = DefaultDuplicates
+		cfg.Duplicates = libconfig.Duration(DefaultDuplicates)
+	}
+	return &Broker{cfg: cfg}, nil
+}
+
+// Start connects to the server, waiting until ctx's deadline or 10s, and
+// provisions the stream, creating it or updating it to the broker's
+// configuration. Once up, the connection reconnects without limit. A
+// failed Start closes what it opened.
+func (b *Broker) Start(ctx context.Context) error {
+	timeout := 10 * time.Second
+	if d, ok := ctx.Deadline(); ok {
+		timeout = time.Until(d)
+	}
+	nc, err := natsgo.Connect(b.cfg.URL, natsgo.Name(b.cfg.Name), natsgo.Timeout(timeout), natsgo.MaxReconnects(-1))
+	if err != nil {
+		return fmt.Errorf("nats: connect %s: %w", b.cfg.URL, err)
 	}
 	js, err := jetstream.New(nc)
 	if err != nil {
-		return nil, fmt.Errorf("nats: %w", err)
+		nc.Close()
+		return fmt.Errorf("nats: %w", err)
 	}
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:       cfg.Stream,
-		Subjects:   []string{cfg.Prefix + ".>"},
+		Name:       b.cfg.Stream,
+		Subjects:   []string{b.cfg.Prefix + ".>"},
 		Storage:    jetstream.FileStorage,
 		Retention:  jetstream.LimitsPolicy,
-		Duplicates: cfg.Duplicates,
-		MaxAge:     cfg.MaxAge,
+		Duplicates: b.cfg.Duplicates.Duration(),
+		MaxAge:     b.cfg.MaxAge.Duration(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("nats: provision stream %s: %w", cfg.Stream, err)
+		nc.Close()
+		return fmt.Errorf("nats: provision stream %s: %w", b.cfg.Stream, err)
 	}
-	return &Broker{nc: nc, js: js, cfg: cfg}, nil
+	b.conn.Store(&conn{nc: nc, js: js})
+	return nil
 }
 
 // Conn is the native handle, for a use beyond the standard tier, such as
-// request and reply.
-func (b *Broker) Conn() *natsgo.Conn { return b.nc }
+// request and reply: the started broker's connection, or nil before Start.
+func (b *Broker) Conn() *natsgo.Conn {
+	if c := b.conn.Load(); c != nil {
+		return c.nc
+	}
+	return nil
+}
 
-// Ready reports whether the connection is up.
-func (b *Broker) Ready() bool { return b.nc.IsConnected() }
+// Ready reports whether the broker is started and its connection is up.
+func (b *Broker) Ready() bool {
+	c := b.conn.Load()
+	return c != nil && c.nc.IsConnected()
+}
 
 // Shutdown drains the connection: its subscriptions stop, pending
 // publishes and acknowledgements flush, and it closes. It returns once the
-// connection is closed. When ctx ends first, it closes the connection
+// connection is closed, at once for a broker that never started. When ctx
+// ends first, it closes the connection
 // without finishing the drain and returns ctx's error.
 func (b *Broker) Shutdown(ctx context.Context) error {
+	c := b.conn.Load()
+	if c == nil {
+		return nil
+	}
 	// A connection that is reconnecting cannot drain, and Drain closes it.
-	if err := b.nc.Drain(); err != nil && !errors.Is(err, natsgo.ErrConnectionClosed) && !errors.Is(err, natsgo.ErrConnectionReconnecting) {
-		b.nc.Close()
+	if err := c.nc.Drain(); err != nil && !errors.Is(err, natsgo.ErrConnectionClosed) && !errors.Is(err, natsgo.ErrConnectionReconnecting) {
+		c.nc.Close()
 		return fmt.Errorf("nats: drain: %w", err)
 	}
 	t := time.NewTicker(10 * time.Millisecond)
 	defer t.Stop()
-	for !b.nc.IsClosed() {
+	for !c.nc.IsClosed() {
 		select {
 		case <-ctx.Done():
-			b.nc.Close()
+			c.nc.Close()
 			return fmt.Errorf("nats: drain: %w", ctx.Err())
 		case <-t.C:
 		}
@@ -160,9 +212,13 @@ func (b *Broker) Publish(ctx context.Context, e event.Event) error {
 	if err != nil {
 		return fmt.Errorf("nats: publish: %w", err)
 	}
+	c := b.conn.Load()
+	if c == nil {
+		return ErrNotStarted
+	}
 	msg := &natsgo.Msg{Subject: b.subject(e.Type), Header: natsgo.Header(h), Data: body}
 	msg.Header.Set(jetstream.MsgIDHeader, msgID(e))
-	if _, err := b.js.PublishMsg(ctx, msg); err != nil {
+	if _, err := c.js.PublishMsg(ctx, msg); err != nil {
 		return fmt.Errorf("nats: publish %s: %w", e.ID, err)
 	}
 	return nil
