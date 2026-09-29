@@ -1,2 +1,4 @@
+github.com/standards-lab/go-core v0.4.1 h1:6gjZ62FEvk0R99BsrwlvycZZ10tgWqex0IIz2uxhSj8=
+github.com/standards-lab/go-core v0.4.1/go.mod h1:Yl/R+gM9YWczsePBCKXdPGh3FSdZ/5i8SapLIh3BDHU=
 github.com/standards-lab/sqlate v0.4.0 h1:1k0pCj9j8wAWlZTNeD9e/XjFWHrzQHUDuUjbQ+zV1pw=
 github.com/standards-lab/sqlate v0.4.0/go.mod h1:pikNmGf/z3x46SBWFXgt/xKIDZuquSgCoXy5OWBFFR4=
