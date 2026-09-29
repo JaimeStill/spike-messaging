@@ -14,6 +14,51 @@ mise run up                 # start Postgres and NATS
 mise run command-serve      # run the service on 127.0.0.1:8083
 ```
 
+## API
+
+Mounted under `/api/command`:
+
+| Route | Action |
+|-------|--------|
+| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on, and the decision standing for each live element, with its rule, its target, and for an engage its contact |
+
+`/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
+service, and each reactor. The commands have no route: their inputs arrive as events.
+
+## Events
+
+The service consumes three event types, each through a subscription of its own, and decodes each
+payload into its command's input, its own reading of the payload:
+
+| Subscription | Event | Command |
+|--------------|-------|---------|
+| `command-started` | `exercise.started` | `Open` both factions' directions over the map |
+| `command-assessed` | `intelligence.assessment.issued` | `Decide`: decide on the faction's assessment |
+| `command-concluded` | `exercise.concluded` | `Close` the exercise's directions |
+
+Every command claims its event through the inbox, so a redelivery changes nothing. An input for
+a direction not open yet, as when an assessment is handled before its start, is redelivered after
+250ms rather than refused.
+
+`Decide` applies three rules to each live element, in order, by path distance over open cells and
+gates:
+
+1. **Engage.** A force heads for the nearest known contact weaker than itself within 3 steps, at
+   the cell it was last seen in.
+2. **Secure.** Otherwise the element heads for the nearest reachable objective that its faction
+   isn't known to hold and that no other element is heading for. An element keeps the objective
+   it was securing while that objective is still one to secure.
+3. **Hold.** Otherwise it stands where it is.
+
+The service emits `command.directive.issued`, whose subject is the exercise's ID:
+`{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where a hold's
+target is null and only an engage has a contact. It emits one only when a decision changes an
+element's target, and it lists every live element, so each directive carries the faction's whole
+target state. operations reads the element and the target.
+
+The messaging runtime logs the traffic: each event the relay publishes, and each delivery a
+consumer handles, with its outcome.
+
 ## Composition
 
 `internal/app` builds one layer per file, and the lifecycle coordinator starts them in stage
@@ -22,10 +67,15 @@ order:
 | Stage | Service |
 |-------|---------|
 | 0 | `database`, and `broker`, which connects and provisions the shared stream at start |
-| 1 | `schema`: go-database's admin service migrates the `messaging` set |
-| 2 | `messaging` verifies its statements |
+| 1 | `schema`: go-database's admin service migrates the `messaging` set, then `command` |
+| 2 | `messaging` and `command` verify their statements |
 | 3 | `relay`, which publishes the outbox |
+| 4 | `started`, `assessed`, and `concluded`, the consumers |
 | root | `server` |
+
+The drain runs in reverse. The consumers raise the service's directives, so they sit above the
+relay: the drain stops them first, and the relay's last pass publishes what they committed. The
+broker and database close last.
 
 ## Configuration
 
@@ -44,5 +94,8 @@ template's:
 ## Testing
 
 From the repository root, `mise run test` runs the unit tier and `mise run integration` runs the
-integration tier across every module. For this service, the integration tier runs the built
-service against the compose stack, on a scratch database and stream of its own.
+integration tier across every module. For this service, the integration tier covers two things:
+
+- the domain's commands, on a scratch database;
+- the built service, against the compose stack, on a scratch database and stream of its own,
+  driven through the events it consumes.
