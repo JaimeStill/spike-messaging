@@ -74,7 +74,7 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b := memory.New()
-			objective := map[string]any{"at": map[string]any{"sector": "a", "x": 1, "y": 1}, "holder": tc.redHolds, "known": true, "seen": 0, "age": 0}
+			objective := map[string]any{"at": map[string]any{"sector": "a", "x": 1, "y": 1}, "holder": tc.redHolds, "seen": 0, "age": 0}
 			publishJSON(t, b, "ar", "intelligence.assessment.issued", map[string]any{
 				"exercise": exerciseID, "faction": "red", "round": 0,
 				"own": []any{squadAt("r1", at)}, "contacts": []any{}, "objectives": []any{objective}})

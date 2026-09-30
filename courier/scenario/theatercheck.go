@@ -34,59 +34,15 @@ const TheaterCheckDurable = "courier-theater-check-"
 // observer's observations already list what each faction sees.
 var sight = map[string]int{"squad": 1, "scout": 2}
 
-// The theater check's own readings of exercise's history and view, and of
-// intelligence's assessment in full: the services share no Go types.
-type (
-	observerElement struct {
-		ID       string   `json:"id"`
-		Kind     string   `json:"kind"`
-		Strength int      `json:"strength"`
-		Health   []int    `json:"health"`
-		Status   string   `json:"status"`
-		At       location `json:"at"`
-	}
-	observerObjective struct {
-		At     location `json:"at"`
-		Holder string   `json:"holder"`
-	}
-	observerObservation struct {
-		Own        []observerElement   `json:"own"`
-		Contacts   []observerElement   `json:"contacts"`
-		Objectives []observerObjective `json:"objectives"`
-	}
-	// observerRound is one round of exercise's history: the state after it,
-	// each faction's observation of it, indexed like the factions, and its
-	// resolution, nil for round 0.
-	observerRound struct {
-		Round        int                   `json:"round"`
-		State        exerciseState         `json:"state"`
-		Observations []observerObservation `json:"observations"`
-		Resolution   *struct {
-			Captures []struct {
-				At      location `json:"at"`
-				Faction string   `json:"faction"`
-				From    string   `json:"from"`
-			} `json:"captures"`
-		} `json:"resolution"`
-	}
-	observerVerdict struct {
-		Winner string `json:"winner"`
-		Reason string `json:"reason"`
-	}
-	checkedContact struct {
-		observerElement
-		Seen int `json:"seen"`
-		Age  int `json:"age"`
-	}
-	checkedAssessment struct {
-		Exercise   string              `json:"exercise"`
-		Faction    string              `json:"faction"`
-		Round      int                 `json:"round"`
-		Own        []observerElement   `json:"own"`
-		Contacts   []checkedContact    `json:"contacts"`
-		Objectives []assessedObjective `json:"objectives"`
-	}
-)
+// observerRound is one round of exercise's history: the state after it,
+// each faction's observation of it, indexed like the factions, and its
+// resolution, nil for round 0.
+type observerRound struct {
+	Round        int           `json:"round"`
+	State        exerciseState `json:"state"`
+	Observations []observation `json:"observations"`
+	Resolution   *resolution   `json:"resolution"`
+}
 
 // theaterCheckScenario reconciles a theater run's assessments against
 // exercise's history, the observer's record. It reads the assessments from
@@ -133,7 +89,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 			var l lease
 			g := &assessmentLog{exercise: exercise, concluded: newSignal()}
 			var history []observerRound
-			var verdict *observerVerdict
+			var end *verdict
 			return []Step{
 				{
 					Intent: fmt.Sprintf("Join the %s stream from its beginning, and read exercise %s's assessments until it concludes and the stream is quiet", stream, exercise),
@@ -193,7 +149,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 						if len(history) == 0 {
 							return fmt.Errorf("exercise %s has no history", exercise)
 						}
-						verdict = view.Verdict
+						end = view.Verdict
 						rep.Note("read %d rounds", len(history))
 						return nil
 					},
@@ -201,7 +157,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 				{
 					Intent: "Reconcile each assessment with the observer's record",
 					Action: func(_ context.Context, rep *Reporter) error {
-						lines, errs := checkTheater(exercise, history, verdict, g.read(), contactRounds)
+						lines, errs := checkTheater(exercise, history, end, g.read(), contactRounds)
 						for _, line := range lines {
 							rep.Note("%s", line)
 						}
@@ -223,17 +179,14 @@ type assessmentLog struct {
 	concluded *signal
 
 	mu   sync.Mutex
-	all  []checkedAssessment
+	all  []assessment
 	last time.Time
 }
 
 // handle keeps an assessment of the exercise and fires concluded on its
 // conclusion, ignoring every other exercise's events.
 func (g *assessmentLog) handle(_ context.Context, e event.Event) error {
-	var head struct {
-		Exercise string `json:"exercise"`
-	}
-	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != g.exercise {
+	if exerciseOf(e) != g.exercise {
 		return nil
 	}
 	g.mu.Lock()
@@ -241,9 +194,9 @@ func (g *assessmentLog) handle(_ context.Context, e event.Event) error {
 	g.last = time.Now()
 	switch e.Type {
 	case assessmentType:
-		var d checkedAssessment
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
+		d, err := decode[assessment](e)
+		if err != nil {
+			return err
 		}
 		g.all = append(g.all, d)
 	case concludedType:
@@ -260,7 +213,7 @@ func (g *assessmentLog) since() time.Duration {
 }
 
 // read returns the assessments collected so far.
-func (g *assessmentLog) read() []checkedAssessment {
+func (g *assessmentLog) read() []assessment {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return slices.Clone(g.all)
@@ -291,7 +244,7 @@ func getJSON(ctx context.Context, u string, v any) error {
 // who truly holds each objective, and what each faction believes of each
 // objective at the end against the truth. It returns the lines and the
 // number of inconsistencies.
-func checkTheater(exercise string, history []observerRound, verdict *observerVerdict, all []checkedAssessment, k int) ([]string, int) {
+func checkTheater(exercise string, history []observerRound, end *verdict, all []assessment, k int) ([]string, int) {
 	history = slices.Clone(history)
 	slices.SortFunc(history, func(a, b observerRound) int { return cmp.Compare(a.Round, b.Round) })
 	latest := lastAssessments(all)
@@ -311,7 +264,7 @@ func checkTheater(exercise string, history []observerRound, verdict *observerVer
 		out = append(out, found)
 	}
 	lines := list(out, "", same)
-	lines = append(lines, truth(history[len(history)-1], verdict)...)
+	lines = append(lines, truth(history[len(history)-1], end)...)
 	lines = append(lines, beliefs(history, latest)...)
 	return lines, len(errs)
 }
@@ -319,17 +272,17 @@ func checkTheater(exercise string, history []observerRound, verdict *observerVer
 // lastAssessments returns each faction's last assessment of each round,
 // sorted by round, then faction: intelligence revises a round's assessment
 // when a loss alert follows it, and the revision stands.
-func lastAssessments(all []checkedAssessment) []checkedAssessment {
+func lastAssessments(all []assessment) []assessment {
 	type key struct {
 		round   int
 		faction string
 	}
-	last := map[key]checkedAssessment{}
+	last := map[key]assessment{}
 	for _, a := range all {
 		last[key{a.Round, a.Faction}] = a
 	}
 	out := slices.Collect(maps.Values(last))
-	slices.SortFunc(out, func(a, b checkedAssessment) int {
+	slices.SortFunc(out, func(a, b assessment) int {
 		return cmp.Or(cmp.Compare(a.Round, b.Round), cmp.Compare(a.Faction, b.Faction))
 	})
 	return out
@@ -349,7 +302,7 @@ func lastAssessments(all []checkedAssessment) []checkedAssessment {
 //     holder, none is reported before its faction first had it in sight,
 //     and none out of sight is reported as seen this round. An objective a
 //     loss alert told of is reported as the alert has it, in sight or not.
-func reconcile(history []observerRound, assessments []checkedAssessment, k int) []string {
+func reconcile(history []observerRound, assessments []assessment, k int) []string {
 	rounds := map[int]observerRound{}
 	for _, h := range history {
 		rounds[h.Round] = h
@@ -358,14 +311,14 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 	// firstSeen is the first round each faction had each objective in
 	// sight, and alerts each objective's losses, by faction.
 	firstSeen := map[string]map[string]int{}
-	type loss struct {
+	type alert struct {
 		round  int
 		holder string
 	}
-	alerts := map[string]map[string][]loss{}
+	alerts := map[string]map[string][]alert{}
 	for _, f := range factions {
 		firstSeen[f] = map[string]int{}
-		alerts[f] = map[string][]loss{}
+		alerts[f] = map[string][]alert{}
 	}
 	for _, h := range history {
 		for i, o := range h.Observations {
@@ -383,12 +336,12 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 		}
 		for _, c := range h.Resolution.Captures {
 			if c.From != "" && alerts[c.From] != nil {
-				alerts[c.From][place(c.At)] = append(alerts[c.From][place(c.At)], loss{h.Round, c.Faction})
+				alerts[c.From][place(c.At)] = append(alerts[c.From][place(c.At)], alert{h.Round, c.Faction})
 			}
 		}
 	}
-	alerted := func(f string, o assessedObjective) bool {
-		return slices.Contains(alerts[f][place(o.At)], loss{o.Seen, o.Holder})
+	alerted := func(f string, o belief) bool {
+		return slices.Contains(alerts[f][place(o.At)], alert{o.Seen, o.Holder})
 	}
 
 	var errs []string
@@ -422,14 +375,14 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 		if !slices.Equal(elementKeys(a.Own), elementKeys(obs.Own)) {
 			fail("own elements differ from the truth")
 		}
-		contacts := map[string]checkedContact{}
+		contacts := map[string]contact{}
 		for _, c := range a.Contacts {
 			contacts[c.ID] = c
 		}
 		visible := map[string]bool{}
 		for _, e := range obs.Contacts {
 			visible[e.ID] = true
-			if c, ok := contacts[e.ID]; !ok || c.Age != 0 || elementKey(c.observerElement) != elementKey(e) {
+			if c, ok := contacts[e.ID]; !ok || c.Age != 0 || elementKey(c.element) != elementKey(e) {
 				fail("%s is in sight at %s, strength %d, but not reported so", e.ID, place(e.At), e.Strength)
 			}
 		}
@@ -467,15 +420,13 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 			case alerted(f, o) && (!now || o.Seen > r):
 				// A loss alert told of it; one of a later round than the
 				// sighting stands over it.
-			case now && (!o.Known || o.Age != 0 || o.Holder != holder):
+			case now && (o.Age != 0 || o.Holder != holder):
 				fail("%s is in sight and %s, but not reported so", objectiveName(o.At), heldBy(holder))
 			case now:
 			case !before:
 				fail("%s is reported, but %s has never had it in sight", objectiveName(o.At), f)
-			case o.Known && o.Age == 0:
+			case o.Age == 0:
 				fail("%s is reported seen this round, but is out of sight", objectiveName(o.At))
-			case !o.Known:
-				fail("%s is unknown, but was seen before", objectiveName(o.At))
 			}
 		}
 	}
@@ -485,30 +436,26 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 // beliefs renders what each faction's last assessment believes of each
 // objective, against who truly holds it after the last round: a block for
 // each faction, as the theater narrates a round.
-func beliefs(history []observerRound, assessments []checkedAssessment) []string {
+func beliefs(history []observerRound, assessments []assessment) []string {
 	final := history[len(history)-1]
-	last := map[string]checkedAssessment{}
+	last := map[string]assessment{}
 	for _, a := range assessments {
 		last[a.Faction] = a
 	}
 	var out []string
 	for _, f := range final.State.Factions {
-		known := map[string]assessedObjective{}
+		known := map[string]belief{}
 		for _, o := range last[f].Objectives {
 			known[place(o.At)] = o
 		}
 		var rows []detail
 		for _, at := range final.State.objectives() {
 			believed := "undiscovered"
-			o, ok := known[place(at)]
-			switch {
-			case ok && o.Known:
+			if o, ok := known[place(at)]; ok {
 				believed = orUnheld(o.Holder)
 				if o.Age > 0 {
 					believed += fmt.Sprintf(" (seen %d ago)", o.Age)
 				}
-			case ok:
-				believed = "unknown"
 			}
 			rows = append(rows, row(col("objective", objectiveName(at)), apart("believed", believed),
 				apart("truth", "truly "+orUnheld(final.State.Holders[place(at)]))))
@@ -521,20 +468,20 @@ func beliefs(history []observerRound, assessments []checkedAssessment) []string 
 
 // truth renders the observer's block: the verdict, and who truly holds
 // which objectives after the last round.
-func truth(final observerRound, v *observerVerdict) []string {
+func truth(final observerRound, v *verdict) []string {
 	held := map[string][]string{}
 	for _, at := range final.State.objectives() {
 		if h := final.State.Holders[place(at)]; h != "" {
 			held[h] = append(held[h], objectiveName(at))
 		}
 	}
-	verdict := "none"
+	ended := "none"
 	if v != nil {
 		winner := v.Winner
 		if winner == "" {
 			winner = "no winner"
 		}
-		verdict = winner + " by " + v.Reason
+		ended = winner + " by " + v.Reason
 	}
 	holds := []string{"none"}
 	if len(held) > 0 {
@@ -544,12 +491,12 @@ func truth(final observerRound, v *observerVerdict) []string {
 		holds = append(holds, h+" "+strings.Join(held[h], " "))
 	}
 	out := []string{"observer"}
-	out = append(out, labeled{label: "verdict", items: []string{verdict}}.lines("  ", len("believes"), same)...)
+	out = append(out, labeled{label: "verdict", items: []string{ended}}.lines("  ", len("believes"), same)...)
 	return append(out, labeled{label: "holds", items: holds}.lines("  ", len("believes"), same)...)
 }
 
 // elementKeys returns each element's key, sorted.
-func elementKeys(es []observerElement) []string {
+func elementKeys(es []element) []string {
 	keys := make([]string, len(es))
 	for i, e := range es {
 		keys[i] = elementKey(e)
@@ -560,13 +507,13 @@ func elementKeys(es []observerElement) []string {
 
 // elementKey renders what the check compares of an element: its ID,
 // strength, health, status, and cell.
-func elementKey(e observerElement) string {
+func elementKey(e element) string {
 	return fmt.Sprintf("%s %d %v %s %s", e.ID, e.Strength, e.Health, e.Status, place(e.At))
 }
 
 // inSight reports whether any of own sees at, under exercise's sight rule.
-func inSight(own []observerElement, at location) bool {
-	return slices.ContainsFunc(own, func(e observerElement) bool {
+func inSight(own []element, at location) bool {
+	return slices.ContainsFunc(own, func(e element) bool {
 		return e.At.Sector == at.Sector && max(abs(e.At.X-at.X), abs(e.At.Y-at.Y)) <= sight[e.Kind]
 	})
 }

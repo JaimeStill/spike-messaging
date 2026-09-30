@@ -3,7 +3,6 @@ package scenario
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -26,15 +25,6 @@ import (
 // under, so the stream's consumers show which are courier's.
 const TheaterDurable = "courier-theater-"
 
-// The events the theater narrates beyond the assessments scenario's: the
-// observer's record of each round, its alert to a faction that lost an
-// objective, and operations' orders.
-const (
-	resolvedType = "exercise.round.resolved"
-	lostType     = "exercise.objective.lost"
-	ordersType   = "operations.orders.issued"
-)
-
 // captureRounds is how many rounds in a row a faction must end alone on an
 // objective to take it, as exercise's rules set it.
 const captureRounds = 2
@@ -42,99 +32,6 @@ const captureRounds = 2
 // settle is how long the theater waits, after the conclusion, for the final
 // round's assessments, which are issued after it.
 const settle = 3 * time.Second
-
-// The theater's own readings of the payloads it narrates, as far as it reads
-// them: the services share no Go types. The narration calls an exercise
-// element a squad, so the type for an element is squad.
-type (
-	theaterStarted struct {
-		Exercise string `json:"exercise"`
-		Name     string `json:"name"`
-		Map      struct {
-			Sectors []struct {
-				ID     string `json:"id"`
-				Width  int    `json:"width"`
-				Height int    `json:"height"`
-			} `json:"sectors"`
-		} `json:"map"`
-		Factions        []string `json:"factions"`
-		RoundIntervalMS int64    `json:"round_interval_ms"`
-		RoundLimit      int      `json:"round_limit"`
-	}
-	squad struct {
-		ID       string   `json:"id"`
-		Kind     string   `json:"kind"`
-		Strength int      `json:"strength"`
-		Health   []int    `json:"health"`
-		Status   string   `json:"status"`
-		At       location `json:"at"`
-	}
-	theaterObserved struct {
-		Exercise string  `json:"exercise"`
-		Faction  string  `json:"faction"`
-		Round    int     `json:"round"`
-		Own      []squad `json:"own"`
-	}
-	engaged struct {
-		ID      string `json:"id"`
-		Faction string `json:"faction"`
-		Before  int    `json:"before"`
-		After   int    `json:"after"`
-		Fallen  int    `json:"fallen"`
-	}
-	resolvedData struct {
-		Exercise string `json:"exercise"`
-		Round    int    `json:"round"`
-		Retreats []struct {
-			ID      string   `json:"id"`
-			Faction string   `json:"faction"`
-			From    location `json:"from"`
-			To      location `json:"to"`
-			Before  int      `json:"before"`
-			After   int      `json:"after"`
-			Fallen  int      `json:"fallen"`
-			// Pursuers are the enemy elements that fired on the retreat,
-			// with their strength before and after its return fire.
-			Pursuers []engaged `json:"pursuers"`
-		} `json:"retreats"`
-		Engagements []struct {
-			At       location  `json:"at"`
-			Elements []engaged `json:"elements"`
-		} `json:"engagements"`
-		Captures []struct {
-			At      location `json:"at"`
-			Faction string   `json:"faction"`
-			From    string   `json:"from"`
-		} `json:"captures"`
-		Losses []struct {
-			ID      string `json:"id"`
-			Faction string `json:"faction"`
-		} `json:"losses"`
-		Progress []struct {
-			At      location `json:"at"`
-			Faction string   `json:"faction"`
-			Rounds  int      `json:"rounds"`
-		} `json:"progress"`
-	}
-	lostData struct {
-		Exercise string   `json:"exercise"`
-		Faction  string   `json:"faction"`
-		Round    int      `json:"round"`
-		At       location `json:"at"`
-		Holder   string   `json:"holder"`
-	}
-	ordersData struct {
-		Exercise string `json:"exercise"`
-		Faction  string `json:"faction"`
-		Round    int    `json:"round"`
-		Orders   []struct {
-			Element string     `json:"element"`
-			Steps   []location `json:"steps"`
-			Retreat bool       `json:"retreat"`
-			Pursue  bool       `json:"pursue"`
-		} `json:"orders"`
-	}
-)
 
 // swing renders an element's strength through a fight or a retreat, with
 // the operators it lost, or that it was destroyed.
@@ -285,10 +182,10 @@ type narrator struct {
 	started, concluded, settled *signal
 
 	mu        sync.Mutex
-	setup     *theaterStarted
+	setup     *started
 	view      exerciseView                      // the observer's view, read at the start
-	initial   map[string][]squad                // each faction's squads in round 0
-	latest    map[string][]squad                // each faction's squads in its latest observation
+	initial   map[string][]element              // each faction's squads in round 0
+	latest    map[string][]element              // each faction's squads in its latest observation
 	open      bool                              // whether the narration's step has begun
 	told      bool                              // whether the initial conditions were narrated
 	blocks    map[int]*block                    // the rounds not yet narrated, and late changes
@@ -297,8 +194,8 @@ type narrator struct {
 	sites     []location                        // the objectives, as the observer's view has them
 	holders   map[string]string                 // each objective's holder, by place, as the captures tell it
 	regroups  map[string]map[string]bool        // each faction's recovering squads already narrated
-	losses    map[string]map[string]lostData    // each faction's objectives lost, by place
-	pictures  map[string]assessmentData         // each faction's last assessment
+	losses    map[string]map[string]lost        // each faction's objectives lost, by place
+	pictures  map[string]assessment             // each faction's last assessment
 	standing  standing                          // each faction's last directive, by element
 	moving    map[string]string                 // the key of each faction's orders in effect, as narrated
 	orders    map[string]map[int]movement       // each faction's latest orders not yet resolved, by round
@@ -306,7 +203,7 @@ type narrator struct {
 	revisions map[string][2]int                 // the first and highest revision of each faction's assessments, by "faction/round"
 	counts    map[string]int                    // events by type
 	times     map[string]map[string][]time.Time // event times, by type and "faction/round"
-	end       *concludedData
+	end       *concluded
 }
 
 // block is what one round changed, as the narration tells it: the
@@ -332,9 +229,9 @@ func newNarrator(exercise string) *narrator {
 		revisions: map[string][2]int{},
 		read:      func(context.Context) (exerciseView, error) { return exerciseView{}, nil },
 		started:   newSignal(), concluded: newSignal(), settled: newSignal(),
-		initial: map[string][]squad{}, latest: map[string][]squad{},
+		initial: map[string][]element{}, latest: map[string][]element{},
 		blocks: map[int]*block{}, printed: -1,
-		holders: map[string]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[string]lostData{}, pictures: map[string]assessmentData{},
+		holders: map[string]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[string]lost{}, pictures: map[string]assessment{},
 		standing: standing{}, moving: map[string]string{}, orders: map[string]map[int]movement{},
 		counts: map[string]int{}, times: map[string]map[string][]time.Time{},
 	}
@@ -344,10 +241,7 @@ func newNarrator(exercise string) *narrator {
 // belongs to, ignoring every other exercise's, and narrates the blocks it
 // completes.
 func (n *narrator) handle(ctx context.Context, e event.Event) error {
-	var head struct {
-		Exercise string `json:"exercise"`
-	}
-	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != n.exercise {
+	if exerciseOf(e) != n.exercise {
 		return nil
 	}
 	// The objectives are read before any later event is handled, so every
@@ -362,80 +256,84 @@ func (n *narrator) handle(ctx context.Context, e event.Event) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.counts[e.Type]++
-	var err error
 	switch e.Type {
 	case startedType:
-		var d theaterStarted
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.setup = &d
-			n.learn(view)
-			n.started.fire()
+		d, err := decode[started](e)
+		if err != nil {
+			return err
 		}
+		n.setup = &d
+		n.learn(view)
+		n.started.fire()
 	case resolvedType:
-		var d resolvedData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.belongs(d.Round)
-			n.resolved(d)
+		d, err := decode[resolved](e)
+		if err != nil {
+			return err
 		}
+		n.belongs(d.Round)
+		n.resolved(d)
 	case lostType:
-		var d lostData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.belongs(d.Round)
-			if n.losses[d.Faction] == nil {
-				n.losses[d.Faction] = map[string]lostData{}
-			}
-			n.losses[d.Faction][place(d.At)] = d
-			n.holders[place(d.At)] = d.Holder
-			n.result(d.Round, d.Faction, "loses", n.name(d.At)+" to "+d.Holder)
+		d, err := decode[lost](e)
+		if err != nil {
+			return err
 		}
+		n.belongs(d.Round)
+		if n.losses[d.Faction] == nil {
+			n.losses[d.Faction] = map[string]lost{}
+		}
+		n.losses[d.Faction][place(d.At)] = d
+		n.holders[place(d.At)] = d.Holder
+		n.result(d.Round, d.Faction, "loses", n.name(d.At)+" to "+d.Holder)
 	case observedType:
-		var d theaterObserved
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.belongs(d.Round)
-			n.stamp(e, d.Faction, d.Round)
-			n.latest[d.Faction] = d.Own
-			n.regrouped(d)
-			if d.Round == 0 {
-				n.initial[d.Faction] = d.Own
-			}
+		d, err := decode[observed](e)
+		if err != nil {
+			return err
+		}
+		n.belongs(d.Round)
+		n.stamp(e, d.Faction, d.Round)
+		n.latest[d.Faction] = d.Own
+		n.regrouped(d)
+		if d.Round == 0 {
+			n.initial[d.Faction] = d.Own
 		}
 	case assessmentType:
-		var d assessmentData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.belongs(d.Round)
-			n.stamp(e, d.Faction, d.Round)
-			n.assessed(d)
-			k := d.Faction + "/" + strconv.Itoa(d.Round)
-			if r, ok := n.revisions[k]; !ok {
-				n.revisions[k] = [2]int{d.Revision, d.Revision}
-			} else {
-				n.revisions[k] = [2]int{r[0], max(r[1], d.Revision)}
-			}
+		d, err := decode[assessment](e)
+		if err != nil {
+			return err
+		}
+		n.belongs(d.Round)
+		n.stamp(e, d.Faction, d.Round)
+		n.assessed(d)
+		k := d.Faction + "/" + strconv.Itoa(d.Round)
+		if r, ok := n.revisions[k]; !ok {
+			n.revisions[k] = [2]int{d.Revision, d.Revision}
+		} else {
+			n.revisions[k] = [2]int{r[0], max(r[1], d.Revision)}
 		}
 	case directiveType:
-		var d directiveData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.belongs(d.Round)
-			n.stamp(e, d.Faction, d.Round)
-			n.directed(d)
+		d, err := decode[directives](e)
+		if err != nil {
+			return err
 		}
+		n.belongs(d.Round)
+		n.stamp(e, d.Faction, d.Round)
+		n.directed(d)
 	case ordersType:
-		var d ordersData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			// Orders for a round are issued in the round before.
-			n.belongs(d.Round - 1)
-			n.stamp(e, d.Faction, d.Round)
-			n.ordered(d)
+		d, err := decode[orders](e)
+		if err != nil {
+			return err
 		}
+		// Orders for a round are issued in the round before.
+		n.belongs(d.Round - 1)
+		n.stamp(e, d.Faction, d.Round)
+		n.ordered(d)
 	case concludedType:
-		var d concludedData
-		if err = json.Unmarshal(e.Data, &d); err == nil {
-			n.end = &d
-			n.concluded.fire()
+		d, err := decode[concluded](e)
+		if err != nil {
+			return err
 		}
-	}
-	if err != nil {
-		return event.Permanent(err)
+		n.end = &d
+		n.concluded.fire()
 	}
 	n.tell()
 	n.advance(n.seen)
@@ -776,7 +674,7 @@ func (n *narrator) lostAt(faction string, round int) bool {
 // faction had in effect for it, in the block of the round before, where
 // they were issued, then each fight, each retreat, each squad destroyed,
 // each objective a faction is taking, and each that changed hands.
-func (n *narrator) resolved(d resolvedData) {
+func (n *narrator) resolved(d resolved) {
 	n.resolves = d.Round
 	for _, c := range d.Captures {
 		n.holders[place(c.At)] = c.Faction
@@ -805,7 +703,7 @@ func (n *narrator) resolved(d resolvedData) {
 		if len(t.Pursuers) == 0 {
 			what += " unpursued"
 		} else {
-			fire := []string{show(engaged{ID: t.ID, Faction: t.Faction, Before: t.Before, After: t.After, Fallen: t.Fallen})}
+			fire := []string{show(t.engaged)}
 			for _, p := range t.Pursuers {
 				fire = append(fire, show(p))
 			}
@@ -833,7 +731,7 @@ func (n *narrator) resolved(d resolvedData) {
 // regrouped collects each own element an observation shows recovering,
 // once for each time it retreats: it sits out the round after the observed
 // one.
-func (n *narrator) regrouped(d theaterObserved) {
+func (n *narrator) regrouped(d observed) {
 	was := n.regroups[d.Faction]
 	now := map[string]bool{}
 	for _, s := range d.Own {
@@ -855,10 +753,10 @@ func (n *narrator) regrouped(d theaterObserved) {
 // held differently, or learns of from a loss alert. intelligence revises a
 // round's assessment when an alert follows it, so a round may be assessed
 // twice; the second adds only what the alert changed.
-func (n *narrator) assessed(d assessmentData) {
-	prev, had := n.pictures[d.Faction]
+func (n *narrator) assessed(d assessment) {
+	prev := n.pictures[d.Faction]
 	n.pictures[d.Faction] = d
-	was := map[string]assessedContact{}
+	was := map[string]contact{}
 	for _, c := range prev.Contacts {
 		was[c.ID] = c
 	}
@@ -868,19 +766,18 @@ func (n *narrator) assessed(d assessmentData) {
 			changes = append(changes, fmt.Sprintf("spotted %s %d @ %s", c.ID, c.Strength, place(c.At)))
 		}
 	}
-	now := ids(d.Contacts, func(c assessedContact) string { return c.ID })
+	now := ids(d.Contacts, func(c contact) string { return c.ID })
 	for _, c := range prev.Contacts {
 		if !now[c.ID] {
 			changes = append(changes, "lost "+c.ID)
 		}
 	}
-	believed := map[string]assessedObjective{}
+	believed := map[string]belief{}
 	for _, o := range prev.Objectives {
 		believed[place(o.At)] = o
 	}
 	for _, o := range d.Objectives {
-		p := believed[place(o.At)]
-		if !o.Known || had && p.Known && p.Holder == o.Holder {
+		if p, ok := believed[place(o.At)]; ok && p.Holder == o.Holder {
 			continue
 		}
 		state := heldBy(o.Holder)
@@ -898,7 +795,7 @@ func (n *narrator) assessed(d assessmentData) {
 // directed collects each squad whose directive a faction's directives
 // change. A squad decided on again in the same round shows only its latest
 // directive.
-func (n *narrator) directed(d directiveData) {
+func (n *narrator) directed(d directives) {
 	for _, x := range n.standing.changes(d) {
 		r := row(col("id", x.Element))
 		verb, target, contact := act(x, n.cellOf(d.Faction), n.name)
@@ -947,7 +844,7 @@ func (m movement) String() string {
 // the theater narrates a round's orders when the round resolves, as the
 // orders in effect. It does not narrate orders for a round already
 // resolved, which exercise refuses.
-func (n *narrator) ordered(d ordersData) {
+func (n *narrator) ordered(d orders) {
 	if d.Round <= n.resolves {
 		return
 	}
@@ -1003,7 +900,7 @@ func (n *narrator) final() []string {
 	n.flush()
 	var out []detail
 	if n.end != nil {
-		out = append(out, text("verdict  "+verdict(*n.end)))
+		out = append(out, text("verdict  "+outcome(*n.end)))
 	}
 	if n.setup != nil {
 		objectives := text("objectives")
@@ -1020,7 +917,7 @@ func (n *narrator) final() []string {
 				total += s.Strength
 			}
 			head := fmt.Sprintf("%s  strength %d", f, total)
-			alive := ids(n.latest[f], func(s squad) string { return s.ID })
+			alive := ids(n.latest[f], func(s element) string { return s.ID })
 			var lost []string
 			for _, s := range n.initial[f] {
 				if !alive[s.ID] {
@@ -1089,8 +986,8 @@ func p50(ds []time.Duration) string {
 	return ds[len(ds)/2].Round(time.Millisecond).String()
 }
 
-// verdict renders how the exercise ended.
-func verdict(c concludedData) string {
+// outcome renders how the exercise ended.
+func outcome(c concluded) string {
 	after := fmt.Sprintf(" after round %d", c.Round)
 	switch {
 	case c.Reason == "stopped":
@@ -1111,9 +1008,9 @@ func verdict(c concludedData) string {
 
 // squadRows renders a faction's squads by ID, with their kind and the
 // health of their operators, and their cell when at is set.
-func squadRows(ss []squad, at bool) []detail {
+func squadRows(ss []element, at bool) []detail {
 	ss = slices.Clone(ss)
-	slices.SortFunc(ss, func(a, b squad) int { return cmp.Compare(a.ID, b.ID) })
+	slices.SortFunc(ss, func(a, b element) int { return cmp.Compare(a.ID, b.ID) })
 	var out []detail
 	for _, s := range ss {
 		r := row(col("id", s.ID), col("kind", s.Kind), col("health", health(s.Health)))
@@ -1147,7 +1044,7 @@ type standing map[string]map[string]directive
 
 // changes returns each directive of d that does not continue its element's
 // last one, and records d as the faction's standing directives.
-func (s standing) changes(d directiveData) []directive {
+func (s standing) changes(d directives) []directive {
 	was := s[d.Faction]
 	now := make(map[string]directive, len(d.Directives))
 	var out []directive

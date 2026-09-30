@@ -30,61 +30,9 @@ type Joins func(stream, prefix string, maxAge time.Duration) (b messaging.Broker
 // subscribes under, so the stream's consumers show which are courier's.
 const DirectivesDurable = "courier-directives-"
 
-// The events the directives scenario reads and the one it issues, and the
-// source it issues it from, standing in for the command service.
-const (
-	startedType   = "exercise.started"
-	observedType  = "exercise.round.observed"
-	concludedType = "exercise.concluded"
-	directiveType = "command.directive.issued"
-	commandSource = "/courier-command"
-)
-
-// The scenario's own readings of exercise's payloads, as far as it reads
-// them, and the directive it issues: the services share no Go types. A
-// directive's rule and contact are command's, which the assessments
-// scenario narrates; this stand-in sets neither.
-type (
-	point struct {
-		X int `json:"x"`
-		Y int `json:"y"`
-	}
-	location struct {
-		Sector string `json:"sector"`
-		point
-	}
-	element struct {
-		ID string   `json:"id"`
-		At location `json:"at"`
-	}
-	observedData struct {
-		Exercise   string    `json:"exercise"`
-		Faction    string    `json:"faction"`
-		Round      int       `json:"round"`
-		Own        []element `json:"own"`
-		Objectives []struct {
-			At location `json:"at"`
-		} `json:"objectives"`
-	}
-	concludedData struct {
-		Exercise string `json:"exercise"`
-		Round    int    `json:"round"`
-		Winner   string `json:"winner"`
-		Reason   string `json:"reason"`
-	}
-	directive struct {
-		Element string    `json:"element"`
-		Rule    string    `json:"rule,omitempty"`
-		Contact string    `json:"contact,omitempty"`
-		Target  *location `json:"target"`
-	}
-	directiveData struct {
-		Exercise   string      `json:"exercise"`
-		Faction    string      `json:"faction"`
-		Round      int         `json:"round"`
-		Directives []directive `json:"directives"`
-	}
-)
+// commandSource is the source the directives scenario issues its directive
+// from, standing in for the command service.
+const commandSource = "/courier-command"
 
 // directivesScenario stands in for the command service: it joins the
 // exercise services' stream, reads a faction's first observation, issues a
@@ -215,46 +163,45 @@ type watch struct {
 	observed, concluded *signal
 
 	mu  sync.Mutex
-	obs *observedData
-	end concludedData
+	obs *observed
+	end concluded
 }
 
 // handle reads one event of the stream, ignoring every other exercise's.
 func (w *watch) handle(_ context.Context, e event.Event) error {
-	var head struct {
-		Exercise string `json:"exercise"`
-	}
-	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != w.exercise {
+	if exerciseOf(e) != w.exercise {
 		return nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	switch e.Type {
 	case observedType:
-		var d observedData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
+		d, err := decode[observed](e)
+		if err != nil {
+			return err
 		}
 		if d.Faction == w.faction && w.obs == nil {
 			w.obs = &d
 			w.observed.fire()
 		}
 	case concludedType:
-		if err := json.Unmarshal(e.Data, &w.end); err != nil {
-			return event.Permanent(err)
+		d, err := decode[concluded](e)
+		if err != nil {
+			return err
 		}
+		w.end = d
 		w.concluded.fire()
 	}
 	return nil
 }
 
-func (w *watch) first() observedData {
+func (w *watch) first() observed {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return *w.obs
 }
 
-func (w *watch) verdict() concludedData {
+func (w *watch) verdict() concluded {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.end
@@ -265,7 +212,7 @@ func (w *watch) verdict() concludedData {
 // assigned, or the nearest of all once every one is taken: an objective in
 // the element's own sector by Manhattan distance first, then one in another
 // sector. An element holds when the observation reports no objective.
-func (w *watch) directives() directiveData {
+func (w *watch) directives() directives {
 	obs := w.first()
 	var objectives []location
 	for _, o := range obs.Objectives {
@@ -274,7 +221,7 @@ func (w *watch) directives() directiveData {
 	own := slices.Clone(obs.Own)
 	slices.SortFunc(own, func(a, b element) int { return cmp.Compare(a.ID, b.ID) })
 	taken := map[location]bool{}
-	d := directiveData{Exercise: w.exercise, Faction: w.faction, Round: obs.Round}
+	d := directives{Exercise: w.exercise, Faction: w.faction, Round: obs.Round}
 	for _, e := range own {
 		free := slices.DeleteFunc(slices.Clone(objectives), func(o location) bool { return taken[o] })
 		if len(free) == 0 {

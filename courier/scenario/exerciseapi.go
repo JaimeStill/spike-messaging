@@ -25,9 +25,9 @@ type (
 	// exerciseView is what GET /api/exercises/{id} returns, as far as the
 	// scenarios read it.
 	exerciseView struct {
-		Seed    int64            `json:"seed"`
-		State   exerciseState    `json:"state"`
-		Verdict *observerVerdict `json:"verdict"`
+		Seed    int64         `json:"seed"`
+		State   exerciseState `json:"state"`
+		Verdict *verdict      `json:"verdict"`
 	}
 )
 

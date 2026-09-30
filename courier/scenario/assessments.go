@@ -2,7 +2,6 @@ package scenario
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -22,44 +21,6 @@ import (
 // AssessmentsDurable prefixes the durable consumer each assessments run
 // subscribes under, so the stream's consumers show which are courier's.
 const AssessmentsDurable = "courier-assessments-"
-
-// assessmentType is the event the assessments scenario narrates, along with
-// directiveType, the directives command decides on each assessment.
-const assessmentType = "intelligence.assessment.issued"
-
-// The scenario's own reading of intelligence's assessment: the services
-// share no Go types. It reuses the location and concludedData readings of
-// the directives scenario.
-type (
-	assessedElement struct {
-		ID       string   `json:"id"`
-		Strength int      `json:"strength"`
-		At       location `json:"at"`
-	}
-	assessedContact struct {
-		ID       string   `json:"id"`
-		Strength int      `json:"strength"`
-		At       location `json:"at"`
-		Seen     int      `json:"seen"`
-		Age      int      `json:"age"`
-	}
-	assessedObjective struct {
-		At     location `json:"at"`
-		Holder string   `json:"holder"`
-		Known  bool     `json:"known"`
-		Seen   int      `json:"seen"`
-		Age    int      `json:"age"`
-	}
-	assessmentData struct {
-		Exercise   string              `json:"exercise"`
-		Faction    string              `json:"faction"`
-		Round      int                 `json:"round"`
-		Revision   int                 `json:"revision"`
-		Own        []assessedElement   `json:"own"`
-		Contacts   []assessedContact   `json:"contacts"`
-		Objectives []assessedObjective `json:"objectives"`
-	}
-)
 
 // assessmentsScenario joins the exercise services' stream and narrates the
 // assessments the intelligence service issues for one exercise, a
@@ -183,7 +144,7 @@ type assessmentWatch struct {
 	prevOwn  map[string]map[string]bool // the own elements of each faction's last narrated assessment
 	factions []string                   // the factions narrated: the start's, or --faction's
 	standing standing                   // each faction's last directive, by element
-	end      concludedData
+	end      concluded
 }
 
 // handle reads one event of the stream, ignoring every other exercise's,
@@ -191,29 +152,24 @@ type assessmentWatch struct {
 // narrated one. It is called from the reactor's goroutine; the Reporter is
 // safe for that.
 func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
-	var head struct {
-		Exercise string `json:"exercise"`
-	}
-	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != w.exercise {
+	if exerciseOf(e) != w.exercise {
 		return nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	switch e.Type {
 	case startedType:
-		var d struct {
-			Factions []string `json:"factions"`
-		}
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
+		d, err := decode[started](e)
+		if err != nil {
+			return err
 		}
 		if len(w.factions) == 0 {
 			w.factions = d.Factions
 		}
 	case assessmentType:
-		var d assessmentData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
+		d, err := decode[assessment](e)
+		if err != nil {
+			return err
 		}
 		if w.faction != "" && d.Faction != w.faction {
 			return nil
@@ -225,9 +181,9 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		w.narrate(d)
 		w.first.fire()
 	case directiveType:
-		var d directiveData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
+		d, err := decode[directives](e)
+		if err != nil {
+			return err
 		}
 		if w.faction != "" && d.Faction != w.faction {
 			return nil
@@ -241,9 +197,11 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 			w.rep.Note("round %d %s directs: %s", d.Round, d.Faction, strings.Join(lines, " · "))
 		}
 	case concludedType:
-		if err := json.Unmarshal(e.Data, &w.end); err != nil {
-			return event.Permanent(err)
+		d, err := decode[concluded](e)
+		if err != nil {
+			return err
 		}
+		w.end = d
 		if len(w.factions) == 0 {
 			// The start aged out of the stream: wait for the factions whose
 			// assessments were narrated.
@@ -273,7 +231,7 @@ func (w *assessmentWatch) check() {
 	w.done.fire()
 }
 
-func (w *assessmentWatch) verdict() concludedData {
+func (w *assessmentWatch) verdict() concluded {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.end
@@ -283,10 +241,10 @@ func (w *assessmentWatch) verdict() concludedData {
 // faction's previous narrated assessment held that this one lacks, which
 // the faction lost, and each contact it knew that this one lacks, which
 // intelligence dropped. The caller holds mu.
-func (w *assessmentWatch) narrate(d assessmentData) {
+func (w *assessmentWatch) narrate(d assessment) {
 	w.rep.Note("%s", assessmentLine(d))
-	own := ids(d.Own, func(e assessedElement) string { return e.ID })
-	contacts := ids(d.Contacts, func(c assessedContact) string { return c.ID })
+	own := ids(d.Own, func(e element) string { return e.ID })
+	contacts := ids(d.Contacts, func(c contact) string { return c.ID })
 	for _, id := range gone(w.prevOwn[d.Faction], own) {
 		w.rep.Note("%s lost %s", d.Faction, id)
 	}
@@ -311,7 +269,7 @@ func gone(before, now map[string]bool) []string {
 
 // assessmentLine renders an assessment on one line: the faction's own
 // elements, the contacts it knows, and the objectives.
-func assessmentLine(d assessmentData) string {
+func assessmentLine(d assessment) string {
 	var own, contacts, objectives []string
 	for _, e := range d.Own {
 		own = append(own, fmt.Sprintf("%s %s", e.ID, place(e.At)))
@@ -321,15 +279,12 @@ func assessmentLine(d assessmentData) string {
 	}
 	for _, o := range d.Objectives {
 		s := place(o.At)
-		switch {
-		case !o.Known:
-			s += " unknown"
-		case o.Holder == "":
+		if o.Holder == "" {
 			s += " unheld"
-		default:
+		} else {
 			s += " " + o.Holder
 		}
-		if o.Known && o.Age > 0 {
+		if o.Age > 0 {
 			s += fmt.Sprintf(" age %d", o.Age)
 		}
 		objectives = append(objectives, s)

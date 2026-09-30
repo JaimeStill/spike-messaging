@@ -28,9 +28,8 @@ func TestAssessmentsNarratesUntilConcluded(t *testing.T) {
 			"own":      []any{map[string]any{"id": "r1", "at": at("a", 0, 0)}, map[string]any{"id": "r2", "at": at("a", 4, 4)}},
 			"contacts": contacts,
 			"objectives": []any{
-				map[string]any{"at": at("a", 0, 0), "holder": faction, "known": true},
-				map[string]any{"at": at("a", 0, 4), "known": true, "age": 1},
-				map[string]any{"at": at("b", 3, 3), "known": false},
+				map[string]any{"at": at("a", 0, 0), "holder": faction},
+				map[string]any{"at": at("a", 0, 4), "age": 1},
 			},
 		})
 	}

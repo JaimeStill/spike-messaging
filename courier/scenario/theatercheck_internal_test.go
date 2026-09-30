@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// decode reads v's JSON form into a T, as the check reads exercise's API
+// viaJSON reads v's JSON form into a T, as the check reads exercise's API
 // and the stream.
-func decode[T any](t *testing.T, v any) T {
+func viaJSON[T any](t *testing.T, v any) T {
 	t.Helper()
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -24,10 +24,10 @@ func decode[T any](t *testing.T, v any) T {
 }
 
 func objective(x, y int, holder string, seen, age int) map[string]any {
-	return map[string]any{"at": cell("a", x, y), "holder": holder, "known": true, "seen": seen, "age": age}
+	return map[string]any{"at": cell("a", x, y), "holder": holder, "seen": seen, "age": age}
 }
 
-func contact(e map[string]any, seen, age int) map[string]any {
+func contactOf(e map[string]any, seen, age int) map[string]any {
 	c := map[string]any{"seen": seen, "age": age}
 	maps.Copy(c, e)
 	return c
@@ -73,7 +73,7 @@ func fixture(t *testing.T) ([]observerRound, []map[string]any) {
 	seen := func(x, y int, holder string) map[string]any {
 		return map[string]any{"at": cell("a", x, y), "holder": holder}
 	}
-	history := decode[[]observerRound](t, []any{
+	history := viaJSON[[]observerRound](t, []any{
 		observerOf(0, map[string]string{}, nil,
 			seeing([]any{r1(0, 0)}, []any{}, []any{seen(1, 1, "")}),
 			seeing([]any{b1(2, 0)}, []any{r1(0, 0)}, []any{seen(1, 1, "")})),
@@ -88,12 +88,12 @@ func fixture(t *testing.T) ([]observerRound, []map[string]any) {
 	})
 	return history, []map[string]any{
 		assessed(0, "red", []any{r1(0, 0)}, []any{}, []any{objective(1, 1, "", 0, 0)}),
-		assessed(0, "blue", []any{b1(2, 0)}, []any{contact(r1(0, 0), 0, 0)}, []any{objective(1, 1, "", 0, 0)}),
+		assessed(0, "blue", []any{b1(2, 0)}, []any{contactOf(r1(0, 0), 0, 0)}, []any{objective(1, 1, "", 0, 0)}),
 		assessed(1, "red", []any{r1(1, 1)}, []any{}, []any{objective(1, 1, "red", 1, 0)}),
-		assessed(1, "blue", []any{b1(4, 2)}, []any{contact(r1(0, 0), 0, 1)},
+		assessed(1, "blue", []any{b1(4, 2)}, []any{contactOf(r1(0, 0), 0, 1)},
 			[]any{objective(1, 1, "", 0, 1), objective(4, 4, "", 1, 0)}),
 		assessed(2, "red", []any{r1(0, 4)}, []any{}, []any{objective(1, 1, "red", 1, 1)}),
-		assessed(2, "blue", []any{b1(4, 2)}, []any{contact(r1(0, 0), 0, 2)},
+		assessed(2, "blue", []any{b1(4, 2)}, []any{contactOf(r1(0, 0), 0, 2)},
 			[]any{objective(1, 1, "", 0, 2), objective(4, 4, "", 2, 0)}),
 		// The revision: 1,1 is out of red's sight, as the alert has it.
 		assessed(2, "red", []any{r1(0, 4)}, []any{}, []any{objective(1, 1, "blue", 2, 0)}),
@@ -102,11 +102,11 @@ func fixture(t *testing.T) ([]observerRound, []map[string]any) {
 
 func check(t *testing.T, history []observerRound, raw []map[string]any, k int) ([]string, int) {
 	t.Helper()
-	all := make([]checkedAssessment, len(raw))
+	all := make([]assessment, len(raw))
 	for i, a := range raw {
-		all[i] = decode[checkedAssessment](t, a)
+		all[i] = viaJSON[assessment](t, a)
 	}
-	return checkTheater(theaterID, history, &observerVerdict{Winner: "blue", Reason: "limit"}, all, k)
+	return checkTheater(theaterID, history, &verdict{Winner: "blue", Reason: "limit"}, all, k)
 }
 
 // Assessments that follow the suppression rules are consistent, the last
@@ -158,15 +158,15 @@ func TestTheaterCheckFindsInconsistencies(t *testing.T) {
 			return as
 		}, "round 0 blue: r1 is in sight at a:0,0, strength 100, but not reported so"},
 		{"an enemy reported in sight that is not", func(as []map[string]any) []map[string]any {
-			as[3]["contacts"] = []any{contact(sq("r1", "squad", cell("a", 0, 0), 100), 1, 0)}
+			as[3]["contacts"] = []any{contactOf(sq("r1", "squad", cell("a", 0, 0), 100), 1, 0)}
 			return as
 		}, "round 1 blue: r1 is reported in sight, but is not"},
 		{"a contact remembered in a cell in sight", func(as []map[string]any) []map[string]any {
-			as[2]["contacts"] = []any{contact(sq("b1", "scout", cell("a", 1, 0), 80), 0, 1)}
+			as[2]["contacts"] = []any{contactOf(sq("b1", "scout", cell("a", 1, 0), 80), 0, 1)}
 			return as
 		}, "round 1 red: b1 is remembered at a:1,0, a cell in sight"},
 		{"a contact remembered too long", func(as []map[string]any) []map[string]any {
-			as[5]["contacts"] = []any{contact(sq("r1", "squad", cell("a", 0, 0), 100), 0, 4)}
+			as[5]["contacts"] = []any{contactOf(sq("r1", "squad", cell("a", 0, 0), 100), 0, 4)}
 			return as
 		}, "round 2 blue: r1 is remembered 4 rounds, past 3"},
 		{"an objective in sight unreported", func(as []map[string]any) []map[string]any {

@@ -147,7 +147,7 @@ func outboxScenario(brokers Brokers, outboxes Outboxes, needs func() []Need) Sce
 							return nil
 						}
 						corelifecycle.Register(c.lc, "worker", 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
-						relay := store.Outbox.Relay(store.DB, outbox.Poll(poll))
+						relay := store.Outbox.Relay(store.DB, poll)
 						corelifecycle.Register(c.lc, "relay", lifecycle.StageRoot, reactor.New(relay, b.Publish, reactor.Grace(defaultGrace)))
 						if err := c.start(ctx, rep); err != nil {
 							return err

@@ -100,13 +100,12 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	})
 	// An assessment arriving before the initial conditions waits for them.
 	s.at(1, assessmentType, map[string]any{"faction": "blue", "round": 0,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "", "known": true}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}}})
 	s.at(2, observedType, map[string]any{"faction": "red", "round": 0, "own": []any{
 		sq("r1", "squad", cell("a", 0, 0), 100, 100, 100, 100), sq("r2", "scout", cell("a", 0, 1), 100)}})
 	s.at(3, observedType, map[string]any{"faction": "blue", "round": 0, "own": []any{
 		sq("b1", "squad", cell("a", 4, 0), 100, 100, 100)}})
-	s.at(10, assessmentType, map[string]any{"faction": "red", "round": 0,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "known": false}}})
+	s.at(10, assessmentType, map[string]any{"faction": "red", "round": 0})
 	s.at(20, directiveType, map[string]any{"faction": "red", "round": 0, "directives": []any{
 		map[string]any{"element": "r1", "rule": "secure", "target": cell("a", 4, 4)},
 		map[string]any{"element": "r2", "rule": "hold", "target": nil}}})
@@ -123,8 +122,7 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	s.at(1002, observedType, map[string]any{"faction": "blue", "round": 1, "own": []any{
 		sq("b1", "squad", cell("a", 3, 0), 100, 100, 100)}})
 	s.at(1011, assessmentType, map[string]any{"faction": "red", "round": 1,
-		"contacts":   []any{map[string]any{"id": "b1", "strength": 300, "at": cell("a", 3, 0), "seen": 1, "age": 0}},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "known": false}}})
+		"contacts": []any{map[string]any{"id": "b1", "strength": 300, "at": cell("a", 3, 0), "seen": 1, "age": 0}}})
 	s.at(1005, ordersType, map[string]any{"faction": "red", "round": 2, "orders": []any{
 		map[string]any{"element": "r1", "steps": []any{cell("a", 2, 0)}}}})
 	s.at(1026, directiveType, map[string]any{"faction": "red", "round": 1, "directives": []any{
@@ -203,15 +201,15 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		sq("r1", "squad", cell("a", 3, 0), 100, 100, 100, 10), sq("r2", "scout", cell("a", 4, 4), 100)}})
 	s.at(4002, observedType, map[string]any{"faction": "blue", "round": 4, "own": []any{}})
 	s.at(4012, assessmentType, map[string]any{"faction": "red", "round": 4,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}}})
 	s.at(4013, assessmentType, map[string]any{"faction": "blue", "round": 4,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "seen": 4}}})
 	// intelligence revises blue's round-4 assessment for the alert: the
 	// narration tells what the revision changed, and observed -> assessed
 	// still measures the round's first assessment.
 	s.at(4014, assessmentType, map[string]any{"faction": "blue", "round": 4,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4},
-			map[string]any{"at": cell("b", 1, 1), "holder": "red", "known": true, "seen": 4}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "seen": 4},
+			map[string]any{"at": cell("b", 1, 1), "holder": "red", "seen": 4}}})
 	s.at(4022, directiveType, map[string]any{"faction": "red", "round": 4, "directives": []any{
 		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
 		map[string]any{"element": "r2", "rule": "rescout", "target": cell("b", 1, 1)}}})
@@ -225,10 +223,10 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		t.Fatal("settled before the final round's assessments")
 	}
 	s.at(5012, assessmentType, map[string]any{"faction": "red", "round": 5,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}}})
 	s.at(5013, assessmentType, map[string]any{"faction": "blue", "round": 5,
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4},
-			map[string]any{"at": cell("b", 1, 1), "holder": "red", "known": true, "seen": 4}}})
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "seen": 4},
+			map[string]any{"at": cell("b", 1, 1), "holder": "red", "seen": 4}}})
 	if !s.n.settled.isFired() {
 		t.Fatal("not settled once each faction's final assessment was in")
 	}
