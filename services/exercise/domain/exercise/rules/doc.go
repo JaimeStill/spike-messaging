@@ -1,8 +1,8 @@
 // Package rules is the world model of an exercise of sector dominance, and
 // the resolution of its rounds. Two factions move elements across the
-// sectors of a public [Map], contest its objectives, and see only what their
-// elements can see. [Skirmish] lays out the demonstration's world from a
-// seed.
+// sectors of a [Map] whose terrain is public, find and contest its
+// objectives, and see only what their elements can see. [Skirmish] lays out
+// the demonstration's world from a seed.
 //
 // The package is pure: its functions take and return values, and do no I/O
 // and read no clock. The randomness a round draws comes from the exercise's
@@ -40,8 +40,10 @@
 //     - An element that starts the round in a fight is pinned there: its
 //     order is refused, unless it is a retreat of one step.
 //     - A recovering element's order is refused.
-//  2. Volley. The enemy that stays in the cell a retreat left fires once at
-//     the retreating element, which does not fire back.
+//  2. Pursuit. Each enemy element that stays in the cell a retreat left,
+//     and whose order pursues, fires once at the retreating element, which
+//     fires back once at the pursuers, all at once. A retreat no one
+//     pursues escapes without a shot.
 //  3. Fight. In each cell holding both factions' elements, every living
 //     operator fires once at a random living enemy operator in the cell,
 //     all at once. A shot hits at [HitChance] and takes [MinDamage] to

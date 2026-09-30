@@ -94,8 +94,8 @@ type Sector struct {
 	Gates      []Gate  `json:"gates"`
 }
 
-// Map is the exercise's sectors and their features. The map is public:
-// every faction knows it.
+// Map is the exercise's sectors and their features. Its [Map.Terrain] is
+// public; its objectives are found by sight.
 type Map struct {
 	Sectors []Sector `json:"sectors"`
 }
@@ -197,6 +197,17 @@ func (m Map) objectives() []Location {
 		for _, p := range s.Objectives {
 			out = append(out, Location{Sector: s.ID, Point: p})
 		}
+	}
+	return out
+}
+
+// Terrain returns m without its objectives: the part of the map every
+// faction knows from the start. A faction finds an objective only by
+// seeing it.
+func (m Map) Terrain() Map {
+	out := m.clone()
+	for i := range out.Sectors {
+		out.Sectors[i].Objectives = []Point{}
 	}
 	return out
 }

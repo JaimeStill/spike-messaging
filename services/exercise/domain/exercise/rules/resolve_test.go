@@ -397,27 +397,23 @@ func TestAFightPinsItsElements(t *testing.T) {
 	}
 }
 
-// A retreat leaves the fight by one step, draws one volley from the enemy
-// it leaves, which takes no fire back, and costs the element its next
-// round, after which it is ready again.
-func TestARetreatDrawsAVolleyAndCostsARound(t *testing.T) {
+// A retreat no one pursues leaves the fight by one step without a shot,
+// and costs the element its next round, after which it is ready again.
+func TestAnUnpursuedRetreatEscapes(t *testing.T) {
 	c, back := loc("a", 1, 1), loc("a", 1, 0)
 	s := state(engaged(squad("r1", "red", c)), engaged(squad("b1", "blue", c)))
 	s, _, _, res := rules.Resolve(s, seed, 1, 10, []rules.Order{retreat("r1", back)})
-	if len(res.Retreats) != 1 {
-		t.Fatalf("retreats = %+v, want r1's", res.Retreats)
-	}
-	r := res.Retreats[0]
-	if r.ID != "r1" || r.From != c || r.To != back || r.Before != 400 || r.After > r.Before {
-		t.Errorf("retreat = %+v", r)
+	want := []rules.Retreat{{ID: "r1", Faction: "red", From: c, To: back, Before: 400, After: 400, Pursuers: []rules.Engaged{}}}
+	if !reflect.DeepEqual(res.Retreats, want) {
+		t.Fatalf("retreats = %+v, want %+v", res.Retreats, want)
 	}
 	if len(res.Engagements) != 0 {
 		t.Errorf("engagements = %+v, want the fight broken off", res.Engagements)
 	}
 	r1, _ := find(s, "r1")
 	b1, _ := find(s, "b1")
-	if r1.At != back || r1.Status != rules.StatusRecovering || r1.Strength != r.After {
-		t.Errorf("r1 = %+v, want recovering at %s with strength %d", r1, back.Key(), r.After)
+	if r1.At != back || r1.Status != rules.StatusRecovering || r1.Strength != 400 {
+		t.Errorf("r1 = %+v, want recovering at %s, untouched", r1, back.Key())
 	}
 	if b1.Strength != 400 || b1.Status != rules.StatusReady {
 		t.Errorf("b1 = %+v, want untouched and ready", b1)
@@ -434,21 +430,64 @@ func TestARetreatDrawsAVolleyAndCostsARound(t *testing.T) {
 	}
 }
 
-// A volley can destroy the element that retreats, and the loss is recorded.
-func TestAVolleyCanDestroyARetreat(t *testing.T) {
+// A pursued retreat trades fire: the pursuer fires on the retreating
+// element, which fires back, and the record holds both sides' losses. Over
+// many seeds, each side takes hits.
+func TestAPursuedRetreatTradesFire(t *testing.T) {
+	c, back := loc("a", 1, 1), loc("a", 1, 0)
+	var hurtRetreat, hurtPursuer bool
+	for sd := int64(1); sd <= 50; sd++ {
+		s := state(engaged(squad("r1", "red", c)), engaged(squad("b1", "blue", c)))
+		next, _, _, res := rules.Resolve(s, sd, 1, 10, []rules.Order{retreat("r1", back), pursue("b1")})
+		if len(res.Retreats) != 1 || len(res.Retreats[0].Pursuers) != 1 {
+			t.Fatalf("seed %d: retreats = %+v, want r1 pursued by b1", sd, res.Retreats)
+		}
+		r, p := res.Retreats[0], res.Retreats[0].Pursuers[0]
+		if p.ID != "b1" || p.Before != 400 || r.Before != 400 {
+			t.Fatalf("seed %d: %+v", sd, r)
+		}
+		hurtRetreat = hurtRetreat || r.After < r.Before
+		hurtPursuer = hurtPursuer || p.After < p.Before
+		b1, _ := find(next, "b1")
+		if b1.Strength != p.After {
+			t.Errorf("seed %d: b1 strength %d, want the record's %d", sd, b1.Strength, p.After)
+		}
+		if err := next.Validate(); err != nil {
+			t.Fatalf("seed %d: %v", sd, err)
+		}
+	}
+	if !hurtRetreat || !hurtPursuer {
+		t.Errorf("fifty seeds: the retreat hurt %v, the pursuer hurt %v; want both", hurtRetreat, hurtPursuer)
+	}
+}
+
+// A pursuit can destroy the element that retreats, and the loss is recorded.
+func TestAPursuitCanDestroyARetreat(t *testing.T) {
 	c := loc("a", 1, 1)
 	for sd := int64(1); sd <= 50; sd++ {
 		s := state(engaged(hurt(scout("r1", "red", c), 1)), engaged(squad("b1", "blue", c)))
-		next, _, _, res := rules.Resolve(s, sd, 1, 10, []rules.Order{retreat("r1", loc("a", 1, 0))})
+		next, _, _, res := rules.Resolve(s, sd, 1, 10, []rules.Order{retreat("r1", loc("a", 1, 0)), pursue("b1")})
 		if len(res.Losses) == 0 {
 			continue
 		}
 		if _, ok := find(next, "r1"); ok || res.Retreats[0].After != 0 || res.Retreats[0].Fallen != 1 {
-			t.Errorf("seed %d: %+v, want r1 destroyed by the volley", sd, res)
+			t.Errorf("seed %d: %+v, want r1 destroyed by the pursuit", sd, res)
 		}
 		return
 	}
-	t.Errorf("fifty seeds, and no volley hit a scout at health 1")
+	t.Errorf("fifty seeds, and no pursuit hit a scout at health 1")
+}
+
+// The resolution lists every objective with its holder, the umpire's view,
+// whether or not any element sees it.
+func TestResolutionListsEveryObjective(t *testing.T) {
+	s := state(squad("r1", "red", loc("a", 0, 0)))
+	s.Holders["b:5,5"] = "blue"
+	_, _, _, res := rules.Resolve(s, seed, 1, 10, nil)
+	want := []rules.ObjectiveStatus{{At: loc("a", 3, 0)}, {At: loc("b", 5, 5), Holder: "blue"}}
+	if !reflect.DeepEqual(res.Objectives, want) {
+		t.Errorf("objectives = %+v, want %+v", res.Objectives, want)
+	}
 }
 
 func TestCapture(t *testing.T) {

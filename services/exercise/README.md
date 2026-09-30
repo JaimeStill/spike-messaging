@@ -51,9 +51,10 @@ exercise starts from them as given.
 An element fields operators, each with health from 1 to 100: a squad up to four, a scout one. Its
 strength is the sum of their health, and its status is `ready`, `engaged` in a fight, or
 `recovering` from a retreat. An order names an element and the cells it steps through; an engaged
-element moves only on an order of one step marked `"retreat": true`, which draws a volley from
-the enemy it leaves. Round 0, the start, resolves nothing, so its resolution in the history is
-`null`.
+element moves only on an order of one step marked `"retreat": true`. An order marked
+`"pursue": true` keeps an engaged element in its fight to fire on an enemy that retreats from it,
+and the retreating element fires back; a retreat no one pursues escapes without a shot. Round 0,
+the start, resolves nothing, so its resolution in the history is `null`.
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor.
@@ -63,13 +64,15 @@ service, and each reactor.
 Each event is written in the transaction of the command that makes it true, and its subject is
 the exercise's ID:
 
-- `exercise.started`: the public settings, including the seed and the map but not the elements.
+- `exercise.started`: the public settings, including the seed and the terrain, which is the map
+  without its objectives. A faction finds an objective only by seeing it.
 - `exercise.round.resolved`: one per resolved round, before its observations: the umpire's record
-  of the round's retreats and the volleys they drew, its engagements, with every element's
-  strength before and after and the operators it lost, the elements destroyed, the objectives
-  that changed hands, and each faction's progress toward the objectives it is taking. It is the
-  resolution the history records for the round. It shows both factions, so it is for an
-  observer of the whole exercise, such as courier's theater narration; no service consumes it.
+  of the round's retreats and the fire they exchanged with their pursuers, its engagements, with
+  every element's strength before and after and the operators it lost, the elements destroyed,
+  the objectives that changed hands, each faction's progress toward the objectives it is taking,
+  and every objective with its holder. It is the resolution the history records for the round.
+  It shows both factions, so it is for an observer of the whole exercise, such as courier's
+  theater narration; no service consumes it.
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 

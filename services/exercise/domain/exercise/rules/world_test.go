@@ -147,3 +147,20 @@ func checkErr(t *testing.T, err error, wants []string) {
 		}
 	}
 }
+
+// The terrain is the map without its objectives, and shares nothing with it.
+func TestTerrainHidesTheObjectives(t *testing.T) {
+	m := fixtureMap()
+	terrain := m.Terrain()
+	for i, sec := range terrain.Sectors {
+		if len(sec.Objectives) != 0 {
+			t.Errorf("sector %s: objectives %v, want none", sec.ID, sec.Objectives)
+		}
+		if sec.ID != m.Sectors[i].ID || len(sec.Obstacles) != len(m.Sectors[i].Obstacles) || len(sec.Gates) != len(m.Sectors[i].Gates) {
+			t.Errorf("sector %s: %+v, want the rest of the map", sec.ID, sec)
+		}
+	}
+	if len(m.Sectors[0].Objectives) != 1 {
+		t.Errorf("Terrain changed the map: %+v", m.Sectors[0])
+	}
+}

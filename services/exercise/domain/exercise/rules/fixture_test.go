@@ -77,6 +77,10 @@ func order(id string, steps ...rules.Location) rules.Order {
 	return rules.Order{Element: id, Steps: steps}
 }
 
+func pursue(id string) rules.Order {
+	return rules.Order{Element: id, Pursue: true}
+}
+
 func retreat(id string, steps ...rules.Location) rules.Order {
 	return rules.Order{Element: id, Steps: steps, Retreat: true}
 }

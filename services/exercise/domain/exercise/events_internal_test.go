@@ -66,8 +66,8 @@ func TestRaiseObserved(t *testing.T) {
 	}
 }
 
-// The started event carries the public settings, the seed among them, and
-// no element.
+// The started event carries the public settings, the seed among them, the
+// terrain without its objectives, and no element.
 func TestRaiseStarted(t *testing.T) {
 	ex := Exercise{ID: "ex-1", Name: "n", Seed: 42, RoundLimit: 5, Factions: testState.Factions, State: testState, intervalMS: 2000}
 	q := &event.Queue{}
@@ -77,7 +77,7 @@ func TestRaiseStarted(t *testing.T) {
 		t.Fatalf("raised %+v", es)
 	}
 	got := decode[StartedData](t, es[0])
-	want := StartedData{Exercise: "ex-1", Name: "n", Seed: 42, Map: testState.Map, Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
+	want := StartedData{Exercise: "ex-1", Name: "n", Seed: 42, Map: testState.Map.Terrain(), Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("data = %+v, want %+v", got, want)
 	}
@@ -123,13 +123,15 @@ func TestRaiseResolved(t *testing.T) {
 		Retreats: []rules.Retreat{{
 			ID: "b2", Faction: "blue", From: at, To: rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 1}},
 			Before: 100, After: 60, Fallen: 0,
+			Pursuers: []rules.Engaged{{ID: "r1", Faction: "red", Before: 400, After: 400}},
 		}},
 		Engagements: []rules.Engagement{{At: at, Elements: []rules.Engaged{
 			{ID: "b1", Faction: "blue", Before: 40, After: 0, Fallen: 1}, {ID: "r1", Faction: "red", Before: 400, After: 370},
 		}}},
-		Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
-		Captures: []rules.Capture{},
-		Progress: []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
+		Losses:     []rules.Loss{{ID: "b1", Faction: "blue"}},
+		Captures:   []rules.Capture{},
+		Progress:   []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
+		Objectives: []rules.ObjectiveStatus{{At: at}},
 	}
 	q := &event.Queue{}
 	raiseResolved(q, "ex-1", 7, res)
@@ -139,11 +141,12 @@ func TestRaiseResolved(t *testing.T) {
 	}
 	want := `{"exercise":"ex-1","round":7,` +
 		`"retreats":[{"id":"b2","faction":"blue","from":{"sector":"a","x":3,"y":0},"to":{"sector":"a","x":3,"y":1},` +
-		`"before":100,"after":60,"fallen":0}],` +
+		`"before":100,"after":60,"fallen":0,"pursuers":[{"id":"r1","faction":"red","before":400,"after":400,"fallen":0}]}],` +
 		`"engagements":[{"at":{"sector":"a","x":3,"y":0},"elements":[` +
 		`{"id":"b1","faction":"blue","before":40,"after":0,"fallen":1},{"id":"r1","faction":"red","before":400,"after":370,"fallen":0}]}],` +
 		`"losses":[{"id":"b1","faction":"blue"}],"captures":[],` +
-		`"progress":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","rounds":1}]}`
+		`"progress":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","rounds":1}],` +
+		`"objectives":[{"at":{"sector":"a","x":3,"y":0},"holder":""}]}`
 	if string(es[0].Data) != want {
 		t.Errorf("data = %s\nwant   %s", es[0].Data, want)
 	}
