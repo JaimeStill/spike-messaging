@@ -37,13 +37,13 @@ var (
 )
 
 // StartedData is the event entity of [Started]: the exercise's public
-// settings, its seed among them. Its map is the terrain alone: a faction
-// finds the objectives by sight, and knows no enemy element, so it carries
-// neither.
+// settings. Its map is the terrain alone: a faction finds the objectives by
+// sight, and knows no enemy element, so it carries neither. It carries no
+// seed either, from which the layout and every fight could be computed;
+// an observer reads the seed from the exercise's API.
 type StartedData struct {
 	Exercise        string    `json:"exercise"`
 	Name            string    `json:"name"`
-	Seed            int64     `json:"seed"`
 	Map             rules.Map `json:"map"`
 	Factions        [2]string `json:"factions"`
 	RoundIntervalMS int64     `json:"round_interval_ms"`
@@ -95,7 +95,6 @@ func startedData(ex Exercise) StartedData {
 	return StartedData{
 		Exercise:        ex.ID,
 		Name:            ex.Name,
-		Seed:            ex.Seed,
 		Map:             ex.State.Map.Terrain(),
 		Factions:        ex.Factions,
 		RoundIntervalMS: ex.intervalMS,

@@ -66,8 +66,8 @@ func TestRaiseObserved(t *testing.T) {
 	}
 }
 
-// The started event carries the public settings, the seed among them, the
-// terrain without its objectives, and no element.
+// The started event carries the public settings, the terrain without its
+// objectives, no element, and no seed.
 func TestRaiseStarted(t *testing.T) {
 	ex := Exercise{ID: "ex-1", Name: "n", Seed: 42, RoundLimit: 5, Factions: testState.Factions, State: testState, intervalMS: 2000}
 	q := &event.Queue{}
@@ -77,14 +77,16 @@ func TestRaiseStarted(t *testing.T) {
 		t.Fatalf("raised %+v", es)
 	}
 	got := decode[StartedData](t, es[0])
-	want := StartedData{Exercise: "ex-1", Name: "n", Seed: 42, Map: testState.Map.Terrain(), Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
+	want := StartedData{Exercise: "ex-1", Name: "n", Map: testState.Map.Terrain(), Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("data = %+v, want %+v", got, want)
 	}
 	var raw map[string]any
 	_ = json.Unmarshal(es[0].Data, &raw)
-	if _, ok := raw["elements"]; ok {
-		t.Errorf("started carries elements: %s", es[0].Data)
+	for _, hidden := range []string{"elements", "seed"} {
+		if _, ok := raw[hidden]; ok {
+			t.Errorf("started carries %s: %s", hidden, es[0].Data)
+		}
 	}
 }
 
@@ -130,8 +132,7 @@ func TestRaiseResolved(t *testing.T) {
 		}}},
 		Losses:     []rules.Loss{{ID: "b1", Faction: "blue"}},
 		Captures:   []rules.Capture{},
-		Progress:   []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
-		Objectives: []rules.ObjectiveStatus{{At: at}},
+		Progress: []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
 	}
 	q := &event.Queue{}
 	raiseResolved(q, "ex-1", 7, res)
@@ -145,8 +146,7 @@ func TestRaiseResolved(t *testing.T) {
 		`"engagements":[{"at":{"sector":"a","x":3,"y":0},"elements":[` +
 		`{"id":"b1","faction":"blue","before":40,"after":0,"fallen":1},{"id":"r1","faction":"red","before":400,"after":370,"fallen":0}]}],` +
 		`"losses":[{"id":"b1","faction":"blue"}],"captures":[],` +
-		`"progress":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","rounds":1}],` +
-		`"objectives":[{"at":{"sector":"a","x":3,"y":0},"holder":""}]}`
+		`"progress":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","rounds":1}]}`
 	if string(es[0].Data) != want {
 		t.Errorf("data = %s\nwant   %s", es[0].Data, want)
 	}

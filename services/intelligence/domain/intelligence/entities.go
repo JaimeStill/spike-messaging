@@ -47,6 +47,9 @@ type Assessment struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
 	Status   Status `json:"status"`
+	// Revision counts the assessments issued from this row, 0 before the
+	// first.
+	Revision int `json:"revision"`
 	fusion.Picture
 	UpdatedAt   time.Time `json:"updated_at"`
 	closedRound int

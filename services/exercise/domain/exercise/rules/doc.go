@@ -7,8 +7,11 @@
 // The package is pure: its functions take and return values, and do no I/O
 // and read no clock. The randomness a round draws comes from the exercise's
 // seed and the round alone, in a fixed order, so a round resolves the same
-// way every time it is resolved, and a seed replays an exercise. [Resolve]
-// never changes the state it is given; it returns the next one.
+// way every time it is resolved under the same orders, and a seed with the
+// orders an exercise recorded replays it. The services' orders depend on
+// timing, so a seed alone replays an exercise only as far as they arrive
+// alike. [Resolve] never changes the state it is given; it returns the next
+// one.
 //
 // # Elements
 //
@@ -40,8 +43,9 @@
 //     - An element that starts the round in a fight is pinned there: its
 //     order is refused, unless it is a retreat of one step.
 //     - A recovering element's order is refused.
-//  2. Pursuit. Each enemy element that stays in the cell a retreat left,
-//     and whose order pursues, fires once at the retreating element, which
+//  2. Pursuit. Each enemy element that stood in the cell a retreat left
+//     at the round's start, not recovering, and stays there with an order
+//     that pursues, fires once at the retreating element, which
 //     fires back once at the pursuers, all at once. A retreat no one
 //     pursues escapes without a shot.
 //  3. Fight. In each cell holding both factions' elements, every living

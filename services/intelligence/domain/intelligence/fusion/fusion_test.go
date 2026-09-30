@@ -207,7 +207,10 @@ func TestAlert(t *testing.T) {
 	seen.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 5, 5), Holder: "red"}}
 	p := fusion.Fuse(fusion.Open(grid), seen, 3)
 
-	added := fusion.Alert(p, loc("a", 1, 0), "blue", 3)
+	added, changed := fusion.Alert(p, loc("a", 1, 0), "blue", 3)
+	if !changed {
+		t.Error("an added objective reported no change")
+	}
 	want := []fusion.Objective{
 		{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 3},
 		{At: loc("a", 5, 5), Holder: "red", Known: true, Seen: 3},
@@ -217,7 +220,10 @@ func TestAlert(t *testing.T) {
 	}
 
 	p = fusion.Fuse(p, observe(5, own), 3)
-	updated := fusion.Alert(p, loc("a", 5, 5), "blue", 4)
+	updated, changed2 := fusion.Alert(p, loc("a", 5, 5), "blue", 4)
+	if !changed2 {
+		t.Error("an updated objective reported no change")
+	}
 	want = []fusion.Objective{{At: loc("a", 5, 5), Holder: "blue", Known: true, Seen: 4, Age: 1}}
 	if !reflect.DeepEqual(updated.Objectives, want) {
 		t.Errorf("updated = %+v, want %+v", updated.Objectives, want)
@@ -227,16 +233,40 @@ func TestAlert(t *testing.T) {
 	}
 }
 
+// An alert that restates the objective the picture lists, as a redelivery
+// or a duplicate does, changes nothing.
+func TestAlertReportsWhetherItChanged(t *testing.T) {
+	p := fusion.Open(grid)
+	p.Round = 2
+	once, changed := fusion.Alert(p, loc("a", 1, 1), "blue", 2)
+	if !changed {
+		t.Fatal("the first alert reported no change")
+	}
+	again, changed := fusion.Alert(once, loc("a", 1, 1), "blue", 2)
+	if changed || !reflect.DeepEqual(again, once) {
+		t.Errorf("a repeated alert changed = %v, picture %+v, want unchanged", changed, again)
+	}
+	if _, changed := fusion.Alert(once, loc("a", 1, 1), "red", 2); !changed {
+		t.Error("a new holder reported no change")
+	}
+	if _, changed := fusion.Alert(once, loc("a", 1, 1), "blue", 3); !changed {
+		t.Error("a later sighting reported no change")
+	}
+}
+
 // An alert of a round the picture has not reached is seen this round: age 0.
 // A later sighting than the alert's wins.
 func TestAlertAgesAndLaterSightingsWin(t *testing.T) {
 	p := fusion.Open(grid)
 	p.Round = 2
-	ahead := fusion.Alert(p, loc("a", 1, 1), "blue", 4)
+	ahead, _ := fusion.Alert(p, loc("a", 1, 1), "blue", 4)
 	if want := (fusion.Objective{At: loc("a", 1, 1), Holder: "blue", Known: true, Seen: 4}); ahead.Objectives[0] != want {
 		t.Errorf("ahead = %+v, want %+v", ahead.Objectives[0], want)
 	}
-	stale := fusion.Alert(ahead, loc("a", 1, 1), "red", 3)
+	stale, changed := fusion.Alert(ahead, loc("a", 1, 1), "red", 3)
+	if changed {
+		t.Error("a stale alert reported a change")
+	}
 	if !reflect.DeepEqual(stale.Objectives, ahead.Objectives) {
 		t.Errorf("stale = %+v, want %+v as it stood", stale.Objectives, ahead.Objectives)
 	}
@@ -246,7 +276,7 @@ func TestAlertAgesAndLaterSightingsWin(t *testing.T) {
 func TestAlertCopies(t *testing.T) {
 	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
 	p := fusion.Fuse(fusion.Open(grid), observe(1, own, squad("b1", "blue", 3, loc("a", 2, 0))), 3)
-	q := fusion.Alert(p, loc("a", 1, 1), "blue", 1)
+	q, _ := fusion.Alert(p, loc("a", 1, 1), "blue", 1)
 	q.Own[0].Health[0] = 99
 	q.Contacts[0].Health[0] = 99
 	q.Objectives[0].Holder = "x"
@@ -260,7 +290,7 @@ func TestAlertCopies(t *testing.T) {
 func TestFuseKeepsAnAlertedObjective(t *testing.T) {
 	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
 	p := fusion.Fuse(fusion.Open(grid), observe(3, own), 3)
-	p = fusion.Alert(p, loc("a", 1, 0), "blue", 5)
+	p, _ = fusion.Alert(p, loc("a", 1, 0), "blue", 5)
 	late := observe(4, own)
 	late.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 1, 0), Holder: "red"}}
 	want := []fusion.Objective{{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 5}}

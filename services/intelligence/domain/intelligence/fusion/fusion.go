@@ -214,9 +214,10 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 // objective at at was held by holder in round. The objective is set to that
 // sighting, added when p does not list it, and aged against p's round, or 0
 // when the alert is of that round or a later one. An objective p already
-// saw in a later round than the alert's stands as it is. The result shares
-// nothing mutable with p.
-func Alert(p Picture, at Location, holder string, round int) Picture {
+// saw in a later round than the alert's stands as it is. It reports whether
+// the result differs from p: an alert that restates what p lists changes
+// nothing. The result shares nothing mutable with p.
+func Alert(p Picture, at Location, holder string, round int) (Picture, bool) {
 	out := p
 	out.Own = make([]Element, len(p.Own))
 	for i, e := range p.Own {
@@ -233,16 +234,17 @@ func Alert(p Picture, at Location, holder string, round int) Picture {
 
 	i := slices.IndexFunc(out.Objectives, func(o Objective) bool { return o.At == at })
 	if i >= 0 && out.Objectives[i].Seen > round {
-		return out
+		return out, false
 	}
 	o := Objective{At: at, Holder: holder, Known: true, Seen: round, Age: max(p.Round-round, 0)}
 	if i >= 0 {
+		changed := out.Objectives[i] != o
 		out.Objectives[i] = o
-		return out
+		return out, changed
 	}
 	out.Objectives = append(out.Objectives, o)
 	slices.SortFunc(out.Objectives, byLocation)
-	return out
+	return out, true
 }
 
 // explore returns the cells of explored and every cell inside a sector's

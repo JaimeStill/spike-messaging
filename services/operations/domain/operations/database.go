@@ -65,6 +65,7 @@ type operationRow struct {
 	RoundLimit int       `json:"round_limit"`
 	LastRound  int       `json:"last_round"`
 	DirRound   int       `json:"directive_round"`
+	DirSeq     int       `json:"directive_sequence"`
 	Elements   []byte    `json:"elements"`
 	Targets    []byte    `json:"targets"`
 	Rules      []byte    `json:"rules"`
@@ -79,6 +80,7 @@ func (r operationRow) operation() (Operation, error) {
 		Status:         Status(r.Status),
 		LastRound:      r.LastRound,
 		DirectiveRound: r.DirRound,
+		DirectiveSeq:   r.DirSeq,
 		UpdatedAt:      r.UpdatedAt,
 		limit:          r.RoundLimit,
 	}
@@ -174,7 +176,7 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	if _, err := s.record.Exec(ctx, tx, query.Args{
 		"exercise_id": op.Exercise, "faction": op.Faction,
 		"elements": enc, "targets": tgt, "rules": rls, "last_round": op.LastRound,
-		"directive_round": op.DirectiveRound,
+		"directive_round": op.DirectiveRound, "directive_sequence": op.DirectiveSeq,
 	}); err != nil {
 		return fmt.Errorf("save operation %s/%s: %w", op.Exercise, op.Faction, err)
 	}

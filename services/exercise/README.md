@@ -42,11 +42,13 @@ Mounted under `/api/exercises`:
 | `POST /{id}/stop` | End the exercise |
 
 A create that gives no seed gets one drawn from [0, 2^31), and the exercise keeps it: every
-round's random draws come from the seed and the round, so a seed replays an exercise. A create
-gives a map and its elements together or neither. With neither, the exercise starts from the
-skirmish the seed lays out: one 13×13 sector with three to five objectives, and three squads and
-two scouts a side on opposite baselines, mirrored so neither side is favored. With both, the
-exercise starts from them as given.
+round's random draws come from the seed and the round, so a seed with the orders the exercise
+recorded replays it; the services' orders depend on timing, so a seed alone replays a run only as
+far as they arrive alike. Only this service's API gives the seed, since the layout and every
+fight follow from it. A create gives a map and its elements together or neither. With neither,
+the exercise starts from the skirmish the seed lays out: one 13×13 sector with three to five
+objectives, and three squads and two scouts a side on opposite baselines, mirrored so neither side
+is favored. With both, the exercise starts from them as given.
 
 An element fields operators, each with health from 1 to 100: a squad up to four, a scout one. Its
 strength is the sum of their health, and its status is `ready`, `engaged` in a fight, or
@@ -64,13 +66,13 @@ service, and each reactor.
 Each event is written in the transaction of the command that makes it true, and its subject is
 the exercise's ID:
 
-- `exercise.started`: the public settings, including the seed and the terrain, which is the map
-  without its objectives. A faction finds an objective only by seeing it.
+- `exercise.started`: the public settings and the terrain, which is the map without its
+  objectives. A faction finds an objective only by seeing it. It carries no seed.
 - `exercise.round.resolved`: one per resolved round, before its observations: the umpire's record
   of the round's retreats and the fire they exchanged with their pursuers, its engagements, with
   every element's strength before and after and the operators it lost, the elements destroyed,
-  the objectives that changed hands, each faction's progress toward the objectives it is taking,
-  and every objective with its holder. It is the resolution the history records for the round.
+  the objectives that changed hands, and each faction's progress toward the objectives it is
+  taking. It is the resolution the history records for the round.
   It shows both factions, so it is for an observer of the whole exercise, such as courier's
   theater narration; no service consumes it.
 - `exercise.objective.lost`: one per objective taken from the faction holding it, after the

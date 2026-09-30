@@ -35,21 +35,24 @@ type Order struct {
 // each retreat and its pursuers, fights, and captures, then observes the
 // next state for each faction and judges it against limit, the exercise's
 // round limit. Every random draw comes from seed and round alone, so a round
-// resolves the same way each time it is resolved. It returns the next state,
-// the observations indexed like s.Factions, the verdict, and the round's
-// [Resolution].
-// Resolve does not change s or orders; the next state shares no slice or
-// map with s, and its elements are sorted by ID.
+// resolves the same way each time it is resolved under the same orders. It
+// returns the next state, the observations indexed like s.Factions, the
+// verdict, and the round's [Resolution]. Resolve does not change s or
+// orders; the next state shares no slice or map with s, and its elements are
+// sorted by ID.
 func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
 	rng := rand.New(rand.NewPCG(uint64(seed), uint64(round)))
 	next = s.clone()
+	stayed := make(map[string]Element, len(next.Elements))
+	for _, e := range next.Elements {
+		stayed[e.ID] = e
+	}
 	retreats := move(&next, orders)
-	res.Retreats = volley(&next, retreats, orders, rng)
+	res.Retreats = volley(&next, stayed, retreats, orders, rng)
 	res.Engagements = fight(&next, rng)
 	res.Losses = bury(&next)
 	settle(&next, retreats)
 	res.Captures, res.Progress = capture(&next)
-	res.Objectives = objectives(next)
 	return next, Observe(next, round), Judge(next, round, limit), res
 }
 
@@ -76,16 +79,14 @@ func contested(es []Element) map[string]bool {
 // Resolution is what a round's resolution did, as the umpire records it:
 // each retreat and the exchange it drew, each fight, each element
 // destroyed, each objective that changed hands, and each objective a
-// faction is taking, and then every objective with its holder, which only
-// the umpire knows. Every list is empty, not nil, for a round where
+// faction is taking. Every list is empty, not nil, for a round where
 // nothing happened.
 type Resolution struct {
-	Retreats    []Retreat         `json:"retreats"`
-	Engagements []Engagement      `json:"engagements"`
-	Losses      []Loss            `json:"losses"`
-	Captures    []Capture         `json:"captures"`
-	Progress    []Advance         `json:"progress"`
-	Objectives  []ObjectiveStatus `json:"objectives"`
+	Retreats    []Retreat    `json:"retreats"`
+	Engagements []Engagement `json:"engagements"`
+	Losses      []Loss       `json:"losses"`
+	Captures    []Capture    `json:"captures"`
+	Progress    []Advance    `json:"progress"`
 }
 
 // Retreat is an element that left its fight, and the exchange with the
@@ -269,12 +270,12 @@ func wound(es []Element, damage map[operator]int) {
 }
 
 // volley plays out the pursuit of each retreat. Each element of the other
-// faction that stays in the cell a retreat left, and whose order pursues,
-// fires once with all its operators at the retreating element, and the
+// faction that stood in the cell a retreat left at the round's start, not
+// recovering, stays there, and whose order pursues, fires once with all its operators at the retreating element, and the
 // retreating element's operators fire back once at the pursuers' operators,
 // all at once. A retreat no one pursues draws no fire. Retreats resolve in
 // ID order.
-func volley(s *State, retreats map[string]Location, orders []Order, rng *rand.Rand) []Retreat {
+func volley(s *State, stayed map[string]Element, retreats map[string]Location, orders []Order, rng *rand.Rand) []Retreat {
 	pursues := make(map[string]bool, len(orders))
 	for _, o := range orders {
 		pursues[o.Element] = o.Pursue
@@ -286,7 +287,8 @@ func volley(s *State, retreats map[string]Location, orders []Order, rng *rand.Ra
 		e := s.Elements[i]
 		var pursuers []int
 		for j, o := range s.Elements {
-			if o.Faction != e.Faction && o.At == from && pursues[o.ID] {
+			was := stayed[o.ID]
+			if o.Faction != e.Faction && o.At == from && was.At == from && was.Status != StatusRecovering && pursues[o.ID] {
 				pursuers = append(pursuers, j)
 			}
 		}
@@ -441,16 +443,6 @@ func capture(s *State) ([]Capture, []Advance) {
 		captures = append(captures, Capture{At: o, Faction: f, From: from})
 	}
 	return captures, progress
-}
-
-// objectives returns every objective of s with its holder, in the map's
-// objective order.
-func objectives(s State) []ObjectiveStatus {
-	out := []ObjectiveStatus{}
-	for _, o := range s.Map.objectives() {
-		out = append(out, ObjectiveStatus{At: o, Holder: s.Holders[o.Key()]})
-	}
-	return out
 }
 
 // sum returns the total of hs.

@@ -166,7 +166,7 @@ func TestOperations_DirectivesBecomeOrders(t *testing.T) {
 
 	target := at(3, 0)
 	w.publish(t, "/command", "command.directive.issued", id, map[string]any{
-		"exercise": id, "faction": "red", "round": 0,
+		"exercise": id, "faction": "red", "round": 0, "sequence": 1,
 		"directives": []any{map[string]any{"element": "r1", "rule": "secure", "contact": nil, "target": target}},
 	})
 	await(t, "round 1's orders again", 10*time.Second, func() bool { return len(w.orders(t)) >= 2 })

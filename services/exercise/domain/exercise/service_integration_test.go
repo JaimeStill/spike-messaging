@@ -187,8 +187,16 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 2); err != nil {
-		t.Fatalf("down: %v", err)
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down 0002: %v", err)
+	}
+	for _, col := range [][2]string{{"exercise", "seed"}, {"exercise_round", "resolution"}} {
+		if scalar[bool](t, db, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2)`, col[0], col[1]) {
+			t.Errorf("after 0002's down, %s.%s remains", col[0], col[1])
+		}
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down 0001: %v", err)
 	}
 	for _, table := range []string{"exercise", "exercise_round", "exercise_orders"} {
 		if scalar[bool](t, db, `SELECT to_regclass($1) IS NOT NULL`, table) {
@@ -297,7 +305,7 @@ func TestIdleExerciseRunsToADraw(t *testing.T) {
 	if err := json.Unmarshal(es[0].Data, &s); err != nil {
 		t.Fatal(err)
 	}
-	if s.RoundIntervalMS != 10 || s.RoundLimit != 3 || s.Factions != ex.Factions || s.Name != "fixture" || s.Seed != ex.Seed {
+	if s.RoundIntervalMS != 10 || s.RoundLimit != 3 || s.Factions != ex.Factions || s.Name != "fixture" {
 		t.Errorf("started = %+v", s)
 	}
 }

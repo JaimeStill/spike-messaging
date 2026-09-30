@@ -197,6 +197,12 @@ func (s Sector) open(p Point) bool {
 // tests again, until no end is shared, so an element can follow another
 // into the cell it leaves, and two can swap cells. An element that ends up
 // with no steps holds, and gets no order, unless it pursues.
+//
+// Plan takes a fight cell to be one where an own element is engaged, while
+// exercise pins every cell contested at the round's start. The two differ
+// only when the faction's only element in a contested cell is recovering:
+// Plan then refuses a reinforcement that exercise would allow, a lost move
+// and never an illegal order.
 func Plan(m Map, elements []Element, targets map[string]Location, rules map[string]string) []Order {
 	es := slices.Clone(elements)
 	slices.SortFunc(es, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })

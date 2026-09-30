@@ -21,7 +21,7 @@ Mounted under `/api/operations`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round of the last directive it applied, its elements, and each element's target and rule |
+| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round and sequence of the last directive it applied, its elements, and each element's target and rule |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -48,9 +48,11 @@ The service emits `operations.orders.issued`, whose subject is the exercise's ID
 faction per observed round, for the round after it, even with no orders, and none past the round
 limit. When a directive changes the plan for orders already issued, it emits them again for the
 same round, and exercise keeps the last it records. A directive's payload is
-`{exercise, faction, round, directives: [{element, rule, contact, target}]}`. The service reads
-each directive's rule and target, and keeps them together: a null target holds the element and
-drops its rule.
+`{exercise, faction, round, sequence, directives: [{element, rule, contact, target}]}`, where
+`sequence` numbers a faction's directives in the order command decided them, from 1. The service
+reads each directive's rule and target, and keeps them together: a null target holds the element
+and drops its rule. It skips a directive whose sequence is no higher than the last it applied,
+so a redelivery or a late one behind a newer directive changes nothing, even of the same round.
 
 Each ready element steps toward its target along a shortest path, found by breadth-first search
 over open cells and gates (`domain/operations/route`), up to its moves per round: a squad one, a

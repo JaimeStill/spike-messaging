@@ -289,6 +289,41 @@ func TestAlertIssuesOnACurrentPicture(t *testing.T) {
 	}
 }
 
+// Revisions count the faction's issued assessments across Observe and Alert,
+// from 1, so the observation's and an alert's of one round order; an alert
+// that changes nothing raises nothing and leaves the revision as it was.
+func TestRevisionsIncreaseAndAnUnchangedAlertRaisesNothing(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	steps := []func() error{
+		func() error { return svc.Observe(t.Context(), red(id, 0, loc(0, 0)), nil) },
+		func() error { return svc.Alert(t.Context(), lost(id, 0), nil) },
+		func() error { return svc.Alert(t.Context(), lost(id, 0), nil) },
+		func() error { return svc.Observe(t.Context(), red(id, 1, loc(0, 0)), nil) },
+	}
+	for _, step := range steps {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := assessments(t, db)
+	if len(got) != 3 {
+		t.Fatalf("outbox holds %d assessments, want 3: the repeated alert raises none", len(got))
+	}
+	for i, d := range got {
+		if d.Revision != i+1 {
+			t.Errorf("assessment %d has revision %d, want %d", i, d.Revision, i+1)
+		}
+	}
+	as, err := svc.Find(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if as[1].Faction != "red" || as[1].Revision != 3 || as[0].Revision != 0 {
+		t.Errorf("revisions = blue %d, red %d, want 0 and 3", as[0].Revision, as[1].Revision)
+	}
+}
+
 func TestAlertOnALaggingPictureWaitsForTheObservation(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
@@ -412,7 +447,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 2); err != nil {
+	if err := m.Down(t.Context(), 3); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('assessment') IS NOT NULL`)

@@ -84,7 +84,7 @@ func red(id string, round int, r1, r2 route.Location) operations.Maneuver {
 // assign returns red's directives on round: each element's target, under
 // the secure rule.
 func assign(id string, round int, targets map[string]*route.Location) operations.Assign {
-	c := operations.Assign{Exercise: id, Faction: "red", Round: round}
+	c := operations.Assign{Exercise: id, Faction: "red", Round: round, Sequence: round + 1}
 	for _, e := range slices.Sorted(func(yield func(string) bool) {
 		for k := range targets {
 			if !yield(k) {
@@ -229,6 +229,39 @@ func TestStaleInputsAreSkipped(t *testing.T) {
 	}
 }
 
+// A directive of the same round but a lower sequence, which arrives behind
+// a newer one, changes nothing.
+func TestALateLowerSequenceIsSkipped(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	ctx := t.Context()
+	if err := svc.Maneuver(ctx, red(id, 0, loc(0, 0), loc(1, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	newer, older := loc(4, 0), loc(2, 0)
+	second := assign(id, 0, map[string]*route.Location{"r2": &newer})
+	second.Sequence = 2
+	first := assign(id, 0, map[string]*route.Location{"r2": &older, "r1": &older})
+	first.Sequence = 1
+	for _, c := range []operations.Assign{second, first} {
+		if err := svc.Assign(ctx, c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := ordersRows(t, db); len(got) != 2 {
+		t.Errorf("outbox holds %+v, want round 1's orders and their one re-issue", got)
+	}
+	ops, err := svc.Find(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if op.Faction == "red" && (op.DirectiveSeq != 2 || len(op.Targets) != 1 || op.Targets["r2"] != newer) {
+			t.Errorf("red's operation = %+v, want the sequence-2 directive's target alone", op)
+		}
+	}
+}
+
 // A directive that arrives after the operation has acted on a later
 // round, as when command catches up after an outage, still sets the
 // targets: command sends nothing more while its decisions stand, so
@@ -328,13 +361,14 @@ func TestARetreatWithdrawsAnEngagedElement(t *testing.T) {
 		t.Fatal(err)
 	}
 	fight, back := loc(1, 0), loc(0, 0)
-	engage := operations.Assign{Exercise: id, Faction: "red", Round: 0, Directives: []operations.Directive{
+	engage := operations.Assign{Exercise: id, Faction: "red", Round: 0, Sequence: 1, Directives: []operations.Directive{
 		{Element: "r1", Rule: "engage", Target: &fight},
 	}}
 	if err := svc.Assign(ctx, engage, nil); err != nil {
 		t.Fatal(err)
 	}
 	retreat := engage
+	retreat.Sequence = 2
 	retreat.Directives = []operations.Directive{{Element: "r1", Rule: "retreat", Target: &back}}
 	if err := svc.Assign(ctx, retreat, nil); err != nil {
 		t.Fatal(err)
@@ -501,6 +535,12 @@ func TestMigrationsUpAndDown(t *testing.T) {
 			t.Fatalf("%s: no boolean", q)
 		}
 		return ok
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down directive sequence: %v", err)
+	}
+	if exists(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'operation' AND column_name = 'directive_sequence')`) {
+		t.Error("after 0004's down, the directive_sequence column remains")
 	}
 	if err := m.Down(t.Context(), 1); err != nil {
 		t.Fatalf("down rules: %v", err)

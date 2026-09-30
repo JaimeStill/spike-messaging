@@ -62,6 +62,7 @@ type assessmentRow struct {
 	Faction     string    `json:"faction"`
 	Status      string    `json:"status"`
 	ClosedRound *int      `json:"closed_round"`
+	Revision    int       `json:"revision"`
 	Picture     []byte    `json:"picture"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -72,6 +73,7 @@ func (r assessmentRow) assessment() (Assessment, error) {
 		Exercise:  r.ExerciseID,
 		Faction:   r.Faction,
 		Status:    Status(r.Status),
+		Revision:  r.Revision,
 		UpdatedAt: r.UpdatedAt,
 	}
 	if r.ClosedRound != nil {
@@ -144,14 +146,14 @@ func (s *store) all(ctx context.Context, id string) ([]Assessment, error) {
 	return out, nil
 }
 
-// save records a's picture.
+// save records a's picture and revision.
 func (s *store) save(ctx context.Context, tx *sqlate.Tx, a Assessment) error {
 	enc, err := encode(a.Picture)
 	if err != nil {
 		return err
 	}
 	if _, err := s.record.Exec(ctx, tx, query.Args{
-		"exercise_id": a.Exercise, "faction": a.Faction, "picture": enc,
+		"exercise_id": a.Exercise, "faction": a.Faction, "picture": enc, "revision": a.Revision,
 	}); err != nil {
 		return fmt.Errorf("save assessment %s/%s: %w", a.Exercise, a.Faction, err)
 	}

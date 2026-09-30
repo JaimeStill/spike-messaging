@@ -92,7 +92,7 @@ func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 			return err
 		}
 		a.Picture = fusion.Fuse(a.Picture, c.Observation, s.contactRounds)
-		raiseAssessment(q, a.Exercise, a.Faction, a.Picture)
+		raiseAssessment(q, &a)
 		return s.store.save(ctx, tx, a)
 	})
 }
@@ -103,6 +103,7 @@ func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 // may be handled first. When the assessment already covers the round, the
 // alert issues a fresh [AssessmentIssued] for the round the picture is of;
 // otherwise it only saves, and the round's observation carries the change.
+// An alert that changes nothing neither saves nor raises nothing.
 // It skips an alert past the round a closed assessment concluded after, as
 // Observe does.
 func (s *Service) Alert(ctx context.Context, c Alert, claim Claim) error {
@@ -114,9 +115,13 @@ func (s *Service) Alert(ctx context.Context, c Alert, claim Claim) error {
 		if err != nil || a.Status == StatusClosed && c.Round > a.closedRound {
 			return err
 		}
-		a.Picture = fusion.Alert(a.Picture, c.At, c.Holder, c.Round)
+		p, changed := fusion.Alert(a.Picture, c.At, c.Holder, c.Round)
+		if !changed {
+			return nil
+		}
+		a.Picture = p
 		if a.Round >= c.Round {
-			raiseAssessment(q, a.Exercise, a.Faction, a.Picture)
+			raiseAssessment(q, &a)
 		}
 		return s.store.save(ctx, tx, a)
 	})

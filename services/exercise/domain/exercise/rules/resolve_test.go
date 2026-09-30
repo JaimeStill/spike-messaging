@@ -478,15 +478,28 @@ func TestAPursuitCanDestroyARetreat(t *testing.T) {
 	t.Errorf("fifty seeds, and no pursuit hit a scout at health 1")
 }
 
-// The resolution lists every objective with its holder, the umpire's view,
-// whether or not any element sees it.
-func TestResolutionListsEveryObjective(t *testing.T) {
-	s := state(squad("r1", "red", loc("a", 0, 0)))
-	s.Holders["b:5,5"] = "blue"
-	_, _, _, res := rules.Resolve(s, seed, 1, 10, nil)
-	want := []rules.ObjectiveStatus{{At: loc("a", 3, 0)}, {At: loc("b", 5, 5), Holder: "blue"}}
-	if !reflect.DeepEqual(res.Objectives, want) {
-		t.Errorf("objectives = %+v, want %+v", res.Objectives, want)
+// Only an element that stood in the cell at the round's start, was not
+// recovering, and stays there pursues: one that steps into the cell, or a
+// recovering one, does not fire on the retreat, whatever its order says.
+func TestOnlyAStayingElementPursues(t *testing.T) {
+	c, back := loc("a", 1, 1), loc("a", 1, 0)
+	s := state(
+		engaged(squad("r1", "red", c)),
+		engaged(squad("b1", "blue", c)),
+		recovering(squad("b2", "blue", c)),
+		squad("b3", "blue", loc("a", 2, 1)),
+	)
+	arrive := rules.Order{Element: "b3", Steps: []rules.Location{c}, Pursue: true}
+	_, _, _, res := rules.Resolve(s, seed, 1, 10, []rules.Order{retreat("r1", back), pursue("b1"), pursue("b2"), arrive})
+	if len(res.Retreats) != 1 {
+		t.Fatalf("retreats = %+v, want r1's", res.Retreats)
+	}
+	var got []string
+	for _, p := range res.Retreats[0].Pursuers {
+		got = append(got, p.ID)
+	}
+	if !reflect.DeepEqual(got, []string{"b1"}) {
+		t.Errorf("pursuers = %v, want only b1", got)
 	}
 }
 

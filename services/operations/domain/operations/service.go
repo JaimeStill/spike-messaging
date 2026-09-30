@@ -74,8 +74,9 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 // an element's target, or none, which holds it. Each directive carries its
 // faction's whole target state, so Assign applies the newest whenever it
 // arrives, even one decided on a round before the last the operation acted
-// on, as after an outage; it skips only a directive older than the last it
-// applied, and any for a closed operation.
+// on, as after an outage; it skips only a directive whose sequence is no
+// higher than the last it applied, which a redelivery or a late arrival
+// behind a newer one is, and any for a closed operation.
 //
 // A directive decided on the round the operation last acted on, which
 // changes its plan, raises [OrdersIssued] again for the round those orders
@@ -88,10 +89,10 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 	}
 	return s.claimed(ctx, "assign", claim, func(tx *sqlate.Tx, q *event.Queue) error {
 		op, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
-		if err != nil || op.Status == StatusClosed || c.Round < op.DirectiveRound {
+		if err != nil || op.Status == StatusClosed || c.Sequence <= op.DirectiveSeq {
 			return err
 		}
-		op.DirectiveRound = c.Round
+		op.DirectiveRound, op.DirectiveSeq = c.Round, c.Sequence
 		before := op.orders()
 		op.Targets = maps.Clone(op.Targets)
 		if op.Targets == nil {
