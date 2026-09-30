@@ -12,7 +12,8 @@ import (
 // AssessmentIssued reports a faction's assessment of an observed round:
 // what the faction knows once that round's observation is fused into what
 // it knew. Its subject is the exercise's ID. Observe raises one per faction
-// per observed round.
+// per observed round, and Alert one when it changes a picture that already
+// covers the round it reports.
 var AssessmentIssued = event.Define[AssessmentData]("intelligence.assessment.issued")
 
 // AssessmentData is the event entity of [AssessmentIssued]: the exercise, the

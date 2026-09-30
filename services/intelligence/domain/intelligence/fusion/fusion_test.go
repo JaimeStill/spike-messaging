@@ -199,6 +199,79 @@ func TestFuseDiscoversObjectives(t *testing.T) {
 	}
 }
 
+// An alert adds an objective the picture does not list, in order, and
+// updates one it does, aged against the picture's round.
+func TestAlert(t *testing.T) {
+	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
+	seen := observe(3, own)
+	seen.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 5, 5), Holder: "red"}}
+	p := fusion.Fuse(fusion.Open(grid), seen, 3)
+
+	added := fusion.Alert(p, loc("a", 1, 0), "blue", 3)
+	want := []fusion.Objective{
+		{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 3},
+		{At: loc("a", 5, 5), Holder: "red", Known: true, Seen: 3},
+	}
+	if !reflect.DeepEqual(added.Objectives, want) {
+		t.Errorf("added = %+v, want %+v", added.Objectives, want)
+	}
+
+	p = fusion.Fuse(p, observe(5, own), 3)
+	updated := fusion.Alert(p, loc("a", 5, 5), "blue", 4)
+	want = []fusion.Objective{{At: loc("a", 5, 5), Holder: "blue", Known: true, Seen: 4, Age: 1}}
+	if !reflect.DeepEqual(updated.Objectives, want) {
+		t.Errorf("updated = %+v, want %+v", updated.Objectives, want)
+	}
+	if p.Objectives[0].Holder != "red" {
+		t.Error("Alert changed the picture it was given")
+	}
+}
+
+// An alert of a round the picture has not reached is seen this round: age 0.
+// A later sighting than the alert's wins.
+func TestAlertAgesAndLaterSightingsWin(t *testing.T) {
+	p := fusion.Open(grid)
+	p.Round = 2
+	ahead := fusion.Alert(p, loc("a", 1, 1), "blue", 4)
+	if want := (fusion.Objective{At: loc("a", 1, 1), Holder: "blue", Known: true, Seen: 4}); ahead.Objectives[0] != want {
+		t.Errorf("ahead = %+v, want %+v", ahead.Objectives[0], want)
+	}
+	stale := fusion.Alert(ahead, loc("a", 1, 1), "red", 3)
+	if !reflect.DeepEqual(stale.Objectives, ahead.Objectives) {
+		t.Errorf("stale = %+v, want %+v as it stood", stale.Objectives, ahead.Objectives)
+	}
+}
+
+// An alert shares nothing mutable with the picture it changes.
+func TestAlertCopies(t *testing.T) {
+	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
+	p := fusion.Fuse(fusion.Open(grid), observe(1, own, squad("b1", "blue", 3, loc("a", 2, 0))), 3)
+	q := fusion.Alert(p, loc("a", 1, 1), "blue", 1)
+	q.Own[0].Health[0] = 99
+	q.Contacts[0].Health[0] = 99
+	q.Objectives[0].Holder = "x"
+	if p.Own[0].Health[0] != 2 || p.Contacts[0].Health[0] != 3 || len(p.Objectives) != 0 {
+		t.Errorf("picture changed through the alert's copy: %+v", p)
+	}
+}
+
+// An objective an alert recorded from a round the observation predates
+// stands, and ages no less than 0; the round's own observation replaces it.
+func TestFuseKeepsAnAlertedObjective(t *testing.T) {
+	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
+	p := fusion.Fuse(fusion.Open(grid), observe(3, own), 3)
+	p = fusion.Alert(p, loc("a", 1, 0), "blue", 5)
+	late := observe(4, own)
+	late.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 1, 0), Holder: "red"}}
+	want := []fusion.Objective{{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 5}}
+	if got := fusion.Fuse(p, late, 3).Objectives; !reflect.DeepEqual(got, want) {
+		t.Errorf("fused over = %+v, want %+v", got, want)
+	}
+	if got := fusion.Fuse(p, observe(5, own), 3).Objectives; !reflect.DeepEqual(got, want) {
+		t.Errorf("fused at = %+v, want %+v", got, want)
+	}
+}
+
 // The explored cells grow with what the own elements see: a squad one cell
 // around it, a scout two, never past the edge of its sector's grid. They
 // accumulate over rounds, hold each cell once, and stay sorted by sector,

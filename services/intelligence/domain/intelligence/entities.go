@@ -90,6 +90,29 @@ func (c Observe) Validate() error {
 	return invalid([]error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)})
 }
 
+// Alert is the alert command's input, intelligence's reading of an
+// exercise.objective.lost event: the faction lost the objective at At in
+// the round, and Holder took it.
+type Alert struct {
+	Exercise string          `json:"exercise"`
+	Faction  string          `json:"faction"`
+	Round    int             `json:"round"`
+	At       fusion.Location `json:"at"`
+	Holder   string          `json:"holder"`
+}
+
+// Validate reports every way c is unusable, wrapping [ErrValidation].
+func (c Alert) Validate() error {
+	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)}
+	if c.At.Sector == "" {
+		errs = append(errs, errors.New("the objective's sector is empty"))
+	}
+	if c.Holder == "" {
+		errs = append(errs, errors.New("the holder is empty"))
+	}
+	return invalid(errs)
+}
+
 // Close is the close command's input, intelligence's reading of an
 // exercise.concluded event: the exercise, and the round it concluded after.
 type Close struct {

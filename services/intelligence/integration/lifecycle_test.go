@@ -54,7 +54,7 @@ func TestLifecycle_BootProbeDrain(t *testing.T) {
 	for _, ch := range ready.Checks {
 		checks[ch.Name] = ch.Ready
 	}
-	for _, name := range []string{"lifecycle", "database", "broker", "schema", "relay", "started", "observed", "concluded"} {
+	for _, name := range []string{"lifecycle", "database", "broker", "schema", "relay", "started", "observed", "alerts", "concluded"} {
 		if !checks[name] {
 			t.Errorf("readyz checks = %+v, want %s ready", ready.Checks, name)
 		}

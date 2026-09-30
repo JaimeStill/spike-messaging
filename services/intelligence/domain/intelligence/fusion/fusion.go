@@ -152,7 +152,9 @@ func Open(m Map) Picture {
 // observe keeps its last-seen cell and ages, and drops once its age exceeds
 // k or one of the own elements sees its cell. An objective it observes is
 // added when it is new; one it does not observe keeps what it was last seen
-// as, and ages. The cells the own elements see join the explored ones.
+// as, and ages. An objective an [Alert] recorded from a later round than
+// the observation's stands as it is, at age 0. The cells the own elements
+// see join the explored ones.
 func Fuse(prev Picture, obs Observation, k int) Picture {
 	round := obs.Round
 	p := Picture{
@@ -191,11 +193,12 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 	}
 	for _, o := range prev.Objectives {
 		if holder, ok := status[o.At]; ok {
-			o = Objective{At: o.At, Holder: holder, Known: true, Seen: round}
 			delete(status, o.At)
-		} else {
-			o.Age = round - o.Seen
+			if o.Seen <= round {
+				o = Objective{At: o.At, Holder: holder, Known: true, Seen: round}
+			}
 		}
+		o.Age = max(round-o.Seen, 0)
 		p.Objectives = append(p.Objectives, o)
 	}
 	for at, holder := range status {
@@ -205,6 +208,41 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 
 	p.Explored = p.explore(prev.Explored)
 	return p
+}
+
+// Alert returns the picture p becomes when an alert reports that the
+// objective at at was held by holder in round. The objective is set to that
+// sighting, added when p does not list it, and aged against p's round, or 0
+// when the alert is of that round or a later one. An objective p already
+// saw in a later round than the alert's stands as it is. The result shares
+// nothing mutable with p.
+func Alert(p Picture, at Location, holder string, round int) Picture {
+	out := p
+	out.Own = make([]Element, len(p.Own))
+	for i, e := range p.Own {
+		out.Own[i] = e.clone()
+	}
+	out.Contacts = make([]Contact, len(p.Contacts))
+	for i, c := range p.Contacts {
+		c.Element = c.clone()
+		out.Contacts[i] = c
+	}
+	out.Objectives = slices.Clone(p.Objectives)
+	out.Explored = slices.Clone(p.Explored)
+	out.Grid = slices.Clone(p.Grid)
+
+	i := slices.IndexFunc(out.Objectives, func(o Objective) bool { return o.At == at })
+	if i >= 0 && out.Objectives[i].Seen > round {
+		return out
+	}
+	o := Objective{At: at, Holder: holder, Known: true, Seen: round, Age: max(p.Round-round, 0)}
+	if i >= 0 {
+		out.Objectives[i] = o
+		return out
+	}
+	out.Objectives = append(out.Objectives, o)
+	slices.SortFunc(out.Objectives, byLocation)
+	return out
 }
 
 // explore returns the cells of explored and every cell inside a sector's

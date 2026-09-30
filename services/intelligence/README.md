@@ -28,13 +28,14 @@ service, and each reactor. The commands have no route: their inputs arrive as ev
 
 ## Events
 
-The service consumes three event types, each through a subscription of its own, and decodes each
+The service consumes four event types, each through a subscription of its own, and decodes each
 payload into its command's input, its own reading of the payload:
 
 | Subscription | Event | Command |
 |--------------|-------|---------|
 | `intelligence-started` | `exercise.started` | `Open` both factions' assessments over the map |
 | `intelligence-observed` | `exercise.round.observed` | `Observe`: fuse the faction's observation into its assessment |
+| `intelligence-alerts` | `exercise.objective.lost` | `Alert`: record the objective's new holder in the faction's assessment |
 | `intelligence-concluded` | `exercise.concluded` | `Close` the exercise's assessments |
 
 Every command claims its event through the inbox, so a redelivery changes nothing. An input for
@@ -44,7 +45,12 @@ redelivered after 250ms rather than refused.
 The service emits `intelligence.assessment.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, own, contacts: [{id, faction, kind, strength, health, status, at,
 seen, age}], objectives: [{at, holder, known, seen, age}], explored: [{sector, x, y}]}`. It emits
-one per faction per observed round.
+one per faction per observed round, and one more when an alert changes an assessment that already
+covers the alert's round. Exercise raises `exercise.objective.lost` after a round resolves and
+before it is observed, and the two arrive on separate subscriptions. When the assessment has
+reached the alert's round, the alert issues a fresh assessment of that round with the objective's
+new holder; otherwise it only saves, and the round's observation issues the assessment carrying
+it. A later sighting than the alert's wins.
 
 Exercise's observation limits what a faction sees by kind, a squad one cell and a scout two, and
 to the sector. Intelligence keeps a contact at its last-seen cell, and drops it after
@@ -65,7 +71,7 @@ order:
 | 1 | `schema`: go-database's admin service migrates the `messaging` set, then `intelligence` |
 | 2 | `messaging` and `intelligence` verify their statements |
 | 3 | `relay`, which publishes the outbox |
-| 4 | `started`, `observed`, and `concluded`, the consumers |
+| 4 | `started`, `observed`, `alerts`, and `concluded`, the consumers |
 | root | `server` |
 
 The drain runs in reverse. The consumers raise the service's assessments, so they sit above the

@@ -97,6 +97,31 @@ func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 	})
 }
 
+// Alert records that a faction lost an objective to its holder, in the
+// faction's assessment. exercise raises the alert after the round's
+// resolution and before its observation, on another subscription, so either
+// may be handled first. When the assessment already covers the round, the
+// alert issues a fresh [AssessmentIssued] for the round the picture is of;
+// otherwise it only saves, and the round's observation carries the change.
+// It skips an alert past the round a closed assessment concluded after, as
+// Observe does.
+func (s *Service) Alert(ctx context.Context, c Alert, claim Claim) error {
+	if err := c.Validate(); err != nil {
+		return event.Permanent(fmt.Errorf("alert: %w", err))
+	}
+	return s.claimed(ctx, "alert", claim, func(tx *sqlate.Tx, q *event.Queue) error {
+		a, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
+		if err != nil || a.Status == StatusClosed && c.Round > a.closedRound {
+			return err
+		}
+		a.Picture = fusion.Alert(a.Picture, c.At, c.Holder, c.Round)
+		if a.Round >= c.Round {
+			raiseAssessment(q, a.Exercise, a.Faction, a.Picture)
+		}
+		return s.store.save(ctx, tx, a)
+	})
+}
+
 // Close closes every faction's assessment in an exercise that concluded,
 // recording the round it concluded after, so no observation of a later
 // round changes it. It raises nothing.
