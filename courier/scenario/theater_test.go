@@ -18,17 +18,17 @@ func TestTheaterNarratesAnExercise(t *testing.T) {
 	at := map[string]any{"sector": "a", "x": 0, "y": 0}
 	publishJSON(t, b, "s", "exercise.started", map[string]any{
 		"exercise": exerciseID, "name": "tiny", "factions": []string{"red", "blue"},
-		"round_interval_ms": 1000, "round_limit": 1,
+		"round_interval_ms": 1000, "round_limit": 1, "seed": 7,
 		"map": map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 2, "height": 1}}},
 	})
 	for _, f := range []string{"red", "blue"} {
 		publishJSON(t, b, "o"+f, "exercise.round.observed", map[string]any{
 			"exercise": exerciseID, "faction": f, "round": 0,
-			"own": []any{map[string]any{"id": f[:1] + "1", "kind": "force", "strength": 2, "at": at}},
+			"own": []any{map[string]any{"id": f[:1] + "1", "kind": "squad", "strength": 100, "health": []int{100}, "at": at}},
 		})
 	}
 	publishJSON(t, b, "r1", "exercise.round.resolved", map[string]any{
-		"exercise": exerciseID, "round": 1, "engagements": []any{}, "captures": []any{},
+		"exercise": exerciseID, "round": 1, "retreats": []any{}, "engagements": []any{}, "captures": []any{}, "progress": []any{},
 		"losses": []any{map[string]any{"id": "b1", "faction": "blue"}},
 	})
 	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 1, "winner": "red", "reason": "elimination"})
@@ -53,6 +53,7 @@ func TestTheaterNarratesAnExercise(t *testing.T) {
 		got := out.String()
 		for _, w := range []string{
 			"tiny: 1 rounds at 1s",
+			"  seed        7",
 			"r1   exercise     blue  b1 destroyed",
 			"verdict     red wins by elimination after round 1",
 			"check it against the umpire: mise run demo-theater-check " + exerciseID,

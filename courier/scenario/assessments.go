@@ -231,7 +231,7 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		if w.faction != "" && d.Faction != w.faction {
 			return nil
 		}
-		if lines := w.standing.changes(d); len(lines) > 0 {
+		if lines := w.standing.changes(d, nil); len(lines) > 0 {
 			w.rep.Note("round %d %s directs: %s", d.Round, d.Faction, strings.Join(lines, " · "))
 		}
 	case concludedType:
