@@ -229,6 +229,7 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 				{
 					Intent: "Narrate events until exercise completion",
 					Action: func(ctx context.Context, _ *Reporter) error {
+						n.begin()
 						wctx, cancel := context.WithTimeout(ctx, wait)
 						defer cancel()
 						select {
@@ -288,6 +289,7 @@ type narrator struct {
 	view      exerciseView                      // the observer's view, read at the start
 	initial   map[string][]squad                // each faction's squads in round 0
 	latest    map[string][]squad                // each faction's squads in its latest observation
+	open      bool                              // whether the narration's step has begun
 	told      bool                              // whether the initial conditions were narrated
 	blocks    map[int]*block                    // the rounds not yet narrated, and late changes
 	seen      int                               // the latest round an event belongs to
@@ -499,6 +501,17 @@ func (n *narrator) advance(round int) {
 	}
 }
 
+// begin opens the narration once its step has begun, and tells what the
+// events handled before it hold. Until then the narrator only collects, so
+// no line lands under the step that joins the stream.
+func (n *narrator) begin() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.open = true
+	n.tell()
+	n.advance(n.seen)
+}
+
 // finish narrates what remains, under the narrator's lock.
 func (n *narrator) finish() {
 	n.mu.Lock()
@@ -689,7 +702,7 @@ func (n *narrator) learn(v exerciseView) {
 // tell narrates the initial conditions once the start and each faction's
 // round-0 observation are in.
 func (n *narrator) tell() {
-	if n.told || n.setup == nil {
+	if !n.open || n.told || n.setup == nil {
 		return
 	}
 	for _, f := range n.setup.Factions {

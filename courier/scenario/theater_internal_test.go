@@ -24,6 +24,8 @@ type script struct {
 
 func newScript(t *testing.T) *script {
 	s := &script{t: t, n: newNarrator(theaterID), t0: time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)}
+	// The narration's step has begun, as the theater's second step begins it.
+	s.n.begin()
 	// The observer's view, as exercise's API tells it at the start: the seed,
 	// and the objectives in a:4,4 and b:1,1.
 	s.n.read = func(context.Context) (exerciseView, error) {
