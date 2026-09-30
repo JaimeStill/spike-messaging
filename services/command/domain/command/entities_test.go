@@ -42,8 +42,10 @@ func TestValidate(t *testing.T) {
 func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 	var c command.Decide
 	err := json.Unmarshal([]byte(`{"exercise":"`+exerciseID+`","faction":"red","round":2,
-		"own":[{"id":"r1","faction":"red","kind":"force","strength":2,"at":{"sector":"a","x":0,"y":0}}],
-		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":1,"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
+		"own":[{"id":"r1","faction":"red","kind":"squad","strength":287,"health":[100,100,87],"status":"ready",
+			"at":{"sector":"a","x":0,"y":0}}],
+		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"ready",
+			"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
 		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":false,"seen":-1,"age":0}]}`), &c)
 	if err != nil {
 		t.Fatal(err)

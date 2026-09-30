@@ -10,16 +10,17 @@ import (
 )
 
 // DirectiveIssued reports a faction's directives, decided on its assessment
-// of a round, when the decision changed where any of its elements heads.
-// Its subject is the exercise's ID. It lists every live element, so it
-// carries the faction's whole target state, and a consumer that skipped an
-// earlier directive loses nothing.
+// of a round, when the decision changed where any of its elements heads or
+// the rule that sends it there. Its subject is the exercise's ID. It lists
+// every live element, so it carries the faction's whole target state, and a
+// consumer that skipped an earlier directive loses nothing.
 var DirectiveIssued = event.Define[DirectiveData]("command.directive.issued")
 
 // DirectiveData is the event entity of [DirectiveIssued]: the exercise, the
 // faction, the round whose assessment was decided on, and a directive for
 // each live element. A directive gives its element's target, null for a
-// hold, the rule that chose it, and for an engage the contact.
+// hold, the rule that chose it, and for a retreat, an engage, or a
+// reinforce the contact.
 type DirectiveData struct {
 	Exercise   string            `json:"exercise"`
 	Faction    string            `json:"faction"`

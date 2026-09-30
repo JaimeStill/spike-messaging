@@ -75,14 +75,20 @@ func open(t *testing.T, svc *command.Service) string {
 	return id
 }
 
-// red is red's assessment of round: its force r1 of strength 3 at 0,0 and
-// its scout r2 at 0,2, the objective as given, and the contacts it knows.
+// squad is a ready squad at full strength at at.
+func squad(id string, at decide.Location) decide.Element {
+	return decide.Element{ID: id, Kind: decide.Squad, Strength: 400, Health: []int{100, 100, 100, 100},
+		Status: decide.Ready, At: at}
+}
+
+// red is red's assessment of round: its squad r1 at 0,0 and its scout r2
+// at 0,2, the objective as given, and the contacts it knows.
 func red(id string, round int, objective decide.Objective, contacts ...decide.Contact) command.Decide {
 	return command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
 		Round: round,
 		Own: []decide.Element{
-			{ID: "r1", Kind: "force", Strength: 3, At: loc(0, 0)},
-			{ID: "r2", Kind: "scout", Strength: 1, At: loc(0, 2)},
+			squad("r1", loc(0, 0)),
+			{ID: "r2", Kind: decide.Scout, Strength: 100, Health: []int{100}, Status: decide.Ready, At: loc(0, 2)},
 		},
 		Contacts:   contacts,
 		Objectives: []decide.Objective{objective},
@@ -158,7 +164,7 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	ctx := t.Context()
-	b1 := decide.Contact{ID: "b1", Strength: 1, At: loc(2, 0)}
+	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, c := range []command.Decide{
 		red(id, 0, unknown),
 		red(id, 1, unknown),
@@ -195,6 +201,39 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 	if len(ds) != 2 || ds[0].Faction != "blue" || ds[0].Round != -1 || len(ds[0].Decisions) != 0 ||
 		ds[1].Faction != "red" || ds[1].Round != 3 || len(ds[1].Decisions) != 2 {
 		t.Errorf("Find = %+v", ds)
+	}
+}
+
+// A changed rule issues a directive though no target changes. r1
+// reinforces r3's fight; once r3 is gone, r1 engages the same contact in
+// the same cell, and the round after, unchanged, issues nothing.
+func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
+	r3 := squad("r3", loc(2, 0))
+	r3.Status = decide.Engaged
+	for round, own := range [][]decide.Element{
+		{squad("r1", loc(0, 0)), r3},
+		{squad("r1", loc(0, 0))},
+		{squad("r1", loc(0, 0))},
+	} {
+		c := command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
+			Round: round, Own: own, Contacts: []decide.Contact{b1}, Objectives: []decide.Objective{unknown},
+		}}
+		if err := svc.Decide(t.Context(), c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := directives(t, db)
+	want := []string{"r1 reinforce b1 a:2,0, r3 engage b1 a:2,0", "r1 engage b1 a:2,0"}
+	if len(got) != len(want) {
+		t.Fatalf("outbox holds %d directives, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i].Round != i || summary(got[i]) != w {
+			t.Errorf("directive %d is round %d's: %s; want round %d: %s", i, got[i].Round, summary(got[i]), i, w)
+		}
 	}
 }
 
@@ -281,7 +320,7 @@ func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	if err := svc.Close(t.Context(), command.Close{Exercise: id, Round: 2}, nil); err != nil {
 		t.Fatal(err)
 	}
-	b1 := decide.Contact{ID: "b1", Strength: 1, At: loc(2, 0)}
+	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, round := range []int{2, 3} {
 		if err := svc.Decide(t.Context(), red(id, round, unknown, b1), nil); err != nil {
 			t.Fatal(err)

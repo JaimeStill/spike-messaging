@@ -2,12 +2,35 @@ package decide
 
 import (
 	"cmp"
+	"math"
 	"slices"
 	"strconv"
 )
 
-// EngageRange is the most steps a force goes to engage a contact.
+// EngageRange is the most steps a squad goes to engage a contact or to
+// reinforce a fight.
 const EngageRange = 3
+
+// The kinds of element.
+const (
+	// Squad is an element of up to four operators; it engages and
+	// reinforces.
+	Squad = "squad"
+	// Scout is an element of one operator; it never seeks a fight.
+	Scout = "scout"
+)
+
+// The statuses of an element.
+const (
+	// Ready is an element free to take any order.
+	Ready = "ready"
+	// Engaged is an element whose cell holds the enemy: it is pinned there,
+	// and only a one-step retreat moves it.
+	Engaged = "engaged"
+	// Recovering is an element that retreated last round; the exercise
+	// refuses its next order.
+	Recovering = "recovering"
+)
 
 // Point is a cell of a sector's grid.
 type Point struct {
@@ -50,20 +73,27 @@ type Map struct {
 }
 
 // Element is one of the faction's own elements, as an assessment reports
-// it: its ID, its kind, its strength, and where it stands.
+// it: its ID, its kind, its strength, the sum of its operators' health, its
+// status, and where it stands.
 type Element struct {
 	ID       string   `json:"id"`
 	Kind     string   `json:"kind"`
 	Strength int      `json:"strength"`
+	Health   []int    `json:"health"`
+	Status   string   `json:"status"`
 	At       Location `json:"at"`
 }
 
-// Contact is an enemy element the assessment knows of: its ID, its
-// strength, and the cell it was last seen in.
+// Contact is an enemy element the assessment knows of: its ID, kind,
+// strength and status, the cell it was last seen in, and how many rounds
+// ago it was seen there, 0 for this round.
 type Contact struct {
 	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
 	Strength int      `json:"strength"`
+	Status   string   `json:"status"`
 	At       Location `json:"at"`
+	Age      int      `json:"age"`
 }
 
 // Objective is what the assessment knows of one objective. Holder is the
@@ -87,10 +117,18 @@ type Assessment struct {
 // Rule is the rule a decision was made by.
 type Rule string
 
-// The rules, in the order [Decide] tries them.
+// The rules, in the order [Decide] tries them. Engage is tried twice: an
+// engaged element that does not retreat holds its fight by it, before any
+// reinforce, and a free squad seeks a weaker contact by it, after.
 const (
-	// Engage heads a force for a weaker contact within reach.
+	// Retreat steps an engaged element out of a fight it is losing, or a
+	// scout out of any fight, into an open neighboring cell.
+	Retreat Rule = "retreat"
+	// Engage keeps an engaged element in its fight, or heads a squad for a
+	// weaker contact within reach.
 	Engage Rule = "engage"
+	// Reinforce heads a free squad for a fight of its faction within reach.
+	Reinforce Rule = "reinforce"
 	// Secure heads an element for an objective its faction does not hold.
 	Secure Rule = "secure"
 	// Hold keeps an element where it stands.
@@ -98,7 +136,8 @@ const (
 )
 
 // Decision is what command directs one element to do: the rule, the
-// contact an engage heads for, and the target, nil for a hold.
+// contact a retreat leaves or an engage or reinforce heads for, and the
+// target, nil for a hold.
 type Decision struct {
 	Element string    `json:"element"`
 	Rule    Rule      `json:"rule"`
@@ -125,11 +164,45 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		was[d.Element] = d
 	}
 
+	// The strength each side has in a cell: the faction's from all its
+	// elements there, the enemy's from the contacts seen there this round.
+	ours, theirs := map[Location]int{}, map[Location]int{}
+	for _, e := range own {
+		ours[e.At] += e.Strength
+	}
+	for _, c := range a.Contacts {
+		if c.Age == 0 {
+			theirs[c.At] += c.Strength
+		}
+	}
+
 	decisions := make([]Decision, len(own))
 	dist := make([]map[Location]int, len(own))
+	fights := map[Location]bool{}
 	for i, e := range own {
 		dist[i] = m.distances(e.At)
-		decisions[i] = engage(e, a.Contacts, dist[i])
+		enemy, ok := strongest(a.Contacts, e.At)
+		if e.Status != Engaged || !ok {
+			continue
+		}
+		if e.Kind == Scout || 2*ours[e.At] < theirs[e.At] {
+			if to, ok := m.retreat(e.At, a.Contacts); ok {
+				decisions[i] = Decision{Element: e.ID, Rule: Retreat, Contact: enemy.ID, Target: &to}
+				continue
+			}
+		}
+		at := e.At
+		fights[at] = true
+		decisions[i] = Decision{Element: e.ID, Rule: Engage, Contact: enemy.ID, Target: &at}
+	}
+	for i, e := range own {
+		if decisions[i].Rule != "" {
+			continue
+		}
+		decisions[i] = reinforce(e, fights, a.Contacts, dist[i])
+		if decisions[i].Rule == "" {
+			decisions[i] = engage(e, a.Contacts, dist[i])
+		}
 	}
 
 	// Standing targets are claimed first, in ID order, so an element that
@@ -159,11 +232,80 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 	return decisions
 }
 
-// engage returns the engage decision for e, a force, against the nearest
-// weaker contact within [EngageRange] steps, ties going to the lowest ID,
-// or the zero Decision when there is none.
+// strongest returns the strongest contact seen this round at at, ties going
+// to the lowest ID, or false when none is.
+func strongest(contacts []Contact, at Location) (Contact, bool) {
+	var best Contact
+	found := false
+	for _, c := range contacts {
+		if c.Age != 0 || c.At != at {
+			continue
+		}
+		if !found || c.Strength > best.Strength || c.Strength == best.Strength && c.ID < best.ID {
+			best, found = c, true
+		}
+	}
+	return best, found
+}
+
+// retreat returns the cell an element at at retreats to: the orthogonally
+// adjacent open cell of its sector, holding no contact seen this round,
+// farthest by Chebyshev distance from the nearest known contact outside
+// the fight at at, ties going to the first of up, right, down, left. The
+// fight's own contacts are one step from every neighbor, so they would
+// tie them all. It returns false when no such neighbor is open.
+func (m Map) retreat(at Location, contacts []Contact) (Location, bool) {
+	s, ok := m.sector(at.Sector)
+	if !ok {
+		return Location{}, false
+	}
+	var best Location
+	bestGap, found := -1, false
+	for _, d := range directions {
+		p := Point{X: at.X + d.X, Y: at.Y + d.Y}
+		if !s.open(p) {
+			continue
+		}
+		to := Location{Sector: s.ID, Point: p}
+		gap, held := math.MaxInt, false
+		for _, c := range contacts {
+			if c.At.Sector != s.ID || c.At == at {
+				continue
+			}
+			if c.At == to && c.Age == 0 {
+				held = true
+				break
+			}
+			gap = min(gap, max(abs(c.At.X-p.X), abs(c.At.Y-p.Y)))
+		}
+		if !held && gap > bestGap {
+			best, bestGap, found = to, gap, true
+		}
+	}
+	return best, found
+}
+
+// reinforce returns the reinforce decision for e, a squad free to move,
+// toward the nearest of fights within [EngageRange] steps, ties going to
+// the lowest by [Location.String], or the zero Decision when there is none.
+// Its contact is the strongest enemy in that fight.
+func reinforce(e Element, fights map[Location]bool, contacts []Contact, dist map[Location]int) Decision {
+	if e.Kind != Squad || e.Status != Ready && e.Status != Recovering {
+		return Decision{}
+	}
+	at, ok := nearest(dist, func(l Location) bool { return fights[l] && dist[l] <= EngageRange })
+	if !ok {
+		return Decision{}
+	}
+	enemy, _ := strongest(contacts, at)
+	return Decision{Element: e.ID, Rule: Reinforce, Contact: enemy.ID, Target: &at}
+}
+
+// engage returns the engage decision for e, a squad, against the nearest
+// contact weaker than itself within [EngageRange] steps, ties going to the
+// lowest ID, or the zero Decision when there is none.
 func engage(e Element, contacts []Contact, dist map[Location]int) Decision {
-	if e.Kind != "force" {
+	if e.Kind != Squad {
 		return Decision{}
 	}
 	var best *Contact
@@ -224,7 +366,7 @@ func (m Map) steps(at Location) []Location {
 		return nil
 	}
 	var out []Location
-	for _, d := range []Point{{0, -1}, {1, 0}, {0, 1}, {-1, 0}} {
+	for _, d := range directions {
 		p := Point{X: at.X + d.X, Y: at.Y + d.Y}
 		if s.open(p) {
 			out = append(out, Location{Sector: s.ID, Point: p})
@@ -238,6 +380,17 @@ func (m Map) steps(at Location) []Location {
 		}
 	}
 	return out
+}
+
+// directions are the four orthogonal steps, in the order up, right, down,
+// left.
+var directions = []Point{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // sector returns the sector of m with ID id.

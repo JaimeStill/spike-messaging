@@ -13,12 +13,27 @@ func loc(sector string, x, y int) decide.Location {
 	return decide.Location{Sector: sector, Point: decide.Point{X: x, Y: y}}
 }
 
-func force(id string, strength int, at decide.Location) decide.Element {
-	return decide.Element{ID: id, Kind: "force", Strength: strength, At: at}
+// squad returns a ready squad of the operators' health given, four at
+// full health when none is.
+func squad(id string, at decide.Location, health ...int) decide.Element {
+	if len(health) == 0 {
+		health = []int{100, 100, 100, 100}
+	}
+	strength := 0
+	for _, h := range health {
+		strength += h
+	}
+	return decide.Element{ID: id, Kind: decide.Squad, Strength: strength, Health: health, Status: decide.Ready, At: at}
 }
 
 func scout(id string, at decide.Location) decide.Element {
-	return decide.Element{ID: id, Kind: "scout", Strength: 1, At: at}
+	return decide.Element{ID: id, Kind: decide.Scout, Strength: 100, Health: []int{100}, Status: decide.Ready, At: at}
+}
+
+// engaged returns e with the engaged status.
+func engaged(e decide.Element) decide.Element {
+	e.Status = decide.Engaged
+	return e
 }
 
 func contact(id string, strength int, at decide.Location) decide.Contact {
@@ -61,7 +76,8 @@ func check(t *testing.T, got []decide.Decision, want ...string) {
 
 // The map and the assessment decode from exercise's and intelligence's
 // events' JSON, a location's point flattened beside its sector, and a
-// decision encodes an engage's contact and a hold's null target.
+// decision encodes an engage's or a retreat's contact and a hold's null
+// target.
 func TestDecodesTheEventShapes(t *testing.T) {
 	var m decide.Map
 	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","width":3,"height":1,"obstacles":[{"x":1,"y":0}],
@@ -77,15 +93,18 @@ func TestDecodesTheEventShapes(t *testing.T) {
 	}
 	var a decide.Assessment
 	if err := json.Unmarshal([]byte(`{"exercise":"x","faction":"red","round":4,
-		"own":[{"id":"r1","faction":"red","kind":"force","strength":3,"at":{"sector":"a","x":0,"y":0}}],
-		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":1,"at":{"sector":"a","x":1,"y":0},"seen":3,"age":1}],
+		"own":[{"id":"r1","faction":"red","kind":"squad","strength":287,"health":[100,100,87],"status":"engaged",
+			"at":{"sector":"a","x":0,"y":0}}],
+		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"recovering",
+			"at":{"sector":"a","x":1,"y":0},"seen":3,"age":1}],
 		"objectives":[{"at":{"sector":"a","x":2,"y":0},"holder":"blue","known":true,"seen":4,"age":0}]}`), &a); err != nil {
 		t.Fatal(err)
 	}
 	wantA := decide.Assessment{
-		Round:      4,
-		Own:        []decide.Element{force("r1", 3, loc("a", 0, 0))},
-		Contacts:   []decide.Contact{contact("b1", 1, loc("a", 1, 0))},
+		Round: 4,
+		Own:   []decide.Element{engaged(squad("r1", loc("a", 0, 0), 100, 100, 87))},
+		Contacts: []decide.Contact{{ID: "b1", Kind: decide.Scout, Strength: 100, Status: decide.Recovering,
+			At: loc("a", 1, 0), Age: 1}},
 		Objectives: []decide.Objective{held("blue", loc("a", 2, 0))},
 	}
 	if !reflect.DeepEqual(a, wantA) {
@@ -95,26 +114,28 @@ func TestDecodesTheEventShapes(t *testing.T) {
 	out, err := json.Marshal([]decide.Decision{
 		{Element: "r1", Rule: decide.Engage, Contact: "b1", Target: &target},
 		{Element: "r2", Rule: decide.Hold},
+		{Element: "r3", Rule: decide.Retreat, Contact: "b1", Target: &target},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	const wantJSON = `[{"element":"r1","rule":"engage","contact":"b1","target":{"sector":"a","x":1,"y":0}},` +
-		`{"element":"r2","rule":"hold","target":null}]`
+		`{"element":"r2","rule":"hold","target":null},` +
+		`{"element":"r3","rule":"retreat","contact":"b1","target":{"sector":"a","x":1,"y":0}}]`
 	if string(out) != wantJSON {
 		t.Errorf("decisions encode as %s", out)
 	}
 }
 
-// A force engages the nearest weaker contact within three steps, at its
+// A squad engages the nearest weaker contact within three steps, at its
 // last-seen cell, before any objective; ties go to the lowest ID.
 func TestEngagesTheNearestWeakerContact(t *testing.T) {
 	a := decide.Assessment{
-		Own: []decide.Element{force("r1", 3, loc("a", 0, 0))},
+		Own: []decide.Element{squad("r1", loc("a", 0, 0))},
 		Contacts: []decide.Contact{
-			contact("b3", 2, loc("a", 3, 0)),
-			contact("b2", 1, loc("a", 0, 2)),
-			contact("b1", 1, loc("a", 2, 0)),
+			contact("b3", 300, loc("a", 3, 0)),
+			contact("b2", 100, loc("a", 0, 2)),
+			contact("b1", 100, loc("a", 2, 0)),
 		},
 		Objectives: []decide.Objective{unknown(loc("a", 1, 0))},
 	}
@@ -122,27 +143,120 @@ func TestEngagesTheNearestWeakerContact(t *testing.T) {
 }
 
 // Weaker means strictly weaker: an even fight wears both sides down alike,
-// so a force does not seek one. A contact four steps off is out of reach.
+// so a squad does not seek one. A contact four steps off is out of reach.
 func TestEngagesOnlyAWeakerContactInReach(t *testing.T) {
 	a := decide.Assessment{
-		Own: []decide.Element{force("r1", 2, loc("a", 0, 0))},
+		Own: []decide.Element{squad("r1", loc("a", 0, 0), 100, 100)},
 		Contacts: []decide.Contact{
-			contact("b1", 2, loc("a", 1, 0)),
-			contact("b2", 1, loc("a", 4, 0)),
+			contact("b1", 200, loc("a", 1, 0)),
+			contact("b2", 100, loc("a", 4, 0)),
 		},
 		Objectives: []decide.Objective{unknown(loc("a", 0, 4))},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:0,4")
 }
 
-// Engaging is for forces: a scout beside a weaker contact secures instead.
+// Engaging is for squads: a scout beside a weaker contact secures instead.
 func TestScoutsDoNotEngage(t *testing.T) {
 	a := decide.Assessment{
-		Own:        []decide.Element{{ID: "r1", Kind: "scout", Strength: 5, At: loc("a", 0, 0)}},
-		Contacts:   []decide.Contact{contact("b1", 1, loc("a", 1, 0))},
+		Own:        []decide.Element{scout("r1", loc("a", 0, 0))},
+		Contacts:   []decide.Contact{contact("b1", 50, loc("a", 1, 0))},
 		Objectives: []decide.Objective{unknown(loc("a", 4, 4))},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:4,4")
+}
+
+// An engaged squad whose faction has less than half the enemy's strength
+// in its cell retreats one step, to the open neighbor farthest from the
+// nearest contact outside its fight, leaving the strongest enemy there.
+func TestAWeakEngagedSquadRetreats(t *testing.T) {
+	fight := loc("a", 2, 2)
+	a := decide.Assessment{
+		Own: []decide.Element{engaged(squad("r1", fight, 60, 40))},
+		Contacts: []decide.Contact{
+			contact("b2", 150, fight),
+			contact("b1", 150, fight),
+			{ID: "b3", Strength: 400, At: loc("a", 4, 2), Age: 1},
+		},
+	}
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 retreat b1 a:1,2")
+
+	// A neighbor holding a contact seen this round is no way out, and a
+	// tie between the rest goes to the first of up, right, down, left.
+	a.Contacts = append(a.Contacts, contact("b4", 50, loc("a", 1, 2)))
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 retreat b1 a:2,1")
+}
+
+// A scout in a fight always retreats, however weak the enemy there.
+func TestAnEngagedScoutRetreats(t *testing.T) {
+	a := decide.Assessment{
+		Own:      []decide.Element{engaged(scout("r1", loc("a", 0, 0)))},
+		Contacts: []decide.Contact{contact("b1", 10, loc("a", 0, 0))},
+	}
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 retreat b1 a:1,0")
+}
+
+// An engaged squad holds its fight in place while its faction has at
+// least half the enemy's strength in the cell, summed over every element
+// there, so a stack of weak squads stays where one alone would leave.
+func TestAStrongEngagedSquadHoldsItsFight(t *testing.T) {
+	fight := loc("a", 2, 2)
+	a := decide.Assessment{
+		Own:        []decide.Element{engaged(squad("r1", fight))},
+		Contacts:   []decide.Contact{contact("b1", 400, fight), contact("b2", 400, fight)},
+		Objectives: []decide.Objective{unknown(loc("a", 4, 4))},
+	}
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 engage b1 a:2,2")
+
+	a.Own = []decide.Element{engaged(squad("r1", fight, 100)), engaged(squad("r2", fight, 100))}
+	a.Contacts = []decide.Contact{contact("b1", 400, fight)}
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 engage b1 a:2,2", "r2 engage b1 a:2,2")
+
+	a.Own = a.Own[:1]
+	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 retreat b1 a:2,1")
+}
+
+// An element with no open neighbor free of the enemy holds its fight
+// rather than retreat.
+func TestARetreatWithNowhereToGoHolds(t *testing.T) {
+	a := decide.Assessment{
+		Own:      []decide.Element{engaged(scout("r1", loc("a", 0, 0)))},
+		Contacts: []decide.Contact{contact("b1", 400, loc("a", 0, 0)), contact("b2", 100, loc("a", 1, 0))},
+	}
+	check(t, decide.Decide(open(2, 1), "red", a, nil), "r1 engage b1 a:0,0")
+	check(t, decide.Decide(open(1, 1), "red", a, nil), "r1 engage b1 a:0,0")
+}
+
+// A ready or recovering squad within three steps of a fight its faction
+// holds reinforces it, before any engage or objective, and any number may
+// reinforce one fight. A squad out of reach and a scout do not; nor is a
+// fight left by a retreat one to reinforce.
+func TestSquadsReinforceAFight(t *testing.T) {
+	fight := loc("a", 2, 2)
+	recovering := squad("r3", loc("a", 5, 2))
+	recovering.Status = decide.Recovering
+	a := decide.Assessment{
+		Own: []decide.Element{
+			engaged(squad("r1", fight)),
+			squad("r2", loc("a", 2, 5)),
+			recovering,
+			squad("r4", loc("a", 6, 6)),
+			scout("r5", loc("a", 2, 3)),
+		},
+		Contacts: []decide.Contact{
+			contact("b1", 300, fight),
+			contact("b2", 100, loc("a", 3, 5)),
+		},
+		Objectives: []decide.Objective{unknown(loc("a", 6, 0))},
+	}
+	check(t, decide.Decide(open(7, 7), "red", a, nil),
+		"r1 engage b1 a:2,2", "r2 reinforce b1 a:2,2", "r3 reinforce b1 a:2,2",
+		"r4 secure a:6,0", "r5 hold")
+
+	a.Own[0] = engaged(scout("r1", fight))
+	check(t, decide.Decide(open(7, 7), "red", a, nil),
+		"r1 retreat b1 a:2,1", "r2 engage b2 a:3,5", "r3 engage b1 a:2,2",
+		"r4 secure a:6,0", "r5 hold")
 }
 
 // Distance is path distance: a contact one cell away across a wall is
@@ -152,8 +266,8 @@ func TestAWallPutsANearContactOutOfReach(t *testing.T) {
 	m := open(3, 6, decide.Point{X: 1, Y: 0}, decide.Point{X: 1, Y: 1}, decide.Point{X: 1, Y: 2},
 		decide.Point{X: 1, Y: 3}, decide.Point{X: 1, Y: 4})
 	a := decide.Assessment{
-		Own:        []decide.Element{force("r1", 3, loc("a", 0, 0))},
-		Contacts:   []decide.Contact{contact("b1", 1, loc("a", 2, 0))},
+		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
+		Contacts:   []decide.Contact{contact("b1", 100, loc("a", 2, 0))},
 		Objectives: []decide.Objective{unknown(loc("a", 0, 3))},
 	}
 	check(t, decide.Decide(m, "red", a, nil), "r1 secure a:0,3")
@@ -218,8 +332,8 @@ func TestAStandingTargetYields(t *testing.T) {
 	target := loc("a", 4, 4)
 	standing := []decide.Decision{{Element: "r1", Rule: decide.Secure, Target: &target}}
 	a := decide.Assessment{
-		Own:        []decide.Element{force("r1", 3, loc("a", 0, 0))},
-		Contacts:   []decide.Contact{contact("b1", 1, loc("a", 0, 1))},
+		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
+		Contacts:   []decide.Contact{contact("b1", 100, loc("a", 0, 1))},
 		Objectives: []decide.Objective{unknown(target)},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, standing), "r1 engage b1 a:0,1")
@@ -238,8 +352,8 @@ func TestReachesAcrossAGate(t *testing.T) {
 		{ID: "b", Width: 4, Height: 1, Gates: []decide.Gate{{At: decide.Point{X: 0}, To: loc("a", 1, 0)}}},
 	}}
 	a := decide.Assessment{
-		Own:        []decide.Element{force("r1", 3, loc("a", 0, 0))},
-		Contacts:   []decide.Contact{contact("b1", 1, loc("b", 1, 0))},
+		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
+		Contacts:   []decide.Contact{contact("b1", 100, loc("b", 1, 0))},
 		Objectives: []decide.Objective{unknown(loc("b", 3, 0))},
 	}
 	// a:0,0 → a:1,0 → b:0,0 → b:1,0 is three steps: in reach.

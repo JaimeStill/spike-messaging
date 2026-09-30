@@ -148,7 +148,7 @@ func await(t *testing.T, what string, d time.Duration, ok func() bool) {
 // reaches command before the start that opens its direction is redelivered
 // and decided on once the start is; a round that changes no target issues
 // no directive, and one that brings a weak contact within reach sends the
-// force to engage it; the query shows both factions; the conclusion closes
+// squad to engage it; the query shows both factions; the conclusion closes
 // the exercise; and the service's log shows the traffic it received and
 // sent.
 func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
@@ -158,10 +158,12 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	id := uuid.NewV7().String()
 	at := func(x, y int) location { return location{Sector: "a", X: x, Y: y} }
 
+	r1 := map[string]any{"id": "r1", "faction": "red", "kind": "squad", "strength": 400,
+		"health": []int{100, 100, 100, 100}, "status": "ready", "at": at(0, 0)}
 	assess := func(round int, contacts []any) {
 		w.publish(t, "/intelligence", "intelligence.assessment.issued", id, map[string]any{
 			"exercise": id, "faction": "red", "round": round,
-			"own":        []any{map[string]any{"id": "r1", "faction": "red", "kind": "force", "strength": 3, "at": at(0, 0)}},
+			"own":        []any{r1},
 			"contacts":   contacts,
 			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "known": false, "seen": -1, "age": 0}},
 		})
@@ -176,7 +178,8 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	})
 	await(t, "round 0's directive", 10*time.Second, func() bool { return len(w.directives(t)) >= 1 })
 	assess(1, []any{})
-	assess(2, []any{map[string]any{"id": "b1", "faction": "blue", "kind": "scout", "strength": 1, "at": at(2, 1), "seen": 2, "age": 0}})
+	assess(2, []any{map[string]any{"id": "b1", "faction": "blue", "kind": "scout", "strength": 100,
+		"health": []int{100}, "status": "ready", "at": at(2, 1), "seen": 2, "age": 0}})
 	await(t, "round 2's directive", 10*time.Second, func() bool { return len(w.directives(t)) >= 2 })
 
 	got := w.directives(t)

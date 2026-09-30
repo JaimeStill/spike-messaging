@@ -20,7 +20,7 @@ Mounted under `/api/command`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on, and the decision standing for each live element, with its rule, its target, and for an engage its contact |
+| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on, and the decision standing for each live element, with its rule, its target, and for a retreat, an engage, or a reinforce its contact |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -40,21 +40,32 @@ Every command claims its event through the inbox, so a redelivery changes nothin
 a direction not open yet, as when an assessment is handled before its start, is redelivered after
 250ms rather than refused.
 
-`Decide` applies three rules to each live element, in order, by path distance over open cells and
-gates:
+`Decide` applies six rules to each live element, in order, by path distance over open cells and
+gates. An element is engaged when intelligence reports it so and an enemy was seen in its cell this
+round.
 
-1. **Engage.** A force heads for the nearest known contact weaker than itself within 3 steps, at
+1. **Retreat.** An engaged element steps out of its fight when it is a scout, or when its
+   faction's strength in the cell is below half the enemy's there. It steps to the adjacent open
+   cell free of the enemy that lies farthest from the nearest contact outside the fight, ties going
+   up, right, down, then left.
+2. **Engage in place.** An engaged element that doesn't retreat, or has nowhere to go, holds its
+   fight: its target is its own cell.
+3. **Reinforce.** A ready or recovering squad heads for the nearest fight of its faction within 3
+   steps. Any number of squads may reinforce one fight.
+4. **Engage.** A squad heads for the nearest known contact weaker than itself within 3 steps, at
    the cell it was last seen in.
-2. **Secure.** Otherwise the element heads for the nearest reachable objective that its faction
+5. **Secure.** Otherwise the element heads for the nearest reachable objective that its faction
    isn't known to hold and that no other element is heading for. An element keeps the objective
    it was securing while that objective is still one to secure.
-3. **Hold.** Otherwise it stands where it is.
+6. **Hold.** Otherwise it stands where it is.
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where a hold's
-target is null and only an engage has a contact. The service emits the event only when a decision
-changes an element's target. The event lists every live element, so it carries the faction's whole
-target state. The operations service reads the element and the target.
+target is null. A retreat, an engage, and a reinforce have a contact: the enemy the element leaves
+or heads for, the strongest in the cell when a fight holds several. The service emits the event
+only when a decision changes an element's target or rule. The event lists every live element, so
+it carries the faction's whole target state. The operations service reads the element and the
+target.
 
 The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer
 logs each delivery with its outcome.

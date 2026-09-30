@@ -72,8 +72,8 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 // Decide decides on a faction's assessment of a round by [decide.Decide],
 // over the decisions standing, and records the result. It raises
 // [DirectiveIssued] with every live element's decision when any element's
-// target changed; a changed rule alone, or a destroyed element, changes no
-// target. It skips an assessment of a round the direction already decided
+// target or rule changed, so a hold that becomes a retreat is issued; a
+// destroyed element changes neither. It skips an assessment of a round the direction already decided
 // on, and one of a closed direction past the round its exercise concluded
 // after. A final round's assessment arrives on a subscription apart from
 // the conclusion, and can be handled after the close; the final round is
@@ -88,7 +88,7 @@ func (s *Service) Decide(ctx context.Context, c Decide, claim Claim) error {
 			return err
 		}
 		next := decide.Decide(d.plan, d.Faction, c.Assessment, d.Decisions)
-		changed := retargets(d.Decisions, next)
+		changed := redirects(d.Decisions, next)
 		d.Round, d.Decisions = c.Round, next
 		if changed {
 			raiseDirective(q, d)
@@ -113,17 +113,21 @@ func (s *Service) Close(ctx context.Context, c Close, claim Claim) error {
 	})
 }
 
-// retargets reports whether next sends any element somewhere prev did not:
-// a different target, or a target where it held. An element with no
-// decision in prev held.
-func retargets(prev, next []decide.Decision) bool {
-	was := make(map[string]*decide.Location, len(prev))
+// redirects reports whether next directs any element otherwise than prev
+// did: by another rule, to a different target, or to a target where it
+// held. An element with no decision in prev held.
+func redirects(prev, next []decide.Decision) bool {
+	was := make(map[string]decide.Decision, len(prev))
 	for _, d := range prev {
-		was[d.Element] = d.Target
+		was[d.Element] = d
 	}
 	for _, d := range next {
-		before := was[d.Element]
-		if (before == nil) != (d.Target == nil) || before != nil && *before != *d.Target {
+		before, ok := was[d.Element]
+		if !ok {
+			before = decide.Decision{Rule: decide.Hold}
+		}
+		if before.Rule != d.Rule || (before.Target == nil) != (d.Target == nil) ||
+			before.Target != nil && *before.Target != *d.Target {
 			return true
 		}
 	}
