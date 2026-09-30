@@ -143,6 +143,7 @@ func checkRound(r int) error {
 	return nil
 }
 
+// checkCounter checks n, a producer's counter, which counts from 1.
 func checkCounter(name string, n int) error {
 	if n < 1 {
 		return fmt.Errorf("%s %d is not positive", name, n)

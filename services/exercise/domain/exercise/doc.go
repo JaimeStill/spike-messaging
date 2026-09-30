@@ -53,10 +53,10 @@
 // [Service.RecordOrders] is the command a consuming reactor invokes for the
 // orders a faction issued. It takes an optional [Claim], which the reactor
 // binds over its inbox, and runs the claim first in the command's
-// transaction, so a redelivery changes nothing. The command reads the exercise under a shared
-// lock, so it waits for a resolution in flight. It refuses input that no
-// redelivery could fix, such as an order for a round already resolved, with
-// an error that [event.IsPermanent] reports. A faction's orders for a round
-// replace any it recorded before. Resolution ignores an order for an
-// element of the other faction.
+// transaction, so a redelivery changes nothing. The command reads the
+// exercise under a shared lock, so it waits for a resolution in flight. It
+// refuses input that no redelivery could fix, such as an order for a round
+// already resolved, with an error that [event.IsPermanent] reports. A
+// faction's orders for a round replace any it recorded before. Resolution
+// ignores an order for an element of the other faction.
 package exercise

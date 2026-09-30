@@ -17,9 +17,9 @@ var testState = rules.State{
 	Factions: [2]string{"red", "blue"},
 	Elements: []rules.Element{
 		{ID: "r1", Faction: "red", Kind: rules.Scout, Strength: 100, Health: []int{100}, Status: rules.StatusReady,
-			At: rules.Location{Sector: "a", Point: rules.Point{X: 1, Y: 0}}},
+			At: rules.Location{Sector: "a", X: 1, Y: 0}},
 		{ID: "b1", Faction: "blue", Kind: rules.Squad, Strength: 150, Health: []int{100, 50}, Status: rules.StatusReady,
-			At: rules.Location{Sector: "a", Point: rules.Point{X: 5, Y: 5}}},
+			At: rules.Location{Sector: "a", X: 5, Y: 5}},
 	},
 	Holders:  map[string]string{},
 	Progress: map[string]rules.Progress{},
@@ -123,7 +123,7 @@ func TestRaiseResolved(t *testing.T) {
 	at := rules.Location{Sector: "a", X: 3, Y: 0}
 	res := rules.Resolution{
 		Retreats: []rules.Retreat{{
-			ID: "b2", Faction: "blue", From: at, To: rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 1}},
+			ID: "b2", Faction: "blue", From: at, To: rules.Location{Sector: "a", X: 3, Y: 1},
 			Before: 100, After: 60, Fallen: 0,
 			Pursuers: []rules.Engaged{{ID: "r1", Faction: "red", Before: 400, After: 400}},
 		}},

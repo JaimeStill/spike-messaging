@@ -103,12 +103,12 @@ type Loss struct {
 // Resolve resolves round of s under orders. It moves the elements, exchanges
 // fire between each retreat and its pursuers, fights, and captures, then
 // observes the next state for each faction and judges it against limit, the
-// exercise's round limit. Every random draw comes from seed and round alone, so a round
-// resolves the same way each time it is resolved under the same orders. It
-// returns the next state, the observations indexed like s.Factions, the
-// verdict, and the round's [Resolution]. Resolve does not change s or
-// orders; the next state shares no slice or map with s, and its elements are
-// sorted by ID.
+// exercise's round limit. Every random draw comes from seed and round alone,
+// so a round resolves the same way each time it is resolved under the same
+// orders. It returns the next state, the observations indexed like
+// s.Factions, the verdict, and the round's [Resolution]. Resolve does not
+// change s or orders; the next state shares no slice or map with s, and its
+// elements are sorted by ID.
 func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
 	rng := rand.New(rand.NewPCG(uint64(seed), uint64(round)))
 	next = s.clone()

@@ -86,15 +86,20 @@ func TestEmitStampsAndWritesInRaiseOrder(t *testing.T) {
 	}
 }
 
+// A body that fails writes nothing, and Emit returns its error with the
+// zero result, whatever the body returned beside it.
 func TestEmitWritesNothingWhenTheBodyFails(t *testing.T) {
 	s := &sink{}
 	boom := errors.New("refused")
-	_, err := fixed(s).Emit(t.Context(), func(_ *tx, q *event.Queue) (int, error) {
+	out, err := fixed(s).Emit(t.Context(), func(_ *tx, q *event.Queue) (int, error) {
 		kindStarted.Raise(q, "ex-1", started{})
-		return 0, boom
+		return 7, boom
 	})(&tx{})
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the body's", err)
+	}
+	if out != 0 {
+		t.Errorf("result = %d, want the zero result", out)
 	}
 	if len(s.events) != 0 {
 		t.Errorf("wrote %d events after a failed body", len(s.events))
