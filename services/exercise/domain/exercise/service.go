@@ -290,7 +290,7 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		next, obs, v := rules.Resolve(ex.State, round, ex.RoundLimit, ownOrders(ex.State, recorded))
+		next, obs, v, _ := rules.Resolve(ex.State, round, ex.RoundLimit, ownOrders(ex.State, recorded))
 		if v.Over {
 			ok, err = s.store.markConcluded(ctx, tx, id, StatusRunning, round, next, v)
 		} else {

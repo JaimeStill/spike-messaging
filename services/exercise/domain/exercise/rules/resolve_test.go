@@ -208,7 +208,7 @@ func TestMove(t *testing.T) {
 			if err := s.Validate(); err != nil {
 				t.Fatalf("start: %v", err)
 			}
-			next, _, _ := rules.Resolve(s, 1, 10, tt.orders)
+			next, _, _, _ := rules.Resolve(s, 1, 10, tt.orders)
 			if len(next.Elements) != len(tt.want) {
 				t.Fatalf("elements = %v, want %d", ids(next.Elements), len(tt.want))
 			}
@@ -229,6 +229,8 @@ func TestMove(t *testing.T) {
 	}
 }
 
+// Engagement is attrition: each faction loses half the other's total in
+// the cell, rounded up, both at once, weakest element first.
 func TestEngage(t *testing.T) {
 	c := loc("a", 1, 1)
 	tests := []struct {
@@ -237,9 +239,9 @@ func TestEngage(t *testing.T) {
 		want  map[string]int // survivor ID -> strength
 	}{
 		{
-			name:  "the stronger survives reduced by the weaker",
+			name:  "each side loses half the other's strength, rounded up",
 			start: []rules.Element{force("r1", "red", 5, c), force("b1", "blue", 3, c)},
-			want:  map[string]int{"r1": 2},
+			want:  map[string]int{"r1": 3},
 		},
 		{
 			name: "the loss falls on the weakest element first",
@@ -250,12 +252,12 @@ func TestEngage(t *testing.T) {
 			want: map[string]int{"r1": 4, "r2": 1},
 		},
 		{
-			name: "the loss spreads to the next weakest once one falls",
+			name: "the loss spreads to the next weakest once one falls, and both sides survive",
 			start: []rules.Element{
-				force("r1", "red", 4, c), force("r2", "red", 2, c),
-				force("b1", "blue", 3, c),
+				force("r1", "red", 4, c), scout("r2", "red", c),
+				force("b1", "blue", 5, c),
 			},
-			want: map[string]int{"r1": 3},
+			want: map[string]int{"r1": 2, "b1": 2},
 		},
 		{
 			name: "equal strengths lose in ID order",
@@ -271,11 +273,11 @@ func TestEngage(t *testing.T) {
 				force("b1", "blue", 5, c), scout("b2", "blue", c), force("b3", "blue", 2, c),
 				force("r1", "red", 3, c), scout("r2", "red", c),
 			},
-			want: map[string]int{"b1": 4},
+			want: map[string]int{"b1": 5, "b3": 1},
 		},
 		{
-			name:  "a tie destroys every element in the cell",
-			start: []rules.Element{force("r1", "red", 2, c), scout("r2", "red", c), force("b1", "blue", 3, c)},
+			name:  "equal sides can destroy each other",
+			start: []rules.Element{scout("r1", "red", c), scout("b1", "blue", c)},
 			want:  map[string]int{},
 		},
 		{
@@ -289,7 +291,7 @@ func TestEngage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			next, _, _ := rules.Resolve(state(tt.start...), 1, 10, nil)
+			next, _, _, _ := rules.Resolve(state(tt.start...), 1, 10, nil)
 			got := map[string]int{}
 			for _, e := range next.Elements {
 				got[e.ID] = e.Strength
@@ -301,6 +303,61 @@ func TestEngage(t *testing.T) {
 				t.Errorf("elements %v are not sorted by ID", ids(next.Elements))
 			}
 		})
+	}
+}
+
+// A fight lasts while both sides stay in the cell: a force of 4 against one
+// of 3 takes two rounds, and the resolution records each round's strengths
+// before and after, and the loss in the round it happens.
+func TestAFightLastsRounds(t *testing.T) {
+	c := loc("a", 1, 1)
+	s := state(force("r1", "red", 4, c), force("b1", "blue", 3, c))
+	want := []rules.Resolution{
+		{
+			Engagements: []rules.Engagement{{At: c, Elements: []rules.Engaged{
+				{ID: "b1", Faction: "blue", Before: 3, After: 1},
+				{ID: "r1", Faction: "red", Before: 4, After: 2},
+			}}},
+			Captures: []rules.Capture{},
+			Losses:   []rules.Loss{},
+		},
+		{
+			Engagements: []rules.Engagement{{At: c, Elements: []rules.Engaged{
+				{ID: "b1", Faction: "blue", Before: 1, After: 0},
+				{ID: "r1", Faction: "red", Before: 2, After: 1},
+			}}},
+			Captures: []rules.Capture{},
+			Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
+		},
+		{Engagements: []rules.Engagement{}, Captures: []rules.Capture{}, Losses: []rules.Loss{}},
+	}
+	for round, w := range want {
+		var res rules.Resolution
+		s, _, _, res = rules.Resolve(s, round+1, 10, nil)
+		if !reflect.DeepEqual(res, w) {
+			t.Errorf("round %d: resolution = %+v, want %+v", round+1, res, w)
+		}
+	}
+}
+
+// The resolution records an objective that changes hands, with the faction
+// it was taken from, and none for one that stays with its holder.
+func TestResolutionRecordsCaptures(t *testing.T) {
+	obj := loc("a", 3, 0)
+	s := state(force("r1", "red", 2, loc("a", 2, 0)))
+	s, _, _, res := rules.Resolve(s, 1, 10, []rules.Order{order("r1", obj)})
+	if want := []rules.Capture{{At: obj, Faction: "red"}}; !reflect.DeepEqual(res.Captures, want) {
+		t.Errorf("captures = %+v, want %+v", res.Captures, want)
+	}
+	s.Elements = append(s.Elements, force("b1", "blue", 5, loc("a", 4, 0)))
+	_, _, _, res = rules.Resolve(s, 2, 10, []rules.Order{order("b1", obj)})
+	want := []rules.Capture{{At: obj, Faction: "blue", From: "red"}}
+	if !reflect.DeepEqual(res.Captures, want) || !reflect.DeepEqual(res.Losses, []rules.Loss{{ID: "r1", Faction: "red"}}) {
+		t.Errorf("resolution = %+v, want blue to take the objective from red, and r1 lost", res)
+	}
+	_, _, _, res = rules.Resolve(s, 2, 10, nil)
+	if len(res.Captures) != 0 {
+		t.Errorf("captures = %+v on a round nothing changed hands", res.Captures)
 	}
 }
 
@@ -362,7 +419,7 @@ func TestCapture(t *testing.T) {
 			if tt.holders != nil {
 				s.Holders = tt.holders
 			}
-			next, _, _ := rules.Resolve(s, 1, 10, tt.orders)
+			next, _, _, _ := rules.Resolve(s, 1, 10, tt.orders)
 			if got := next.Holders[obj.Key()]; got != tt.want {
 				t.Errorf("holder = %q, want %q", got, tt.want)
 			}
@@ -385,7 +442,7 @@ func TestResolveDoesNotMutateItsInput(t *testing.T) {
 	before := deepCopy(s)
 	ordersBefore := slices.Clone(orders)
 
-	next, _, _ := rules.Resolve(s, 1, 10, orders)
+	next, _, _, _ := rules.Resolve(s, 1, 10, orders)
 	if !reflect.DeepEqual(s, before) {
 		t.Errorf("input state changed:\n got %+v\nwant %+v", s, before)
 	}
@@ -431,7 +488,7 @@ func TestIdleExerciseRunsToTheLimitAsADraw(t *testing.T) {
 		t.Fatalf("round 0: %+v, want not over", v)
 	}
 	for round := 1; round <= limit; round++ {
-		next, obs, v := rules.Resolve(s, round, limit, nil)
+		next, obs, v, _ := rules.Resolve(s, round, limit, nil)
 		if !reflect.DeepEqual(next.Elements, s.Elements) {
 			t.Fatalf("round %d: elements changed to %+v", round, next.Elements)
 		}
