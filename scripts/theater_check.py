@@ -12,8 +12,9 @@ history API holds:
                 other contact is;
   - remembers:  every older contact's cell is out of sight, and it is no
                 older than contact_rounds;
-  - objectives: every objective in sight shows its true holder, no
-                objective seen before is unknown, and none out of sight is
+  - objectives: every objective in sight is reported with its true
+                holder, none is reported before its faction has had it in
+                sight, none seen before is unknown, and none out of sight is
                 reported as seen this round;
   - coverage:   every round has one assessment per faction.
 
@@ -119,12 +120,20 @@ def main():
             if c["age"] > K:
                 errors.append(f"{tag}: {i} is remembered {c['age']} rounds, past {K}")
         holders = state.get("holders") or {}
+        reported = {place(o["at"]) for o in a["objectives"]}
+        for sec in state["map"]["sectors"]:
+            for p in sec["objectives"]:
+                o = {"sector": sec["id"], "x": p["x"], "y": p["y"]}
+                if sees(own, o) and place(o) not in reported:
+                    errors.append(f"{tag}: objective {place(o)} is in sight, but not reported")
         for o in a["objectives"]:
             at = place(o["at"])
             if sees(own, o["at"]):
                 seen_before.setdefault(f, set()).add(at)
                 if not o["known"] or o["age"] != 0 or o["holder"] != holders.get(at, ""):
                     errors.append(f"{tag}: objective {at} is in sight, held by {holders.get(at) or 'none'}, but not reported so")
+            elif at not in seen_before.get(f, set()):
+                errors.append(f"{tag}: objective {at} is reported, but {f} has never had it in sight")
             elif o["known"] and o["age"] == 0:
                 errors.append(f"{tag}: objective {at} is reported seen this round, but is out of sight")
             elif not o["known"] and at in seen_before.get(f, set()):
@@ -143,13 +152,16 @@ def main():
     truth = history[max(history)].get("holders") or {}
     print("\nwhat each faction believes at the end, against the truth:")
     width = max(len(f) for f in last)
+    final = history[max(history)]
+    every = [f'{s["id"]}:{p["x"]},{p["y"]}' for s in final["map"]["sectors"] for p in s["objectives"]]
     for f, a in sorted(last.items()):
-        for o in a["objectives"]:
-            at = place(o["at"])
-            believed = (o["holder"] or "unheld") if o["known"] else "unknown"
+        known = {place(o["at"]): o for o in a["objectives"]}
+        for at in every:
+            o = known.get(at)
+            believed = "undiscovered" if not o else (o["holder"] or "unheld") if o["known"] else "unknown"
             actual = truth.get(at) or "unheld"
             if believed != actual:
-                since = f", seen {o['age']} rounds ago" if o["known"] else ""
+                since = f", seen {o['age']} rounds ago" if o and o["known"] else ""
                 print(f"  {f:<{width}}  {at:<14} believes {believed}{since}; truly {actual}")
     held = {}
     for at, h in sorted(truth.items()):
