@@ -25,8 +25,8 @@ map, elements, or seed, so the service lays out the skirmish from a seed it draw
 exercise services running, `mise run demo-theater` creates and starts it, and narrates it through
 courier's `theater` scenario; `SEED=7 mise run demo-theater` replays seed 7. `mise run
 demo-theater-check` then reconciles every assessment of the run against this service's history,
-the umpire's record, under the suppression rules, and reports what each faction wrongly believes
-at the end.
+the umpire's record, under the suppression rules, through courier's `theater-check` scenario, and
+reports what each faction believes of each objective at the end against the truth.
 
 ## API
 

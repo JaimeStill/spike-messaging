@@ -26,9 +26,11 @@ import (
 const TheaterDurable = "courier-theater-"
 
 // The events the theater narrates beyond the assessments scenario's: the
-// umpire's record of each round, and operations' orders.
+// umpire's record of each round, its alert to a faction that lost an
+// objective, and operations' orders.
 const (
 	resolvedType = "exercise.round.resolved"
+	lostType     = "exercise.objective.lost"
 	ordersType   = "operations.orders.issued"
 )
 
@@ -120,6 +122,13 @@ type (
 			Holder string   `json:"holder"`
 		} `json:"objectives"`
 	}
+	lostData struct {
+		Exercise string   `json:"exercise"`
+		Faction  string   `json:"faction"`
+		Round    int      `json:"round"`
+		At       location `json:"at"`
+		Holder   string   `json:"holder"`
+	}
 	ordersData struct {
 		Exercise string `json:"exercise"`
 		Faction  string `json:"faction"`
@@ -192,7 +201,7 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 						src, err := b.Subscribe(messaging.Subscription{
 							Name: TheaterDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
 							Types: []string{
-								startedType, resolvedType, observedType, assessmentType,
+								startedType, resolvedType, lostType, observedType, assessmentType,
 								directiveType, ordersType, concludedType,
 							},
 						})
@@ -276,6 +285,7 @@ type narrator struct {
 	holders  map[string]string                 // each objective's holder, by place
 	learned  bool                              // whether a resolution has reported the objectives
 	regroups map[string]map[string]bool        // each faction's recovering squads already narrated
+	losses   map[string]map[string]lostData    // each faction's objectives lost, by place
 	pictures map[string]assessmentData         // each faction's last assessment
 	standing standing                          // each faction's last directive, by element
 	moving   map[string]string                 // each faction's moving squads, as narrated
@@ -292,7 +302,7 @@ func newNarrator(exercise string) *narrator {
 		note:     func(string, ...any) {},
 		started:  newSignal(), concluded: newSignal(), settled: newSignal(),
 		initial: map[string][]squad{}, latest: map[string][]squad{},
-		holders: map[string]string{}, regroups: map[string]map[string]bool{}, pictures: map[string]assessmentData{},
+		holders: map[string]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[string]lostData{}, pictures: map[string]assessmentData{},
 		standing: standing{}, moving: map[string]string{}, orders: map[string]map[int]string{},
 		counts: map[string]int{}, times: map[string]map[string][]time.Time{},
 	}
@@ -321,6 +331,15 @@ func (n *narrator) handle(e event.Event) error {
 		var d resolvedData
 		if err = json.Unmarshal(e.Data, &d); err == nil {
 			n.resolved(d)
+		}
+	case lostType:
+		var d lostData
+		if err = json.Unmarshal(e.Data, &d); err == nil {
+			if n.losses[d.Faction] == nil {
+				n.losses[d.Faction] = map[string]lostData{}
+			}
+			n.losses[d.Faction][place(d.At)] = d
+			n.line(d.Round, "exercise", d.Faction, fmt.Sprintf("loses %s to %s", n.name(d.At), d.Holder))
 		}
 	case observedType:
 		var d theaterObserved
@@ -564,7 +583,9 @@ func (n *narrator) regrouped(d theaterObserved) {
 
 // assessed narrates what a faction's assessment changed in what it knows:
 // contacts it spots, contacts it loses track of, and objectives it sees
-// held differently.
+// held differently, or learns of from a loss alert. intelligence revises a
+// round's assessment when an alert follows it, so a round may be assessed
+// twice; the second tells only what the alert changed.
 func (n *narrator) assessed(d assessmentData) {
 	prev, had := n.pictures[d.Faction]
 	n.pictures[d.Faction] = d
@@ -591,6 +612,10 @@ func (n *narrator) assessed(d assessmentData) {
 	for _, o := range d.Objectives {
 		p := believed[place(o.At)]
 		if !o.Known || had && p.Known && p.Holder == o.Holder {
+			continue
+		}
+		if l, ok := n.losses[d.Faction][place(o.At)]; ok && l.Round == o.Seen && l.Holder == o.Holder {
+			changes = append(changes, "learns "+n.name(o.At)+" fell to "+o.Holder)
 			continue
 		}
 		switch o.Holder {
@@ -697,7 +722,7 @@ func (n *narrator) final() []string {
 	}
 	total := 0
 	var kinds []string
-	for _, t := range []string{startedType, resolvedType, observedType, assessmentType, directiveType, ordersType, concludedType} {
+	for _, t := range []string{startedType, resolvedType, lostType, observedType, assessmentType, directiveType, ordersType, concludedType} {
 		total += n.counts[t]
 		kinds = append(kinds, fmt.Sprintf("%d %s", n.counts[t], t))
 	}
@@ -714,7 +739,9 @@ func (n *narrator) final() []string {
 // time from it to the first later event of type to for the same faction on
 // the round shift rounds on. A round with no event of type to counts for
 // nothing, so assessed→directed measures only rounds that led to a
-// directive.
+// directive. A round's revised assessment follows its first, so
+// observed→assessed measures the first, and the revision counts toward
+// assessed→directed only when a directive follows it.
 func (n *narrator) hops(from, to string, shift int) []time.Duration {
 	var out []time.Duration
 	for k, starts := range n.times[from] {
@@ -858,6 +885,8 @@ func doing(x directive, cell func(string) (location, bool), name func(location) 
 		return verb("captures ", "capturing ") + name(*x.Target)
 	case x.Rule == "search":
 		return verb("searches toward ", "searching toward ") + name(*x.Target)
+	case x.Rule == "rescout":
+		return verb("re-scouts ", "re-scouting ") + name(*x.Target)
 	}
 	return verb("heads for ", "heading for ") + name(*x.Target)
 }

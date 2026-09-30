@@ -36,4 +36,11 @@
 // changes something, tagged with its round, its service, and its faction,
 // and the final conditions, with the events on the stream by type and the median
 // latency of each hop in the chain.
+//
+// The theater-check scenario reconciles a run afterward. It joins the same
+// stream under a new durable, which reads it from its beginning, collects
+// the exercise's assessments, and checks each against exercise's history,
+// the umpire's record, which it reads over exercise's HTTP API: what the
+// faction truly had and saw that round, under intelligence's suppression
+// rules. It fails on any inconsistency.
 package scenario

@@ -65,7 +65,8 @@ func sq(id, kind string, at map[string]any, health ...int) map[string]any {
 // something (a sighting, a changed directive, a new set of moving squads in
 // the orders in effect for a round, a fight, a loss, a capture, an
 // objective seen held, a retreat under fire or unpursued, a squad
-// regrouping, a fight with operators down, an objective being taken) and
+// regrouping, a fight with operators down, an objective being taken, an
+// objective lost, a revised assessment that learns of the loss) and
 // nothing for an event that changes nothing (an engagement pursuing its
 // contact, or orders that exercise refuses as late). Its final conditions
 // give the verdict, the holders, the survivors and losses, the events by
@@ -157,19 +158,22 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r1", "rule": "pursue", "target": cell("a", 3, 0)},
 		map[string]any{"element": "r2", "rule": "search", "target": cell("b", 0, 0)}}})
 	s.at(3000, resolvedType, map[string]any{"round": 3, "engagements": []any{}, "losses": []any{}, "captures": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": ""}},
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": "blue"}},
 		"retreats": []any{map[string]any{"id": "b1", "faction": "blue", "from": cell("a", 3, 0), "to": cell("a", 4, 4),
 			"before": 190, "after": 100, "fallen": 1, "pursuers": []any{
 				map[string]any{"id": "r1", "faction": "red", "before": 400, "after": 340, "fallen": 0},
 				map[string]any{"id": "r3", "faction": "red", "before": 200, "after": 150, "fallen": 1}}}},
 		"progress": []any{map[string]any{"at": cell("a", 4, 4), "faction": "red", "rounds": 1}}})
 	s.at(4000, resolvedType, map[string]any{"round": 4, "retreats": []any{}, "progress": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": ""}},
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": "red"}},
 		"engagements": []any{map[string]any{"at": cell("a", 4, 4), "elements": []any{
 			map[string]any{"id": "b1", "faction": "blue", "before": 100, "after": 0, "fallen": 1},
 			map[string]any{"id": "r2", "faction": "red", "before": 100, "after": 60, "fallen": 0}}}},
-		"losses":   []any{map[string]any{"id": "b1", "faction": "blue"}},
-		"captures": []any{map[string]any{"at": cell("a", 4, 4), "faction": "red", "from": ""}}})
+		"losses": []any{map[string]any{"id": "b1", "faction": "blue"}},
+		"captures": []any{map[string]any{"at": cell("a", 4, 4), "faction": "red", "from": ""},
+			map[string]any{"at": cell("b", 1, 1), "faction": "red", "from": "blue"}}})
+	// exercise alerts blue that it lost b:1,1, which none of its squads sees.
+	s.at(4000, lostType, map[string]any{"faction": "blue", "round": 4, "at": cell("b", 1, 1), "holder": "red"})
 	s.at(4001, observedType, map[string]any{"faction": "red", "round": 4, "own": []any{
 		sq("r1", "squad", cell("a", 3, 0), 100, 100, 100, 10), sq("r2", "scout", cell("a", 4, 4), 100)}})
 	s.at(4002, observedType, map[string]any{"faction": "blue", "round": 4, "own": []any{}})
@@ -183,6 +187,14 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	if !s.n.settled.isFired() {
 		t.Fatal("not settled once each faction's final assessment was in")
 	}
+	// intelligence revises blue's round-4 assessment for the alert: the
+	// narration tells what the revision changed, and observed→assessed
+	// still measures the round's first assessment.
+	s.at(4014, assessmentType, map[string]any{"faction": "blue", "round": 4,
+		"objectives": []any{map[string]any{"at": cell("b", 1, 1), "holder": "red", "known": true, "seen": 4}}})
+	s.at(4022, directiveType, map[string]any{"faction": "red", "round": 4, "directives": []any{
+		map[string]any{"element": "r1", "rule": "pursue", "target": cell("a", 3, 0)},
+		map[string]any{"element": "r2", "rule": "rescout", "target": cell("b", 1, 1)}}})
 
 	want := []string{
 		"skirmish: 5 rounds at 1s",
@@ -212,7 +224,11 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"r4   exercise           fight at objective:4,4: b1 100→0 (1 down) · r2 100→60",
 		"r4   exercise     blue  b1 destroyed",
 		"r4   exercise     red   captures objective:4,4",
+		"r4   exercise     red   captures objective:1,1 from blue",
+		"r4   exercise     blue  loses objective:1,1 to red",
 		"r4   intelligence red   loses track of b1 · sees objective:4,4 held",
+		"r4   intelligence blue  learns objective:1,1 fell to red",
+		"r4   command      red   r2 re-scouts objective:1,1 (was searching toward b:0,0)",
 	}
 	if got := strings.Join(s.lines, "\n"); got != strings.Join(want, "\n") {
 		t.Errorf("narration:\n%s\n\nwant:\n%s", got, strings.Join(want, "\n"))
@@ -221,15 +237,17 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	final := strings.Join(s.n.final(), "\n")
 	for _, w := range []string{
 		"verdict     red wins by elimination after round 4",
-		"objectives  objective:4,4 red · objective:1,1 unheld",
+		"objectives  objective:4,4 red · objective:1,1 red",
 		"red         r1 310 · r2 100 · strength 410",
 		"blue        none · strength 0 · lost b1",
-		"events      32 on the stream: 1 exercise.started · 4 exercise.round.resolved · 9 exercise.round.observed · " +
-			"5 intelligence.assessment.issued · 6 command.directive.issued · 6 operations.orders.issued · 1 exercise.concluded",
+		"events      35 on the stream: 1 exercise.started · 4 exercise.round.resolved · 1 exercise.objective.lost · " +
+			"9 exercise.round.observed · 6 intelligence.assessment.issued · 7 command.directive.issued · " +
+			"6 operations.orders.issued · 1 exercise.concluded",
 		// observed→assessed: red 0 (8ms), red 1 (10ms), red 4 (11ms), blue 4
-		// (11ms); assessed→directed: 10ms and 15ms; directed→ordered, to the
-		// next round's first orders after it, medians at 20ms.
-		"chain p50   observed→assessed 11ms · assessed→directed 15ms (rounds with a directive) · directed→ordered 20ms",
+		// (11ms, its first assessment, not the revision); assessed→directed:
+		// 10ms, 15ms, and red 4's 10ms; directed→ordered, to the next round's
+		// first orders after it, medians at 20ms.
+		"chain p50   observed→assessed 11ms · assessed→directed 10ms (rounds with a directive) · directed→ordered 20ms",
 	} {
 		if !strings.Contains(final, w) {
 			t.Errorf("final conditions lack %q:\n%s", w, final)
