@@ -46,7 +46,7 @@ func (n *narrator) tell() {
 		conditions = append(conditions, row(col("key", f)).with(squadRows(n.faction(f).initial, true)...))
 	}
 	n.note("%s: %d rounds at %s", s.Name, s.RoundLimit, time.Duration(s.RoundIntervalMS)*time.Millisecond)
-	for _, l := range list(conditions, "  ", same) {
+	for _, l := range list(conditions, "  ") {
 		n.note("%s", l)
 	}
 	n.note("")
@@ -79,14 +79,7 @@ func (n *narrator) conditions() []string {
 				total += s.Strength
 			}
 			head := fmt.Sprintf("%s  strength %d", name, total)
-			alive := ids(f.latest, func(s element) string { return s.ID })
-			var lost []string
-			for _, s := range f.initial {
-				if !alive[s.ID] {
-					lost = append(lost, s.ID)
-				}
-			}
-			if len(lost) > 0 {
+			if lost := gone(f.initial, ids(f.latest, elementID), elementID); len(lost) > 0 {
 				head += ", lost " + strings.Join(lost, " ")
 			}
 			out = append(out, text(head).with(squadRows(f.latest, false)...))
@@ -105,7 +98,7 @@ func (n *narrator) conditions() []string {
 		row(col("hop", "directed -> ordered"), apart("p50", p50(n.ledger.hops(directiveType, ordersType, 1)))),
 	))
 	out = append(out, text("check  mise run demo-theater-check "+n.exercise))
-	return list(out, "", same)
+	return list(out, "")
 }
 
 // outcome renders how the exercise ended.
@@ -126,6 +119,23 @@ func outcome(c concluded) string {
 		return c.Winner + " wins by elimination" + after
 	}
 	return c.Winner + " wins by " + c.Reason + after
+}
+
+// heldBy renders an objective's holder as a state: held by the holder, or
+// unheld.
+func heldBy(holder string) string {
+	if holder == "" {
+		return "unheld"
+	}
+	return "held by " + holder
+}
+
+// orUnheld renders an objective's holder, or unheld.
+func orUnheld(holder string) string {
+	if holder == "" {
+		return "unheld"
+	}
+	return holder
 }
 
 // squadRows renders a faction's squads by ID, with their kind and the

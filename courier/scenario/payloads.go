@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
@@ -229,4 +230,47 @@ func decode[T any](e event.Event) (T, error) {
 		return v, event.Permanent(err)
 	}
 	return v, nil
+}
+
+// place names a cell as sector:x,y, as the narrations name a cell they do
+// not know as an objective's.
+func place(l location) string { return fmt.Sprintf("%s:%d,%d", l.Sector, l.X, l.Y) }
+
+// objectiveName names an objective's cell as objective:x,y, as the theater
+// and the theater check do.
+func objectiveName(l location) string { return fmt.Sprintf("objective:%d,%d", l.X, l.Y) }
+
+// abs returns the magnitude of n, a distance along one axis between two
+// cells.
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// elementID returns an element's ID.
+func elementID(e element) string { return e.ID }
+
+// contactID returns a contact's ID.
+func contactID(c contact) string { return c.ID }
+
+// ids returns the set of IDs of xs.
+func ids[T any](xs []T, id func(T) string) map[string]bool {
+	out := make(map[string]bool, len(xs))
+	for _, x := range xs {
+		out[id(x)] = true
+	}
+	return out
+}
+
+// gone returns the ID of each of before, in its order, that now lacks.
+func gone[T any](before []T, now map[string]bool, id func(T) string) []string {
+	var out []string
+	for _, x := range before {
+		if !now[id(x)] {
+			out = append(out, id(x))
+		}
+	}
+	return out
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 	"uuid"
@@ -15,16 +14,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
-	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
-	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
 )
-
-// Joins builds a broker on an existing stream, the one the exercise
-// services share, with the release that frees the broker and anything the
-// run left on the stream. Unlike a scratch broker's, the release leaves the
-// stream and its events in place. The release may be nil.
-type Joins func(stream, prefix string, maxAge time.Duration) (b messaging.Broker, release func() error, err error)
 
 // DirectivesDurable prefixes the durable consumer each directives run
 // subscribes under, so the stream's consumers show which are courier's.
@@ -42,60 +33,34 @@ const commandSource = "/courier-command"
 // The operations service turns the directive into orders, and the exercise
 // service resolves them.
 func directivesScenario(joins Joins, needs func() []Need) Scenario {
-	var exercise, faction, stream, prefix string
-	maxAge := 24 * time.Hour
-	wait := 2 * time.Minute
+	j := newJoinFlags(2 * time.Minute)
+	var faction string
 	return Scenario{
 		Name:    "directives",
 		Summary: "Stand in for command: direct a faction's elements to the objectives it knows and watch the exercise conclude",
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
-			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to direct (required)")
+			j.bind(fs, "the ID of the started exercise to direct (required)", "how long to wait for the exercise to conclude")
 			fs.StringVar(&faction, "faction", "", "the faction to direct (required)")
-			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
-			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
-			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
-			fs.DurationVar(&wait, "wait", wait, "how long to wait for the exercise to conclude")
 		},
 		Validate: func() error {
-			var errs []error
-			if _, err := uuid.Parse(exercise); err != nil {
-				errs = append(errs, errors.New("--exercise must be an exercise's ID"))
-			}
+			var factionErr error
 			if faction == "" {
-				errs = append(errs, errors.New("--faction is required"))
+				factionErr = errors.New("--faction is required")
 			}
-			if wait <= 0 {
-				errs = append(errs, errors.New("--wait must be positive"))
-			}
-			return errors.Join(errs...)
+			return j.validate(factionErr)
 		},
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
 			var l lease
 			var b messaging.Broker
-			w := &watch{exercise: exercise, faction: faction, observed: newSignal(), concluded: newSignal()}
+			w := &watch{exercise: j.exercise, faction: faction, observed: newSignal(), concluded: newSignal()}
 			return []Step{
 				{
-					Intent: fmt.Sprintf("Join the %s stream, and wait for %s's first observation of exercise %s", stream, faction, exercise),
+					Intent: fmt.Sprintf("Join the %s stream, and wait for %s's first observation of exercise %s", j.stream, faction, j.exercise),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						if joins == nil {
-							return errors.New("no stream to join is configured")
-						}
 						var err error
-						if b, l.release, err = joins(stream, prefix, maxAge); err != nil {
-							return err
-						}
-						sub := messaging.Subscription{
-							Name:  DirectivesDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
-							Types: []string{observedType, concludedType},
-						}
-						src, err := b.Subscribe(sub)
-						if err != nil {
-							return err
-						}
-						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, w.handle, reactor.Grace(defaultGrace)))
-						if err := c.start(ctx, rep); err != nil {
+						if b, err = l.join(ctx, rep, c, joins, j, DirectivesDurable, w.handle, observedType, concludedType); err != nil {
 							return err
 						}
 						if err := c.await(ctx, w.observed.ch, faction+"'s first observation"); err != nil {
@@ -115,7 +80,7 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 								rep.Note("%s holds", dir.Element)
 								continue
 							}
-							rep.Note("%s heads for %s:%d,%d", dir.Element, dir.Target.Sector, dir.Target.X, dir.Target.Y)
+							rep.Note("%s heads for %s", dir.Element, place(*dir.Target))
 						}
 						data, err := json.Marshal(d)
 						if err != nil {
@@ -123,33 +88,25 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 						}
 						return publish(ctx, b, rep, event.Event{
 							ID: uuid.NewV7().String(), Source: commandSource, Type: directiveType,
-							Subject: exercise, Time: time.Now(), DataContentType: "application/json", Data: data,
+							Subject: j.exercise, Time: time.Now(), DataContentType: "application/json", Data: data,
 						})
 					},
 				},
 				{
 					Intent: "Wait for the exercise to conclude",
 					Action: func(ctx context.Context, rep *Reporter) error {
-						wctx, cancel := context.WithTimeout(ctx, wait)
+						wctx, cancel := context.WithTimeout(ctx, j.wait)
 						defer cancel()
 						select {
 						case <-w.concluded.ch:
 						case <-wctx.Done():
-							return fmt.Errorf("exercise %s did not conclude within %s", exercise, wait)
+							return fmt.Errorf("exercise %s did not conclude within %s", j.exercise, j.wait)
 						}
-						v := w.verdict()
-						if v.Winner == "" {
-							rep.Note("concluded after round %d with no winner: %s", v.Round, v.Reason)
-						} else {
-							rep.Note("concluded after round %d: %s wins by %s", v.Round, v.Winner, v.Reason)
-						}
+						rep.Note("%s", conclusion(w.verdict()))
 						return nil
 					},
 				},
-				{
-					Intent: "Signal the drain: the watch stops receiving",
-					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
-				},
+				stopWatch(c),
 			}, afterDrain(c, &l)
 		},
 	}
@@ -246,11 +203,4 @@ func distance(from, to location) int {
 		d += 1 << 20
 	}
 	return d
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
 }

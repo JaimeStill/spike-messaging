@@ -112,11 +112,8 @@ func (f *factionState) assessed(d assessment, b *block, name func(location) stri
 			changes = append(changes, fmt.Sprintf("spotted %s %d @ %s", c.ID, c.Strength, place(c.At)))
 		}
 	}
-	now := ids(d.Contacts, func(c contact) string { return c.ID })
-	for _, c := range prev.Contacts {
-		if !now[c.ID] {
-			changes = append(changes, "lost "+c.ID)
-		}
+	for _, id := range gone(prev.Contacts, ids(d.Contacts, contactID), contactID) {
+		changes = append(changes, "lost "+id)
 	}
 	believed := map[location]belief{}
 	for _, o := range prev.Objectives {

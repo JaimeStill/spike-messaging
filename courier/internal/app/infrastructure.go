@@ -32,11 +32,13 @@ import (
 )
 
 // Infrastructure builds the broker the flags name, the outbox store on the
-// Postgres server they name, and the request scenario's exchange on the NATS
-// server. It opens nothing that outlives a command: each scenario run builds
-// its own broker (on a scratch stream when the broker is nats), and its own
-// scratch database; the request scenario's broker carries its exchange. The
-// run's cleanup removes them.
+// Postgres server they name, the request scenario's exchange on the NATS
+// server, and the join scenarios' broker on the exercise services' stream.
+// It opens nothing that outlives a command: each scenario run builds its own
+// broker (on a scratch stream when the broker is nats), and its own scratch
+// database; the request scenario's broker carries its exchange. The run's
+// cleanup removes them, and a joined broker's leaves the services' stream
+// and its events in place.
 type Infrastructure struct {
 	cfg *Config
 }
@@ -91,9 +93,9 @@ type scratch struct {
 
 // scratchBroker starts a broker on a stream of its own on the NATS server.
 func (i *Infrastructure) scratchBroker() (*scratch, error) {
-	url := i.cfg.natsURL()
-	if url == "" {
-		return nil, errors.New("no NATS URL: set --nats-url or MESSAGING_NATS_URL")
+	url, err := i.natsURL()
+	if err != nil {
+		return nil, err
 	}
 	suffix, err := randomSuffix()
 	if err != nil {
@@ -144,12 +146,22 @@ func randomSuffix() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
+// natsURL returns the NATS server's URL, from --nats-url or
+// $MESSAGING_NATS_URL, or fails naming both when neither is set.
+func (i *Infrastructure) natsURL() (string, error) {
+	url := i.cfg.natsURL()
+	if url == "" {
+		return "", errors.New("no NATS URL: set --nats-url or MESSAGING_NATS_URL")
+	}
+	return url, nil
+}
+
 // natsConnect connects to the NATS server at the URL, waiting at most
 // natsWait.
 func (i *Infrastructure) natsConnect() (*natsgo.Conn, error) {
-	url := i.cfg.natsURL()
-	if url == "" {
-		return nil, errors.New("no NATS URL: set --nats-url or MESSAGING_NATS_URL")
+	url, err := i.natsURL()
+	if err != nil {
+		return nil, err
 	}
 	nc, err := natsgo.Connect(url, natsgo.Name("courier"), natsgo.Timeout(natsWait))
 	if err != nil {
@@ -284,30 +296,29 @@ func deleteConsumers(nc *natsgo.Conn, stream string, names []string) error {
 	return errors.Join(errs...)
 }
 
-// JoinNeeds returns what the directives and assessments scenarios require:
-// the nats broker, which alone reaches the services' stream, and then what
-// it needs.
+// JoinNeeds returns what the scenarios that join the services' stream
+// (directives, assessments, theater, and theater-check) require: the nats
+// broker, which alone reaches the stream, and then what it needs.
 func (i *Infrastructure) JoinNeeds() []scenario.Need {
-	if i.cfg.Broker != "nats" {
-		return []scenario.Need{{
-			What: "the services' stream: --broker nats",
-			Check: func(context.Context) error {
-				return fmt.Errorf("the %s broker cannot reach it", i.cfg.Broker)
-			},
-		}}
-	}
-	return i.Needs()
+	return i.natsOnly("the services' stream", "cannot reach it")
 }
 
 // RequestNeeds returns what the request scenario requires: a broker with a
 // native request and reply, which only nats has, and then what that broker
-// needs. On memory the need fails, naming the flag that meets it.
+// needs.
 func (i *Infrastructure) RequestNeeds() []scenario.Need {
+	return i.natsOnly("a broker with native request and reply", "has none")
+}
+
+// natsOnly returns what a scenario only the nats broker can run requires:
+// on nats, what the broker needs; on any other, a need for what that fails,
+// naming the flag that meets it and why the broker the flags name cannot.
+func (i *Infrastructure) natsOnly(what, why string) []scenario.Need {
 	if i.cfg.Broker != "nats" {
 		return []scenario.Need{{
-			What: "a broker with native request and reply: --broker nats",
+			What: what + ": --broker nats",
 			Check: func(context.Context) error {
-				return fmt.Errorf("the %s broker has none", i.cfg.Broker)
+				return fmt.Errorf("the %s broker %s", i.cfg.Broker, why)
 			},
 		}}
 	}

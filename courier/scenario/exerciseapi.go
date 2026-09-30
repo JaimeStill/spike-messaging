@@ -2,8 +2,10 @@ package scenario
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -76,6 +78,26 @@ func readExercise(ctx context.Context, base, exercise string) (exerciseView, err
 	var v exerciseView
 	err := getJSON(ctx, exerciseEndpoint(base, exercise), &v)
 	return v, err
+}
+
+// getJSON decodes the JSON body of a GET of u into v.
+func getJSON(ctx context.Context, u string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: %s", u, res.Status)
+	}
+	if err := json.NewDecoder(res.Body).Decode(v); err != nil {
+		return fmt.Errorf("GET %s: %w", u, err)
+	}
+	return nil
 }
 
 // validExerciseURL returns an error unless u is an absolute URL.

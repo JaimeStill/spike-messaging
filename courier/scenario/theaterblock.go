@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -94,7 +95,7 @@ func (n *narrator) sides(b *block) []side {
 		}
 		if len(b.decides[f]) > 0 {
 			decides := slices.SortedFunc(slices.Values(b.decides[f]), func(a, b detail) int { return cmp.Compare(a.cells[0].text, b.cells[0].text) })
-			s.rows = append(s.rows, labeled{label: "decides", items: list(decides, "", same), each: true})
+			s.rows = append(s.rows, labeled{label: "decides", items: list(decides, ""), each: true})
 		}
 		if o := b.orders[f]; o != "" {
 			s.rows = append(s.rows, labeled{label: "orders", items: []string{o}})
@@ -111,31 +112,26 @@ func (n *narrator) sides(b *block) []side {
 func (n *narrator) factions(b *block) []string {
 	out := slices.Clone(n.world.factions())
 	var others []string
-	for _, m := range []map[string]bool{
-		keysOf(b.results), keysOf(b.fates), keysOf(b.knows), keysOf(b.decides), keysOf(b.orders),
-	} {
-		for f := range m {
-			if !slices.Contains(out, f) && !slices.Contains(others, f) {
-				others = append(others, f)
-			}
+	for _, f := range slices.Concat(
+		slices.Collect(maps.Keys(b.results)), slices.Collect(maps.Keys(b.fates)), slices.Collect(maps.Keys(b.knows)),
+		slices.Collect(maps.Keys(b.decides)), slices.Collect(maps.Keys(b.orders)),
+	) {
+		if !slices.Contains(out, f) && !slices.Contains(others, f) {
+			others = append(others, f)
 		}
 	}
 	slices.Sort(others)
 	return append(out, others...)
 }
 
-func keysOf[V any](m map[string]V) map[string]bool {
-	out := make(map[string]bool, len(m))
-	for k := range m {
-		out[k] = true
-	}
-	return out
-}
+// rowLabelWidth is the width of the longest of a block's own row labels:
+// retreat, and decides.
+const rowLabelWidth = len("retreat")
 
 // labelWidth is the width to which a row's label is padded: the longest
 // of the rows' own labels, and of the factions'.
 func (n *narrator) labelWidth() int {
-	w := len("retreat")
+	w := rowLabelWidth
 	for _, f := range n.world.factions() {
 		w = max(w, len(f))
 	}
@@ -144,5 +140,5 @@ func (n *narrator) labelWidth() int {
 
 // rows renders a row at indent, its label padded to the rows' width.
 func (n *narrator) rows(indent string, l labeled) []string {
-	return l.lines(indent, n.labelWidth(), same)
+	return l.lines(indent, n.labelWidth())
 }

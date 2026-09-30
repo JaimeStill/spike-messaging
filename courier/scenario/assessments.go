@@ -2,20 +2,15 @@ package scenario
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-	"uuid"
 
 	"github.com/spf13/pflag"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
-	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
-	"github.com/JaimeStill/spike-messaging/core/reactor"
-	"github.com/JaimeStill/spike-messaging/messaging"
 )
 
 // AssessmentsDurable prefixes the durable consumer each assessments run
@@ -28,38 +23,23 @@ const AssessmentsDurable = "courier-assessments-"
 // them, until the exercise concludes and the assessment of its last round
 // has arrived.
 func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
-	var exercise, faction, stream, prefix string
-	maxAge := 24 * time.Hour
-	wait := 2 * time.Minute
+	j := newJoinFlags(2 * time.Minute)
+	var faction string
 	return Scenario{
 		Name:    "assessments",
 		Summary: "Narrate the assessments issued for an exercise, and the directives decided on them, until it concludes",
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
-			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to follow (required)")
+			j.bind(fs, "the ID of the started exercise to follow (required)", "how long to wait for the exercise to conclude")
 			fs.StringVar(&faction, "faction", "", "the faction whose assessments to narrate (default: both)")
-			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
-			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
-			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
-			fs.DurationVar(&wait, "wait", wait, "how long to wait for the exercise to conclude")
 		},
-		Validate: func() error {
-			var errs []error
-			if _, err := uuid.Parse(exercise); err != nil {
-				errs = append(errs, errors.New("--exercise must be an exercise's ID"))
-			}
-			if wait <= 0 {
-				errs = append(errs, errors.New("--wait must be positive"))
-			}
-			return errors.Join(errs...)
-		},
+		Validate: func() error { return j.validate() },
 		Steps: func() ([]Step, func() error) {
 			c := newCoordinator(defaultDrain)
 			var l lease
 			w := &assessmentWatch{
-				exercise: exercise, faction: faction, standing: standing{},
-				factions: onlyIf(faction),
-				last:     map[string]int{}, prev: map[string]map[string]bool{}, prevOwn: map[string]map[string]bool{},
+				exercise: j.exercise, faction: faction, standing: standing{},
+				factions: onlyIf(faction), last: map[string]assessment{},
 				first: newSignal(), concluded: newSignal(), done: newSignal(),
 			}
 			who := faction
@@ -68,26 +48,12 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 			}
 			return []Step{
 				{
-					Intent: fmt.Sprintf("Join the %s stream, and wait for %s's first assessment of exercise %s", stream, who, exercise),
+					Intent: fmt.Sprintf("Join the %s stream, and wait for %s's first assessment of exercise %s", j.stream, who, j.exercise),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						if joins == nil {
-							return errors.New("no stream to join is configured")
-						}
-						b, release, err := joins(stream, prefix, maxAge)
-						if err != nil {
-							return err
-						}
-						l.release = release
-						src, err := b.Subscribe(messaging.Subscription{
-							Name:  AssessmentsDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
-							Types: []string{startedType, assessmentType, directiveType, concludedType},
-						})
-						if err != nil {
-							return err
-						}
 						w.rep = rep
-						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, w.handle, reactor.Grace(defaultGrace)))
-						if err := c.start(ctx, rep); err != nil {
+						_, err := l.join(ctx, rep, c, joins, j, AssessmentsDurable, w.handle,
+							startedType, assessmentType, directiveType, concludedType)
+						if err != nil {
 							return err
 						}
 						return c.await(ctx, w.first.ch, who+"'s first assessment")
@@ -96,35 +62,27 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 				{
 					Intent: "Narrate each assessment and directive as it arrives, until the exercise concludes and its last round is assessed",
 					Action: func(ctx context.Context, _ *Reporter) error {
-						wctx, cancel := context.WithTimeout(ctx, wait)
+						wctx, cancel := context.WithTimeout(ctx, j.wait)
 						defer cancel()
 						select {
 						case <-w.done.ch:
 							return nil
 						case <-wctx.Done():
 							if w.concluded.isFired() {
-								return fmt.Errorf("the assessments of round %d did not all arrive within %s", w.verdict().Round, wait)
+								return fmt.Errorf("the assessments of round %d did not all arrive within %s", w.verdict().Round, j.wait)
 							}
-							return fmt.Errorf("exercise %s did not conclude within %s", exercise, wait)
+							return fmt.Errorf("exercise %s did not conclude within %s", j.exercise, j.wait)
 						}
 					},
 				},
 				{
 					Intent: "Note the conclusion",
 					Action: func(_ context.Context, rep *Reporter) error {
-						v := w.verdict()
-						if v.Winner == "" {
-							rep.Note("concluded after round %d with no winner: %s", v.Round, v.Reason)
-						} else {
-							rep.Note("concluded after round %d: %s wins by %s", v.Round, v.Winner, v.Reason)
-						}
+						rep.Note("%s", conclusion(w.verdict()))
 						return nil
 					},
 				},
-				{
-					Intent: "Signal the drain: the watch stops receiving",
-					Action: func(_ context.Context, rep *Reporter) error { return c.stop(rep) },
-				},
+				stopWatch(c),
 			}, afterDrain(c, &l)
 		},
 	}
@@ -139,11 +97,9 @@ type assessmentWatch struct {
 	rep                    *Reporter
 
 	mu       sync.Mutex
-	last     map[string]int             // the round of each faction's last narrated assessment
-	prev     map[string]map[string]bool // the contacts of each faction's last narrated assessment
-	prevOwn  map[string]map[string]bool // the own elements of each faction's last narrated assessment
-	factions []string                   // the factions narrated: the start's, or --faction's
-	standing standing                   // each faction's last directive, by element
+	last     map[string]assessment // each faction's last narrated assessment
+	factions []string              // the factions narrated: the start's, or --faction's
+	standing standing              // each faction's last directive, by element
 	end      concluded
 }
 
@@ -174,11 +130,11 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		if w.faction != "" && d.Faction != w.faction {
 			return nil
 		}
-		if r, ok := w.last[d.Faction]; ok && d.Round <= r {
+		if a, ok := w.last[d.Faction]; ok && d.Round <= a.Round {
 			return nil
 		}
-		w.last[d.Faction] = d.Round
 		w.narrate(d)
+		w.last[d.Faction] = d
 		w.first.fire()
 	case directiveType:
 		d, err := decode[directives](e)
@@ -224,7 +180,7 @@ func (w *assessmentWatch) check() {
 		return
 	}
 	for _, f := range w.factions {
-		if r, ok := w.last[f]; !ok || r < w.end.Round {
+		if a, ok := w.last[f]; !ok || a.Round < w.end.Round {
 			return
 		}
 	}
@@ -238,42 +194,23 @@ func (w *assessmentWatch) verdict() concluded {
 }
 
 // narrate notes the assessment in full, then each own element the
-// faction's previous narrated assessment held that this one lacks, which
-// the faction lost, and each contact it knew that this one lacks, which
-// intelligence dropped. The caller holds mu.
+// faction's last narrated assessment held that this one lacks, which the
+// faction lost, and each contact it knew that this one lacks, which
+// intelligence dropped, each by ID. The caller holds mu, and records d as
+// the faction's last narrated assessment after.
 func (w *assessmentWatch) narrate(d assessment) {
 	w.rep.Note("%s", assessmentLine(d))
-	own := ids(d.Own, func(e element) string { return e.ID })
-	contacts := ids(d.Contacts, func(c contact) string { return c.ID })
-	for _, id := range gone(w.prevOwn[d.Faction], own) {
+	prev := w.last[d.Faction]
+	lost := gone(prev.Own, ids(d.Own, elementID), elementID)
+	dropped := gone(prev.Contacts, ids(d.Contacts, contactID), contactID)
+	slices.Sort(lost)
+	slices.Sort(dropped)
+	for _, id := range lost {
 		w.rep.Note("%s lost %s", d.Faction, id)
 	}
-	for _, id := range gone(w.prev[d.Faction], contacts) {
+	for _, id := range dropped {
 		w.rep.Note("%s dropped %s", d.Faction, id)
 	}
-	w.prevOwn[d.Faction] = own
-	w.prev[d.Faction] = contacts
-}
-
-// gone returns, sorted, the IDs in before that now lacks.
-func gone(before, now map[string]bool) []string {
-	var out []string
-	for id := range before {
-		if !now[id] {
-			out = append(out, id)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-// ids returns the set of IDs of xs.
-func ids[T any](xs []T, id func(T) string) map[string]bool {
-	out := make(map[string]bool, len(xs))
-	for _, x := range xs {
-		out[id(x)] = true
-	}
-	return out
 }
 
 // assessmentLine renders an assessment on one line: the faction's own
@@ -301,8 +238,6 @@ func assessmentLine(d assessment) string {
 	return fmt.Sprintf("round %d %s: own %s | contacts %s | objectives %s",
 		d.Round, d.Faction, orNone(own, " · "), orNone(contacts, " · "), orNone(objectives, " · "))
 }
-
-func place(l location) string { return fmt.Sprintf("%s:%d,%d", l.Sector, l.X, l.Y) }
 
 func orNone(parts []string, sep string) string {
 	if len(parts) == 0 {

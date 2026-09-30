@@ -19,6 +19,12 @@ import (
 // release may be nil.
 type Brokers func() (b messaging.Broker, release func() error, err error)
 
+// Joins builds a broker on an existing stream, the one the exercise
+// services share, with the release that frees the broker and anything the
+// run left on the stream. Unlike a scratch broker's, the release leaves the
+// stream and its events in place. The release may be nil.
+type Joins func(stream, prefix string, maxAge time.Duration) (b messaging.Broker, release func() error, err error)
+
 // Dependencies is what the composition root supplies the scenarios. Each
 // func() []Need is called when a run starts or the listing is written, not
 // when the scenarios are built, so it can follow the parsed flags; any of
@@ -94,8 +100,10 @@ func graceBelowDrain(grace, drain time.Duration) error {
 	return nil
 }
 
+// numbered is the event n the broker scenarios publish, of the tick type the
+// outbox scenario raises.
 func numbered(n int) event.Event {
-	return event.Event{ID: strconv.Itoa(n), Source: "/courier", Type: "lab.demo.tick", Time: time.Now()}
+	return event.Event{ID: strconv.Itoa(n), Source: "/courier", Type: tickKind.Type(), Time: time.Now()}
 }
 
 // signal is a channel closed once, however many times fire is called.

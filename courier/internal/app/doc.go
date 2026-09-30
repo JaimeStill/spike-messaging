@@ -1,9 +1,9 @@
 // Package app is courier's composition root, one file per layer.
 // config.go binds the persistent flags. infrastructure.go builds the broker
 // the flags name, the outbox scenario's store on the Postgres server they
-// name, the request scenario's exchange on the NATS server, and the
-// directives and assessments scenarios' broker on the exercise services'
-// stream.
+// name, the request scenario's exchange on the NATS server, and the broker
+// of the scenarios that join the exercise services' stream (directives,
+// assessments, theater, and theater-check).
 // scenarios.go mounts the narrated scenarios and their listing, and
 // commands.go composes the mounts. app.go holds the application itself: New
 // assembles the layers without I/O, and Run executes the command tree and

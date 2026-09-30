@@ -94,7 +94,9 @@ func newRoot(cfg *Config, infra *Infrastructure, scenarios []scenario.Scenario) 
 		Long: "courier runs narrated scenarios that each show one capability of the spike's event\n" +
 			"and reactor layer on a broker: an interval reactor, a delivery group, retry, a\n" +
 			"permanent failure, the drain, the transactional outbox on Postgres, and a native\n" +
-			"request and reply on NATS.",
+			"request and reply on NATS. On NATS it also joins the exercise services' stream: it\n" +
+			"stands in for command, narrates the assessments, narrates an exercise as a\n" +
+			"theater, and checks the theater's assessments against the observer's record.",
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
