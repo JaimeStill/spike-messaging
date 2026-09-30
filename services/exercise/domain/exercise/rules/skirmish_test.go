@@ -15,7 +15,7 @@ var factions = [2]string{"red", "blue"}
 // through the center by one of the other faction's.
 func TestSkirmishIsValidAndMirrored(t *testing.T) {
 	const last = rules.SkirmishSize - 1
-	for sd := int64(0); sd < 200; sd++ {
+	for sd := range int64(200) {
 		s := rules.Skirmish(sd, factions)
 		if err := s.Validate(); err != nil {
 			t.Fatalf("seed %d: %v", sd, err)
@@ -81,7 +81,7 @@ func TestSkirmishIsDrawnFromItsSeed(t *testing.T) {
 		t.Errorf("seed 42 laid out two skirmishes")
 	}
 	layouts := map[string]bool{}
-	for sd := int64(0); sd < 20; sd++ {
+	for sd := range int64(20) {
 		s := rules.Skirmish(sd, factions)
 		key := ""
 		for _, p := range s.Map.Sectors[0].Objectives {

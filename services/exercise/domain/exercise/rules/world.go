@@ -3,6 +3,7 @@ package rules
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -231,12 +232,7 @@ func (s Sector) inside(p Point) bool {
 
 // obstacle reports whether p carries an obstacle.
 func (s Sector) obstacle(p Point) bool {
-	for _, o := range s.Obstacles {
-		if o == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.Obstacles, p)
 }
 
 // gate returns the gate at p, if p carries one.

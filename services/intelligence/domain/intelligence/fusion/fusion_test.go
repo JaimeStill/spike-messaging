@@ -12,7 +12,7 @@ import (
 )
 
 func loc(sector string, x, y int) fusion.Location {
-	return fusion.Location{Sector: sector, Point: fusion.Point{X: x, Y: y}}
+	return fusion.Location{Sector: sector, X: x, Y: y}
 }
 
 func squad(id, faction string, strength int, at fusion.Location) fusion.Element {

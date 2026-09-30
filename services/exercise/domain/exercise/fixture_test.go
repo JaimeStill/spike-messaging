@@ -32,5 +32,5 @@ func squad(id, faction string, at rules.Location) rules.Element {
 }
 
 func loc(x, y int) rules.Location {
-	return rules.Location{Sector: "a", Point: rules.Point{X: x, Y: y}}
+	return rules.Location{Sector: "a", X: x, Y: y}
 }

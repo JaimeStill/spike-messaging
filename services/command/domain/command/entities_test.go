@@ -61,7 +61,7 @@ func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 // The directive's payload is the shape operations reads, each directive
 // with its rule, and an engage with its contact, under its sequence.
 func TestDirectiveDataShape(t *testing.T) {
-	at := decide.Location{Sector: "a", Point: decide.Point{X: 1, Y: 0}}
+	at := decide.Location{Sector: "a", X: 1, Y: 0}
 	d := command.DirectiveData{Exercise: exerciseID, Faction: "red", Round: 3, Sequence: 2, Directives: []decide.Decision{
 		{Element: "r1", Rule: decide.Engage, Contact: "b1", Target: &at},
 		{Element: "r2", Rule: decide.Secure, Target: &at},

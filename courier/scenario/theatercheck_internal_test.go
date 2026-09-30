@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -28,9 +29,7 @@ func objective(x, y int, holder string, seen, age int) map[string]any {
 
 func contact(e map[string]any, seen, age int) map[string]any {
 	c := map[string]any{"seen": seen, "age": age}
-	for k, v := range e {
-		c[k] = v
-	}
+	maps.Copy(c, e)
 	return c
 }
 

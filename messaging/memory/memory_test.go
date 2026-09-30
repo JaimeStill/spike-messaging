@@ -46,15 +46,13 @@ func TestLateOutcomeIgnored(t *testing.T) {
 		}
 		rs = append(rs, r)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for calls.Load() < 2 && time.Now().Before(deadline) {
 			time.Sleep(time.Millisecond)
 		}
 		close(release)
-	}()
+	})
 	if err := b.Publish(context.Background(), event.Event{ID: "x", Source: "/t", Type: "t"}); err != nil {
 		t.Fatal(err)
 	}

@@ -266,7 +266,7 @@ func (p Picture) explore(explored []Location) []Location {
 		r := Sight(e.Kind)
 		for y := max(e.At.Y-r, 0); y <= min(e.At.Y+r, s.Height-1); y++ {
 			for x := max(e.At.X-r, 0); x <= min(e.At.X+r, s.Width-1); x++ {
-				set[Location{Sector: s.ID, Point: Point{X: x, Y: y}}] = true
+				set[Location{Sector: s.ID, X: x, Y: y}] = true
 			}
 		}
 	}

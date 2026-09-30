@@ -24,7 +24,7 @@ func fixtureMap() rules.Map {
 }
 
 func loc(sector string, x, y int) rules.Location {
-	return rules.Location{Sector: sector, Point: rules.Point{X: x, Y: y}}
+	return rules.Location{Sector: sector, X: x, Y: y}
 }
 
 // seed is the seed every test resolves its rounds under.

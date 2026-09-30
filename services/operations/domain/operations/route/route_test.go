@@ -9,7 +9,7 @@ import (
 )
 
 func loc(sector string, x, y int) route.Location {
-	return route.Location{Sector: sector, Point: route.Point{X: x, Y: y}}
+	return route.Location{Sector: sector, X: x, Y: y}
 }
 
 // twoSectors is a 3×3 sector a with an obstacle at 1,1 and a gate at 2,2,

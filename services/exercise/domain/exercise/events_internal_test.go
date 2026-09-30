@@ -105,7 +105,7 @@ func TestRaiseConcluded(t *testing.T) {
 // A faction commands its own elements alone: an order for the other
 // faction's element, or for an element that does not exist, is dropped.
 func TestOwnOrders(t *testing.T) {
-	step := []rules.Location{{Sector: "a", Point: rules.Point{X: 2, Y: 0}}}
+	step := []rules.Location{{Sector: "a", X: 2, Y: 0}}
 	got := ownOrders(testState, map[string][]rules.Order{
 		"red":   {{Element: "r1", Steps: step}, {Element: "b1", Steps: step}},
 		"blue":  {{Element: "r1"}, {Element: "b1"}, {Element: "ghost"}},
@@ -120,7 +120,7 @@ func TestOwnOrders(t *testing.T) {
 // A round's resolution becomes one resolved event about the exercise, its
 // lists flattened beside the exercise and the round.
 func TestRaiseResolved(t *testing.T) {
-	at := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
+	at := rules.Location{Sector: "a", X: 3, Y: 0}
 	res := rules.Resolution{
 		Retreats: []rules.Retreat{{
 			ID: "b2", Faction: "blue", From: at, To: rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 1}},
@@ -130,8 +130,8 @@ func TestRaiseResolved(t *testing.T) {
 		Engagements: []rules.Engagement{{At: at, Elements: []rules.Engaged{
 			{ID: "b1", Faction: "blue", Before: 40, After: 0, Fallen: 1}, {ID: "r1", Faction: "red", Before: 400, After: 370},
 		}}},
-		Losses:     []rules.Loss{{ID: "b1", Faction: "blue"}},
-		Captures:   []rules.Capture{},
+		Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
+		Captures: []rules.Capture{},
 		Progress: []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
 	}
 	q := &event.Queue{}
@@ -155,8 +155,8 @@ func TestRaiseResolved(t *testing.T) {
 // Each capture that takes an objective from its holder alerts the loser;
 // a capture of an unheld objective alerts no one.
 func TestRaiseLost(t *testing.T) {
-	a := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
-	b := rules.Location{Sector: "b", Point: rules.Point{X: 5, Y: 5}}
+	a := rules.Location{Sector: "a", X: 3, Y: 0}
+	b := rules.Location{Sector: "b", X: 5, Y: 5}
 	q := &event.Queue{}
 	raiseLost(q, "ex-1", 4, []rules.Capture{{At: a, Faction: "red"}, {At: b, Faction: "blue", From: "red"}})
 	es := q.Events()

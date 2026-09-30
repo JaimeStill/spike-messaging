@@ -11,7 +11,7 @@ import (
 )
 
 func loc(sector string, x, y int) decide.Location {
-	return decide.Location{Sector: sector, Point: decide.Point{X: x, Y: y}}
+	return decide.Location{Sector: sector, X: x, Y: y}
 }
 
 // squad returns a ready squad of the operators' health given, four at
