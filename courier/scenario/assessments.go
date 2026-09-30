@@ -267,6 +267,15 @@ func gone(before, now map[string]bool) []string {
 	return out
 }
 
+// ids returns the set of IDs of xs.
+func ids[T any](xs []T, id func(T) string) map[string]bool {
+	out := make(map[string]bool, len(xs))
+	for _, x := range xs {
+		out[id(x)] = true
+	}
+	return out
+}
+
 // assessmentLine renders an assessment on one line: the faction's own
 // elements, the contacts it knows, and the objectives.
 func assessmentLine(d assessment) string {

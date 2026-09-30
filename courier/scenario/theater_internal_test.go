@@ -74,7 +74,7 @@ func TestNarratorRefusesAViewWithoutRules(t *testing.T) {
 			if err == nil || !strings.HasSuffix(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want one ending %q", err, tc.want)
 			}
-			if n.setup != nil {
+			if n.world.setup != nil {
 				t.Error("the narrator took the start of an exercise whose rules it refused")
 			}
 		})
@@ -373,7 +373,7 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"  directed -> ordered   18ms",
 		"check  mise run demo-theater-check " + theaterID,
 	}
-	if got := strings.Join(s.n.final(), "\n"); got != strings.Join(want, "\n") {
+	if got := strings.Join(s.n.conditions(), "\n"); got != strings.Join(want, "\n") {
 		t.Errorf("final conditions:\n%s\n\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 }
@@ -385,8 +385,8 @@ func TestNarratorIgnoresOtherExercises(t *testing.T) {
 	if err := s.n.handle(t.Context(), eventOf(resolvedType, body, s.t0)); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.lines) != 0 || s.n.counts[resolvedType] != 0 {
-		t.Errorf("narrated %v, counted %v", s.lines, s.n.counts)
+	if len(s.lines) != 0 || s.n.ledger.counts[resolvedType] != 0 {
+		t.Errorf("narrated %v, counted %v", s.lines, s.n.ledger.counts)
 	}
 }
 
