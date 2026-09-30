@@ -161,17 +161,17 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 	observe := func(round int, contacts []any) {
 		w.publish(t, "/exercise", "exercise.round.observed", id, map[string]any{
 			"exercise": id, "faction": "red", "round": round,
-			"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 1, "at": at(0, 0)}},
+			"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 100, "health": []int{100}, "status": "ready", "at": at(0, 0)}},
 			"contacts": contacts, "objectives": []any{},
 		})
 	}
-	seen := []any{map[string]any{"id": "b1", "faction": "blue", "kind": "force", "strength": 1, "at": at(10, 10)}}
+	seen := []any{map[string]any{"id": "b1", "faction": "blue", "kind": "squad", "strength": 100, "health": []int{100}, "status": "ready", "at": at(10, 10)}}
 
 	observe(0, seen)
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12, "objectives": []any{map[string]any{"x": 11, "y": 11}}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 13, "height": 13, "objectives": []any{map[string]any{"x": 12, "y": 12}}}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
 	})
 	await(t, "round 0's assessment", 10*time.Second, func() bool { return len(w.assessments(t)) >= 1 })

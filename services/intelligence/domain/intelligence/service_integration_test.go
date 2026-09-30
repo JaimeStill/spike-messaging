@@ -76,18 +76,18 @@ func open(t *testing.T, svc *intelligence.Service) string {
 	return id
 }
 
-// red is red's observation of round: its force r1 at r1, and the enemy
+// red is red's observation of round: its squad r1 at r1, and the enemy
 // contacts it sees.
 func red(id string, round int, r1 fusion.Location, contacts ...fusion.Element) intelligence.Observe {
 	return intelligence.Observe{Exercise: id, Faction: "red", Observation: fusion.Observation{
 		Round:    round,
-		Own:      []fusion.Element{{ID: "r1", Faction: "red", Kind: "force", Strength: 2, At: r1}},
+		Own:      []fusion.Element{{ID: "r1", Faction: "red", Kind: "squad", Strength: 2, Health: []int{2}, Status: "ready", At: r1}},
 		Contacts: contacts,
 	}}
 }
 
 func blue(id string, at fusion.Location) fusion.Element {
-	return fusion.Element{ID: id, Faction: "blue", Kind: "force", Strength: 3, At: at}
+	return fusion.Element{ID: id, Faction: "blue", Kind: "squad", Strength: 3, Health: []int{3}, Status: "ready", At: at}
 }
 
 // assessments returns the assessments the outbox holds, in the order they

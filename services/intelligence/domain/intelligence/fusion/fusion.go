@@ -46,23 +46,33 @@ func (m Map) Objectives() []Location {
 }
 
 // Element is an element as an observation reports it: its ID, its faction,
-// its kind, its strength, and where it stands.
+// its kind, its strength, the health of each of its living operators, its
+// status, and where it stands.
 type Element struct {
 	ID       string   `json:"id"`
 	Faction  string   `json:"faction"`
 	Kind     string   `json:"kind"`
 	Strength int      `json:"strength"`
+	Health   []int    `json:"health"`
+	Status   string   `json:"status"`
 	At       Location `json:"at"`
 }
 
+// clone returns e with a copy of its health, so the copy shares nothing
+// with e.
+func (e Element) clone() Element {
+	e.Health = slices.Clone(e.Health)
+	return e
+}
+
 // Sight returns the Chebyshev distance an element of kind sees within its
-// sector: a force 2, a scout 4, and an unknown kind none.
+// sector: a squad 1, a scout 2, and an unknown kind none.
 func Sight(kind string) int {
 	switch kind {
-	case "force":
-		return 2
+	case "squad":
+		return 1
 	case "scout":
-		return 4
+		return 2
 	}
 	return 0
 }
@@ -144,24 +154,25 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 	round := obs.Round
 	p := Picture{
 		Round:      round,
-		Own:        slices.Clone(obs.Own),
+		Own:        make([]Element, 0, len(obs.Own)),
 		Contacts:   []Contact{},
 		Objectives: []Objective{},
 	}
-	if p.Own == nil {
-		p.Own = []Element{}
+	for _, e := range obs.Own {
+		p.Own = append(p.Own, e.clone())
 	}
 	slices.SortFunc(p.Own, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
 
 	observed := make(map[string]bool, len(obs.Contacts))
 	for _, e := range obs.Contacts {
 		observed[e.ID] = true
-		p.Contacts = append(p.Contacts, Contact{Element: e, Seen: round})
+		p.Contacts = append(p.Contacts, Contact{Element: e.clone(), Seen: round})
 	}
 	for _, c := range prev.Contacts {
 		if observed[c.ID] {
 			continue
 		}
+		c.Element = c.clone()
 		c.Age = round - c.Seen
 		if c.Age > k || p.sees(c.At) {
 			continue

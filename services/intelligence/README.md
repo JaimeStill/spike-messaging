@@ -42,12 +42,13 @@ an assessment not open yet, as when a round's observation is handled before its 
 redelivered after 250ms rather than refused.
 
 The service emits `intelligence.assessment.issued`, whose subject is the exercise's ID:
-`{exercise, faction, round, own, contacts: [{id, faction, kind, strength, at, seen, age}],
-objectives: [{at, holder, known, seen, age}]}`. It emits one per faction per observed round.
+`{exercise, faction, round, own, contacts: [{id, faction, kind, strength, health, status, at,
+seen, age}], objectives: [{at, holder, known, seen, age}]}`. It emits one per faction per observed
+round.
 
-Exercise's observation limits what a faction sees by kind and to the sector. Intelligence keeps a
-contact at its last-seen cell, and drops it after `contact_rounds` rounds unseen or once a
-friendly element sees that cell empty. An objective never seen has no known holder.
+Exercise's observation limits what a faction sees by kind, a squad one cell and a scout two, and
+to the sector. Intelligence keeps a contact at its last-seen cell, and drops it after
+`contact_rounds` rounds unseen or once a friendly element sees that cell empty. An objective never seen has no known holder.
 
 ## Composition
 

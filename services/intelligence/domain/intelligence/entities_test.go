@@ -42,7 +42,7 @@ func TestValidate(t *testing.T) {
 func TestObserveDecodesTheObservedEvent(t *testing.T) {
 	var c intelligence.Observe
 	err := json.Unmarshal([]byte(`{"exercise":"`+exerciseID+`","faction":"red","round":2,
-		"own":[{"id":"r1","faction":"red","kind":"force","strength":2,"at":{"sector":"a","x":0,"y":0}}],
+		"own":[{"id":"r1","faction":"red","kind":"squad","strength":2,"health":[100,100],"status":"ready","at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[],"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":""}]}`), &c)
 	if err != nil {
 		t.Fatal(err)
