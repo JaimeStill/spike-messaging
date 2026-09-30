@@ -20,9 +20,10 @@ var DirectiveIssued = event.Define[DirectiveData]("command.directive.issued")
 // faction, the round whose assessment was decided on, the directive's
 // sequence, and a directive for each live element. The sequence numbers
 // the faction's directives in the exercise from 1 up, so a consumer skips
-// one no higher than the last it applied, which arrived out of order. A directive gives its element's target, null for a
-// hold, the rule that chose it, and for a retreat, a pursue, an engage, or
-// a reinforce the contact.
+// one no higher than the last it applied, which arrived out of order. A
+// directive gives its element's target, null for a hold, the rule that
+// chose it, and for a retreat, a pursue, an engage, or a reinforce the
+// contact.
 type DirectiveData struct {
 	Exercise   string            `json:"exercise"`
 	Faction    string            `json:"faction"`

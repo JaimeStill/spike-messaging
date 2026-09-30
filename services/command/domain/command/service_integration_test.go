@@ -60,7 +60,7 @@ func loc(x, y int) decide.Location {
 func openInput(id string) command.Open {
 	var m decide.Map
 	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","width":5,"height":3,"obstacles":[],
-		"objectives":[],"gates":[]}]}`), &m); err != nil {
+		"gates":[]}]}`), &m); err != nil {
 		panic(err)
 	}
 	return command.Open{Exercise: id, Map: m, Factions: [2]string{"red", "blue"}}
@@ -108,7 +108,7 @@ func red(id string, round, revision int, objective decide.Objective, contacts ..
 	}}
 }
 
-var unknown = decide.Objective{At: loc(4, 0)}
+var unheld = decide.Objective{At: loc(4, 0)}
 
 // directives returns the directives the outbox holds, in the order they
 // were written.
@@ -171,19 +171,18 @@ func summary(d command.DirectiveData) string {
 // A directive is issued only on a round whose decisions send an element
 // somewhere new, and it lists every live element. r1 secures the objective
 // and r2, with nothing else to do, rescouts it; an unchanged round issues
-// nothing; r1 engages a weak
-// contact and r2 takes the objective over; once the objective is known to
-// be red's and the contact is gone, both hold.
+// nothing; r1 engages a weak contact and r2 takes the objective over; once
+// the objective is seen to be red's and the contact is gone, both hold.
 func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	ctx := t.Context()
 	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, c := range []command.Decide{
-		red(id, 0, 1, unknown),
-		red(id, 1, 2, unknown),
-		red(id, 2, 3, unknown, b1),
-		red(id, 3, 4, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+		red(id, 0, 1, unheld),
+		red(id, 1, 2, unheld),
+		red(id, 2, 3, unheld, b1),
+		red(id, 3, 4, decide.Objective{At: loc(4, 0), Holder: "red"}),
 	} {
 		if err := svc.Decide(ctx, c, nil); err != nil {
 			t.Fatal(err)
@@ -235,7 +234,7 @@ func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 		{squad("r1", loc(0, 0))},
 	} {
 		c := command.Decide{Exercise: id, Faction: "red", Revision: round + 1, Assessment: decide.Assessment{
-			Round: round, Own: own, Contacts: []decide.Contact{b1}, Objectives: []decide.Objective{unknown},
+			Round: round, Own: own, Contacts: []decide.Contact{b1}, Objectives: []decide.Objective{unheld},
 			Explored: explored,
 		}}
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
@@ -260,9 +259,9 @@ func TestStaleAssessmentsAreSkipped(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	for _, c := range []command.Decide{
-		red(id, 1, 2, unknown),
-		red(id, 0, 1, unknown),
-		red(id, 1, 2, unknown),
+		red(id, 1, 2, unheld),
+		red(id, 0, 1, unheld),
+		red(id, 1, 2, unheld),
 	} {
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
@@ -280,8 +279,8 @@ func TestALateOriginalDoesNotUndoItsRevision(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	for _, c := range []command.Decide{
-		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
-		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue"}),
+		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red"}),
 	} {
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
@@ -312,7 +311,7 @@ func TestInputsBeforeOpenAreRedelivered(t *testing.T) {
 	}
 
 	for _, err := range []error{
-		svc.Decide(t.Context(), red(id, 0, 1, unknown), claim),
+		svc.Decide(t.Context(), red(id, 0, 1, unheld), claim),
 		svc.Close(t.Context(), command.Close{Exercise: id}, nil),
 	} {
 		if !errors.Is(err, command.ErrNotOpen) || event.IsPermanent(err) {
@@ -326,7 +325,7 @@ func TestInputsBeforeOpenAreRedelivered(t *testing.T) {
 	if err := svc.Open(t.Context(), openInput(id), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Decide(t.Context(), red(id, 0, 1, unknown), claim); err != nil {
+	if err := svc.Decide(t.Context(), red(id, 0, 1, unheld), claim); err != nil {
 		t.Fatal(err)
 	}
 	if got := directives(t, db); len(got) != 1 {
@@ -343,7 +342,7 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 		return in.Claim(ctx, tx, "command-assessed", e)
 	}
 	for range 2 {
-		if err := svc.Decide(t.Context(), red(id, 0, 1, unknown), claim); err != nil {
+		if err := svc.Decide(t.Context(), red(id, 0, 1, unheld), claim); err != nil {
 			t.Fatal(err)
 		}
 		// The revision guard would skip a repeat anyway; the claim must
@@ -366,9 +365,9 @@ func TestARevisedAssessmentIsDecidedAgain(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	for _, c := range []command.Decide{
-		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
-		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
-		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red"}),
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue"}),
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue"}),
 	} {
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
@@ -386,7 +385,7 @@ func TestARevisedAssessmentIsDecidedAgain(t *testing.T) {
 func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
-	if err := svc.Decide(t.Context(), red(id, 1, 1, unknown), nil); err != nil {
+	if err := svc.Decide(t.Context(), red(id, 1, 1, unheld), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Close(t.Context(), command.Close{Exercise: id, Round: 2}, nil); err != nil {
@@ -394,7 +393,7 @@ func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	}
 	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, round := range []int{2, 3} {
-		if err := svc.Decide(t.Context(), red(id, round, round, unknown, b1), nil); err != nil {
+		if err := svc.Decide(t.Context(), red(id, round, round, unheld, b1), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -424,7 +423,7 @@ func TestConcurrentAssessmentsIssueOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
 	for range 8 {
-		wg.Go(func() { errs <- svc.Decide(context.Background(), red(id, 0, 1, unknown), nil) })
+		wg.Go(func() { errs <- svc.Decide(context.Background(), red(id, 0, 1, unheld), nil) })
 	}
 	wg.Wait()
 	close(errs)

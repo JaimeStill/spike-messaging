@@ -22,10 +22,11 @@
 //
 // # Commands
 //
-// A reactor's adapter invokes each command for an event another service
-// raised. Each command takes an optional [Claim]. The adapter binds the
-// claim over its inbox, and the command runs it first in its transaction, so
-// a redelivery changes nothing.
+// A consuming reactor invokes each command for an event another service
+// raised, with the event's data decoded into the command's input. Each
+// command takes an optional [Claim]. The reactor binds the claim over its
+// inbox, and the command runs it first in its transaction, so a redelivery
+// changes nothing.
 //
 //   - [Service.Open] opens both factions' directions on exercise.started.
 //   - [Service.Decide] decides on a faction's assessment on
@@ -40,14 +41,15 @@
 // permanent: the events arrive on separate subscriptions, so a round's
 // assessment can be handled before the start that opens its direction, and
 // the broker redelivers it. Decide locks its faction's row, so replicas act
-// on one faction's assessments one at a time. It skips an assessment of a
-// round the direction already decided on, and one of a closed direction
+// on one faction's assessments one at a time. It skips an assessment whose
+// revision is no higher than the last it decided on, so a revised
+// assessment of a round is decided on again, and one of a closed direction
 // past the round its exercise concluded after, so the final round is
 // decided on even when its conclusion is handled first.
 //
 // A [DirectiveIssued] event lists every live element, not only those whose
-// target or rule changed. The operations service skips an input from a round
-// earlier than the last it acted on, so a change in a skipped event would
-// otherwise be lost; the next event it takes carries the whole target
-// state.
+// target or rule changed. The operations service skips a directive whose
+// sequence is no higher than the last it applied, so a change in a skipped
+// event would otherwise be lost; the next event it takes carries the whole
+// target state.
 package command

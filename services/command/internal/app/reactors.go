@@ -64,22 +64,21 @@ type Reactors struct {
 func newReactors(
 	infra *Infrastructure,
 	dom *Domain,
-	cfg *config.Config,
+	_ *config.Config,
 	lc *lifecycle.Coordinator,
 ) (*Reactors, error) {
-	shutdown := cfg.ShutdownTimeout.Duration()
 	svc := dom.Command
-	rs := &Reactors{Relay: infra.Messaging.Relay(infra.SQL.DB, shutdown)}
+	rs := &Reactors{Relay: infra.Messaging.Relay(infra.SQL.DB)}
 	corelifecycle.Register(lc, "relay", relayStage, rs.Relay)
 
 	var err error
-	if rs.Started, err = infra.Messaging.Consume(startedSubscription, shutdown, svc.Open); err != nil {
+	if rs.Started, err = infra.Messaging.Consume(startedSubscription, svc.Open); err != nil {
 		return nil, err
 	}
-	if rs.Assessed, err = infra.Messaging.Consume(assessedSubscription, shutdown, svc.Decide); err != nil {
+	if rs.Assessed, err = infra.Messaging.Consume(assessedSubscription, svc.Decide); err != nil {
 		return nil, err
 	}
-	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, shutdown, svc.Close); err != nil {
+	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, svc.Close); err != nil {
 		return nil, err
 	}
 	corelifecycle.Register(lc, "started", consumeStage, rs.Started)
