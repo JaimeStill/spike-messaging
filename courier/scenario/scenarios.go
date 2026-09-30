@@ -55,6 +55,7 @@ func Scenarios(d Dependencies) []Scenario {
 		requestScenario(d.Exchanges, d.RequestNeeds),
 		directivesScenario(d.Joins, d.JoinNeeds),
 		assessmentsScenario(d.Joins, d.JoinNeeds),
+		theaterScenario(d.Joins, d.JoinNeeds),
 	}
 }
 

@@ -114,159 +114,10 @@ func TestAssessmentsNarratesOneFaction(t *testing.T) {
 	}
 }
 
-// With --summary, the narration groups each round's assessments, a block
-// per faction: its elements and what it lost, the contacts it sees and
-// remembers, those dropped, and each objective by what the faction believes
-// of it. Rounds in which only ages advanced collapse into one line, and a
-// round a faction was never assessed on does not hold back the rest.
-func TestAssessmentsSummarizes(t *testing.T) {
-	b := memory.New()
-	at := func(s string, x, y int) map[string]any { return map[string]any{"sector": s, "x": x, "y": y} }
-	own := func(id string, strength int) map[string]any {
-		return map[string]any{"id": id, "strength": strength, "at": at("a", 0, 0)}
-	}
-	contact := func(id string, strength, x, seen, age int) map[string]any {
-		return map[string]any{"id": id, "strength": strength, "at": at("a", x, 5), "seen": seen, "age": age}
-	}
-	objectives := func(age int) []any {
-		return []any{
-			map[string]any{"at": at("a", 0, 0), "holder": "red", "known": true},
-			map[string]any{"at": at("a", 0, 4), "holder": "blue", "known": true, "seen": 0, "age": age},
-			map[string]any{"at": at("a", 4, 4), "known": true},
-			map[string]any{"at": at("b", 3, 3), "known": false},
-		}
-	}
-	assess := func(faction string, round int, own []any, contacts ...any) {
-		publishJSON(t, b, faction+strconv.Itoa(round), "intelligence.assessment.issued", map[string]any{
-			"exercise": exerciseID, "faction": faction, "round": round,
-			"own": own, "contacts": contacts, "objectives": objectives(round),
-		})
-	}
-	publishJSON(t, b, "s", "exercise.started", map[string]any{"exercise": exerciseID, "factions": []string{"red", "blue"}})
-	blue := []any{own("b1", 2)}
-	// Blue arrives ahead of red, and red's round 2 never arrives.
-	assess("blue", 0, blue)
-	assess("red", 0, []any{own("r1", 4), own("r2", 3), own("r3", 1)}, contact("b2", 3, 5, 0, 0))
-	assess("blue", 1, blue)
-	assess("red", 1, []any{own("r1", 4), own("r2", 1)}, contact("b2", 3, 5, 0, 1))
-	assess("blue", 2, blue)
-	assess("blue", 3, blue)
-	assess("red", 3, []any{own("r1", 4), own("r2", 1)})
-	assess("blue", 4, blue)
-	assess("red", 4, []any{own("r1", 4), own("r2", 1)})
-	assess("blue", 5, blue)
-	assess("red", 5, []any{own("r1", 4), own("r2", 1)})
-	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 5, "reason": "limit"})
-	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
-	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
-		if s.Name != "assessments" {
-			continue
-		}
-		rep, out := reporter()
-		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-		cmd.SetArgs([]string{"--exercise", exerciseID, "--summary", "--wait", "5s"})
-		if err := cmd.ExecuteContext(t.Context()); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-		got := out.String()
-		for _, w := range []string{
-			"  round 0\n" +
-				"    red   3 elements, strength 8\n" +
-				"          sees       b2(3) a:5,5\n" +
-				"          objectives held a:0,0 · blue a:0,4 · unheld a:4,4 · unknown b:3,3\n" +
-				"    blue  1 element, strength 2\n",
-			"    red   2 elements, strength 5 (-3, lost r3)\n" +
-				"          sees       none\n" +
-				"          remembers  b2(3) at a:5,5, 1 round ago\n" +
-				"          objectives held a:0,0 · blue a:0,4 (1 round ago) · unheld a:4,4 · unknown b:3,3\n",
-			"    red   no assessment of this round",
-			"          dropped    b2, last seen 3 rounds ago",
-			"concluded after round 5 with no winner: limit",
-		} {
-			if !strings.Contains(got, w) {
-				t.Errorf("narration lacks %q:\n%s", w, got)
-			}
-		}
-		// After red's drop, both pictures change only in the objective's age.
-		if !strings.Contains(got, "rounds 4–5: no change") || strings.Contains(got, "round 4\n") {
-			t.Errorf("rounds 4 and 5 are not collapsed:\n%s", got)
-		}
-		t.Log("\n" + got)
-	}
-}
-
-// Rounds in which no faction's picture changes collapse into one line.
-func TestAssessmentsSummaryCollapsesQuietRounds(t *testing.T) {
-	b := memory.New()
-	publishJSON(t, b, "s", "exercise.started", map[string]any{"exercise": exerciseID, "factions": []string{"red", "blue"}})
-	for r := range 5 {
-		for _, f := range []string{"red", "blue"} {
-			publishJSON(t, b, f+strconv.Itoa(r), "intelligence.assessment.issued", map[string]any{
-				"exercise": exerciseID, "faction": f, "round": r,
-				"own": []any{map[string]any{"id": f + "1", "strength": 2, "at": map[string]any{"sector": "a", "x": 0, "y": 0}}},
-			})
-		}
-	}
-	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 4, "reason": "limit"})
-	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
-	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
-		if s.Name != "assessments" {
-			continue
-		}
-		rep, out := reporter()
-		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-		cmd.SetArgs([]string{"--exercise", exerciseID, "--summary", "--wait", "5s"})
-		if err := cmd.ExecuteContext(t.Context()); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-		got := out.String()
-		if !strings.Contains(got, "  round 0\n") || !strings.Contains(got, "rounds 1–4: no change") || strings.Contains(got, "round 1\n") {
-			t.Errorf("narration:\n%s", got)
-		}
-	}
-}
-
-// A faction's first round that arrives after the other faction's later one
-// is still narrated, in order: the summary begins at round 0, not at the
-// first round it receives.
-func TestAssessmentsSummaryNarratesALateFirstRound(t *testing.T) {
-	b := memory.New()
-	publishJSON(t, b, "s", "exercise.started", map[string]any{"exercise": exerciseID, "factions": []string{"red", "blue"}})
-	assess := func(f string, r int) {
-		publishJSON(t, b, f+strconv.Itoa(r), "intelligence.assessment.issued", map[string]any{
-			"exercise": exerciseID, "faction": f, "round": r,
-			"own": []any{map[string]any{"id": f + strconv.Itoa(r), "strength": 1, "at": map[string]any{"sector": "a", "x": 0, "y": 0}}},
-		})
-	}
-	// Red's round 0 is never assessed, and blue's arrives after red's round 1.
-	assess("red", 1)
-	assess("blue", 0)
-	assess("blue", 1)
-	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 1, "reason": "limit"})
-	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
-	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
-		if s.Name != "assessments" {
-			continue
-		}
-		rep, out := reporter()
-		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-		cmd.SetArgs([]string{"--exercise", exerciseID, "--summary", "--wait", "5s"})
-		if err := cmd.ExecuteContext(t.Context()); err != nil {
-			t.Fatalf("%v\n%s", err, out)
-		}
-		got := out.String()
-		r0, r1 := strings.Index(got, "  round 0\n"), strings.Index(got, "  round 1\n")
-		if r0 < 0 || r1 < r0 || !strings.Contains(got, "red   no assessment of this round") {
-			t.Errorf("narration:\n%s", got)
-		}
-	}
-}
-
-// Each round's block ends with the directives decided on it: each element
-// whose directive changed, with what it was doing before, and none for an
-// element whose directive stands. A directive without a rule, as courier's
-// stand-in issues, heads for its target. Unsummarized, a directive is
-// narrated as it arrives.
+// A directive is narrated as it arrives: each squad whose directive
+// changed, with what it was doing before, and none whose directive stands.
+// command's secure rule reads as a capture, and a directive without a rule,
+// as courier's stand-in issues, heads for its target.
 func TestAssessmentsNarratesDirectives(t *testing.T) {
 	b := memory.New()
 	at := func(x, y int) map[string]any { return map[string]any{"sector": "a", "x": x, "y": y} }
@@ -301,44 +152,20 @@ func TestAssessmentsNarratesDirectives(t *testing.T) {
 		if s.Name != "assessments" {
 			continue
 		}
-		for _, args := range [][]string{{"--summary"}, {}} {
-			rep, out := reporter()
-			cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-			cmd.SetArgs(append([]string{"--exercise", exerciseID, "--wait", "5s"}, args...))
-			if err := cmd.ExecuteContext(t.Context()); err != nil {
-				t.Fatalf("%v\n%s", err, out)
-			}
-			got := out.String()
-			want := []string{
-				"round 0 red directs: r1 secures a:4,4 · r2 holds",
-				"round 1 red directs: r1 engages b2 at a:5,5 (was securing a:4,4)\n",
-				"round 0 blue directs: b1 heads for a:0,4",
-			}
-			if len(args) > 0 {
-				want = []string{
-					"  round 0\n" +
-						"    red   1 element, strength 2\n" +
-						"          sees       none\n" +
-						"          objectives none\n" +
-						"          directs    r1 secures a:4,4\n" +
-						"                     r2 holds\n" +
-						"    blue  1 element, strength 2\n" +
-						"          sees       none\n" +
-						"          objectives none\n" +
-						"          directs    b1 heads for a:0,4\n",
-					"  round 1\n" +
-						"    red   1 element, strength 2\n" +
-						"          sees       none\n" +
-						"          objectives none\n" +
-						"          directs    r1 engages b2 at a:5,5 (was securing a:4,4)\n" +
-						"    blue  1 element, strength 2\n",
-					"round 2: no change",
-				}
-			}
-			for _, w := range want {
-				if !strings.Contains(got, w) {
-					t.Errorf("%v: narration lacks %q:\n%s", args, w, got)
-				}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--exercise", exerciseID, "--wait", "5s"})
+		if err := cmd.ExecuteContext(t.Context()); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		got := out.String()
+		for _, w := range []string{
+			"round 0 red directs: r1 captures a:4,4 · r2 holds",
+			"round 1 red directs: r1 engages b2 at a:5,5 (was capturing a:4,4)\n",
+			"round 0 blue directs: b1 heads for a:0,4",
+		} {
+			if !strings.Contains(got, w) {
+				t.Errorf("narration lacks %q:\n%s", w, got)
 			}
 		}
 	}

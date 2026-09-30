@@ -25,6 +25,12 @@
 // The assessments scenario joins the same stream and narrates one
 // exercise's intelligence.assessment.issued events and the
 // command.directive.issued events decided on them, until the exercise
-// concludes. It narrates each event in full or, with --summary, round by
-// round for an exercise with many elements.
+// concludes.
+//
+// The theater scenario is the demonstration. It joins the same stream
+// before an exercise starts and narrates the exercise as the services play
+// it: the initial conditions, one line for each event that changes
+// something, tagged with its round, its service, and its faction, and the
+// final conditions, with the events on the stream by type and the median
+// latency of each hop in the chain.
 package scenario
