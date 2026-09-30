@@ -114,7 +114,7 @@ func TestDecodesTheEventShapes(t *testing.T) {
 			"at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"recovering",
 			"at":{"sector":"a","x":1,"y":0},"seen":3,"age":1}],
-		"objectives":[{"at":{"sector":"a","x":2,"y":0},"holder":"blue","known":true,"seen":4,"age":0}],
+		"objectives":[{"at":{"sector":"a","x":2,"y":0},"holder":"blue","known":true,"seen":2,"age":2}],
 		"explored":[{"sector":"a","x":0,"y":0},{"sector":"a","x":2,"y":0}]}`), &a); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestDecodesTheEventShapes(t *testing.T) {
 		Own:   []decide.Element{engaged(squad("r1", loc("a", 0, 0), 100, 100, 87))},
 		Contacts: []decide.Contact{{ID: "b1", Kind: decide.Scout, Strength: 100, Status: decide.Recovering,
 			At: loc("a", 1, 0), Age: 1}},
-		Objectives: []decide.Objective{held("blue", loc("a", 2, 0))},
+		Objectives: []decide.Objective{stale(held("blue", loc("a", 2, 0)), 2)},
 		Explored:   []decide.Location{loc("a", 0, 0), loc("a", 2, 0)},
 	}
 	if !reflect.DeepEqual(a, wantA) {
@@ -136,6 +136,7 @@ func TestDecodesTheEventShapes(t *testing.T) {
 		{Element: "r3", Rule: decide.Retreat, Contact: "b1", Target: &target},
 		{Element: "r4", Rule: decide.Pursue, Contact: "b1", Target: &target},
 		{Element: "r5", Rule: decide.Search, Target: &target},
+		{Element: "r6", Rule: decide.Rescout, Target: &target},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +145,8 @@ func TestDecodesTheEventShapes(t *testing.T) {
 		`{"element":"r2","rule":"hold","target":null},` +
 		`{"element":"r3","rule":"retreat","contact":"b1","target":{"sector":"a","x":1,"y":0}},` +
 		`{"element":"r4","rule":"pursue","contact":"b1","target":{"sector":"a","x":1,"y":0}},` +
-		`{"element":"r5","rule":"search","target":{"sector":"a","x":1,"y":0}}]`
+		`{"element":"r5","rule":"search","target":{"sector":"a","x":1,"y":0}},` +
+		`{"element":"r6","rule":"rescout","target":{"sector":"a","x":1,"y":0}}]`
 	if string(out) != wantJSON {
 		t.Errorf("decisions encode as %s", out)
 	}
@@ -271,8 +273,9 @@ func TestARetreatWithNowhereToGoHolds(t *testing.T) {
 
 // A ready or recovering squad within four steps of a fight its faction
 // holds reinforces it, before any engage or objective, and any number may
-// reinforce one fight. A squad out of reach and a scout do not; nor is a
-// fight left by a retreat one to reinforce.
+// reinforce one fight. A squad out of reach and a scout do not, and the
+// scout, with nothing else to do, rescouts the objective r4 secures; nor
+// is a fight left by a retreat one to reinforce.
 func TestSquadsReinforceAFight(t *testing.T) {
 	fight := loc("a", 2, 2)
 	recovering := squad("r3", loc("a", 5, 2))
@@ -294,12 +297,12 @@ func TestSquadsReinforceAFight(t *testing.T) {
 	}
 	check(t, decide.Decide(open(7, 7), "red", a, nil),
 		"r1 pursue b1 a:2,2", "r2 reinforce b1 a:2,2", "r3 reinforce b1 a:2,2",
-		"r4 secure a:6,0", "r5 hold")
+		"r4 secure a:6,0", "r5 rescout a:6,0")
 
 	a.Own[0] = engaged(scout("r1", fight))
 	check(t, decide.Decide(open(7, 7), "red", a, nil),
 		"r1 retreat b1 a:2,1", "r2 engage b2 a:3,5", "r3 engage b1 a:2,2",
-		"r4 secure a:6,0", "r5 hold")
+		"r4 secure a:6,0", "r5 rescout a:6,0")
 }
 
 // A fight four steps off is in a squad's reach to reinforce, one five
@@ -351,7 +354,7 @@ func TestSecuresTheNearestObjectiveNotHeld(t *testing.T) {
 }
 
 // No two elements secure one objective: each takes the nearest none
-// before it in ID order took, and one with none left holds.
+// before it in ID order took, and one with none left rescouts instead.
 func TestSecuresEachObjectiveOnce(t *testing.T) {
 	a := decide.Assessment{
 		Own: []decide.Element{
@@ -363,7 +366,7 @@ func TestSecuresEachObjectiveOnce(t *testing.T) {
 		Explored:   explored(open(5, 5)),
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil),
-		"r1 secure a:2,0", "r2 secure a:4,0", "r3 hold")
+		"r1 secure a:2,0", "r2 secure a:4,0", "r3 rescout a:4,0")
 }
 
 // An element keeps the objective it was securing, though another is now
@@ -382,9 +385,10 @@ func TestKeepsAStandingTarget(t *testing.T) {
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, standing), "r1 secure a:0,0", "r2 secure a:4,0")
 
-	// Once r1's objective is held, it picks again.
+	// Once r1's objective is held, it picks again, and with none left to
+	// secure, rescouts the one r2 secures.
 	a.Objectives[1] = held("red", loc("a", 0, 0))
-	check(t, decide.Decide(open(5, 5), "red", a, standing), "r1 hold", "r2 secure a:4,0")
+	check(t, decide.Decide(open(5, 5), "red", a, standing), "r1 rescout a:4,0", "r2 secure a:4,0")
 }
 
 // An engage outranks a standing target, and a standing target the element
@@ -510,6 +514,100 @@ func TestKeepsAStandingSearch(t *testing.T) {
 
 	a.Explored = append(a.Explored, far)
 	check(t, decide.Decide(m, "red", a, standing), "r1 search a:1,0")
+}
+
+// stale returns o, last seen age rounds ago.
+func stale(o decide.Objective, age int) decide.Objective {
+	o.Age = age
+	return o
+}
+
+// An element with nothing else to do rescouts the objective not held that
+// was seen longest ago, though a nearer one is fresher, ties going to the
+// nearest, and though another element secures it. One its faction knows
+// it holds is not rescouted, however stale, nor one the element stands on.
+func TestRescoutsTheStalestObjectiveNotHeld(t *testing.T) {
+	m := open(9, 1)
+	a := decide.Assessment{
+		Own: []decide.Element{
+			squad("r1", loc("a", 4, 0)),
+			squad("r2", loc("a", 1, 0)),
+			squad("r3", loc("a", 7, 0)),
+			squad("r4", loc("a", 3, 0)),
+		},
+		Objectives: []decide.Objective{
+			stale(held("blue", loc("a", 5, 0)), 1),
+			stale(held("blue", loc("a", 0, 0)), 3),
+			stale(held("red", loc("a", 2, 0)), 6),
+			stale(unknown(loc("a", 8, 0)), 3),
+		},
+		Explored: explored(m),
+	}
+	check(t, decide.Decide(m, "red", a, nil),
+		"r1 secure a:5,0", "r2 secure a:0,0", "r3 secure a:8,0", "r4 rescout a:0,0")
+
+	a.Own[3] = squad("r4", loc("a", 0, 0))
+	check(t, decide.Decide(m, "red", a, nil),
+		"r1 secure a:5,0", "r2 secure a:0,0", "r3 secure a:8,0", "r4 rescout a:8,0")
+}
+
+// No two elements rescout one objective: each takes the stalest none
+// before it in ID order took, and an unreachable one is skipped.
+func TestRescoutsEachObjectiveOnce(t *testing.T) {
+	m := open(5, 3, decide.Point{X: 3, Y: 2}, decide.Point{X: 4, Y: 1})
+	a := decide.Assessment{
+		Own: []decide.Element{
+			squad("r1", loc("a", 2, 0)),
+			squad("r2", loc("a", 0, 2)),
+			squad("r3", loc("a", 0, 1)),
+			scout("r4", loc("a", 1, 1)),
+		},
+		Objectives: []decide.Objective{
+			stale(held("blue", loc("a", 3, 0)), 1),
+			stale(unknown(loc("a", 0, 0)), 2),
+			stale(held("blue", loc("a", 4, 2)), 9), // walled off
+		},
+		Explored: explored(m),
+	}
+	check(t, decide.Decide(m, "red", a, nil),
+		"r1 secure a:3,0", "r2 secure a:0,0", "r3 rescout a:0,0", "r4 rescout a:3,0")
+}
+
+// With every objective known to be its faction's and nothing unexplored,
+// an element holds.
+func TestHoldsWhenEveryObjectiveIsHeld(t *testing.T) {
+	m := open(5, 5)
+	a := decide.Assessment{
+		Own:        []decide.Element{squad("r1", loc("a", 0, 0)), scout("r2", loc("a", 4, 4))},
+		Objectives: []decide.Objective{stale(held("red", loc("a", 2, 2)), 8), held("red", loc("a", 4, 0))},
+		Explored:   explored(m),
+	}
+	check(t, decide.Decide(m, "red", a, nil), "r1 hold", "r2 hold")
+}
+
+// An element keeps the objective it was rescouting while it is still not
+// held, though another is now staler, and its standing target is claimed
+// before any element picks; once the objective is held, it picks again.
+func TestKeepsAStandingRescout(t *testing.T) {
+	m := open(5, 1)
+	a := decide.Assessment{
+		Own: []decide.Element{squad("r1", loc("a", 2, 0)), squad("r2", loc("a", 3, 0)), squad("r3", loc("a", 1, 0))},
+		Objectives: []decide.Objective{
+			stale(held("blue", loc("a", 0, 0)), 5),
+			stale(held("blue", loc("a", 4, 0)), 1),
+		},
+		Explored: explored(m),
+	}
+	far, near := loc("a", 4, 0), loc("a", 0, 0)
+	standing := []decide.Decision{
+		{Element: "r1", Rule: decide.Rescout, Target: &far},
+		{Element: "r2", Rule: decide.Secure, Target: &near},
+		{Element: "r3", Rule: decide.Secure, Target: &far},
+	}
+	check(t, decide.Decide(m, "red", a, standing), "r1 rescout a:4,0", "r2 secure a:0,0", "r3 secure a:4,0")
+
+	a.Objectives[1] = held("red", far)
+	check(t, decide.Decide(m, "red", a, standing), "r1 rescout a:0,0", "r2 secure a:0,0", "r3 hold")
 }
 
 // Every decision is in ID order, one per own element, and an assessment

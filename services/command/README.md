@@ -39,8 +39,11 @@ payload into its command's input, its own reading of the payload:
 Every command claims its event through the inbox, so a redelivery changes nothing. An input for
 a direction not open yet, as when an assessment is handled before its start, is redelivered after
 250ms rather than refused.
+`Decide` skips an assessment of a round earlier than the one it last decided on, and decides
+again on an assessment of that round: intelligence revises one when the faction loses an
+objective.
 
-`Decide` applies seven rules to each live element, in order, by path distance over open cells and
+`Decide` applies eight rules to each live element, in order, by path distance over open cells and
 gates. An element is engaged when intelligence reports it so and an enemy was seen in its cell this
 round. Objectives are hidden: an assessment lists only the objectives its faction has discovered,
 and the cells its elements have ever had in sight; any other open cell is unexplored.
@@ -65,11 +68,16 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
    element is searching, preferring one more than two cells from every cell already taken, so the
    searchers spread. Scouts pick before squads, and an element keeps the cell it was searching
    while that cell is still unexplored.
-7. **Hold.** Otherwise it stands where it is.
+7. **Rescout.** Otherwise the element heads for the discovered objective its faction isn't known
+   to hold that was seen longest ago, ties going to the nearest, that no other element is
+   rescouting and that it doesn't stand on, though another element may be securing it. An idle
+   element so refreshes a belief that may be stale, and keeps the objective it was rescouting
+   while that objective is still one to secure.
+8. **Hold.** Otherwise it stands where it is.
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where `rule` is `retreat`,
-`pursue`, `engage`, `reinforce`, `secure`, `search`, or `hold`, and a hold's target is null. A
+`pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a hold's target is null. A
 retreat, a pursue, an engage, and a reinforce have a contact: the enemy the element leaves, fights,
 or heads for, the strongest in the cell when a fight holds several. The service emits the event only
 when a decision changes an element's target or rule. The event lists every live element, so it

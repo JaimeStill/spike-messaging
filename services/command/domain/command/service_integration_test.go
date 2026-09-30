@@ -170,7 +170,8 @@ func summary(d command.DirectiveData) string {
 
 // A directive is issued only on a round whose decisions send an element
 // somewhere new, and it lists every live element. r1 secures the objective
-// and r2 holds; an unchanged round issues nothing; r1 engages a weak
+// and r2, with nothing else to do, rescouts it; an unchanged round issues
+// nothing; r1 engages a weak
 // contact and r2 takes the objective over; once the objective is known to
 // be red's and the contact is gone, both hold.
 func TestDecideIssuesDirectivesOnChange(t *testing.T) {
@@ -193,7 +194,7 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 		round int
 		text  string
 	}{
-		{0, "r1 secure a:4,0, r2 hold"},
+		{0, "r1 secure a:4,0, r2 rescout a:4,0"},
 		{2, "r1 engage b1 a:2,0, r2 secure a:4,0"},
 		{3, "r1 hold, r2 hold"},
 	}
@@ -252,8 +253,8 @@ func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 	}
 }
 
-// An assessment of a round the direction already decided on changes
-// nothing.
+// An assessment of a round before the one the direction last decided on
+// changes nothing, and a repeat of that round decides the same.
 func TestStaleAssessmentsAreSkipped(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
@@ -312,14 +313,35 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 		if err := svc.Decide(t.Context(), red(id, 0, unknown), claim); err != nil {
 			t.Fatal(err)
 		}
-		// A repeat of a round would be skipped anyway, and would change no
-		// target; the claim must stop it first, so reset the direction.
+		// A repeat of a round would change no target anyway; the claim
+		// must stop it first, so reset the direction.
 		if _, err := db.ExecContext(t.Context(), `UPDATE direction SET round = -1, decisions = '[]'`); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := directives(t, db); len(got) != 1 {
 		t.Errorf("outbox holds %d directives, want 1", len(got))
+	}
+}
+
+// A revised assessment of the round last decided on is decided on again:
+// once red learns blue has taken the objective it held, both elements head
+// for it, and a repeat of the revision issues nothing.
+func TestARevisedAssessmentIsDecidedAgain(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	for _, c := range []command.Decide{
+		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+	} {
+		if err := svc.Decide(t.Context(), c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := directives(t, db)
+	if len(got) != 1 || got[0].Round != 1 || summary(got[0]) != "r1 secure a:4,0, r2 rescout a:4,0" {
+		t.Errorf("outbox holds %+v, want the revision's directive alone", got)
 	}
 }
 
@@ -359,8 +381,8 @@ func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	}
 }
 
-// Two replicas handling one round's assessment at once decide on it once:
-// the row lock orders them, and the second skips the round.
+// Two replicas handling one round's assessment at once issue one
+// directive: the row lock orders them, and the second decides the same.
 func TestConcurrentAssessmentsIssueOnce(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)

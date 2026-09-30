@@ -37,7 +37,12 @@
 //     that none of its other elements is searching, preferring one farther
 //     than [SpreadRange] from every cell they search, so the searchers
 //     spread. Scouts pick before squads;
-//  7. hold: otherwise it stands where it is.
+//  7. rescout: otherwise an element heads for the discovered objective its
+//     faction does not hold that was seen longest ago, ties going to the
+//     nearest, that none of its other elements is rescouting and that it
+//     does not stand on. It may head for one another element secures, so
+//     elements left idle refresh the faction's beliefs;
+//  8. hold: otherwise it stands where it is.
 //
 // An element is engaged when the assessment gives it that status and a
 // contact was seen in its cell this round. A retreat draws fire only from
@@ -63,11 +68,12 @@
 // objective as it was last seen, so an objective the faction believes it
 // holds is not secured until an element sees it again.
 //
-// An element keeps the objective it was securing while that objective is
-// still one to secure and it can still reach it, and the cell it was
-// searching while that cell is still unexplored, so a faction's targets do
-// not trade places as its elements move. Those standing targets are
-// claimed before any element picks a new one: standing objectives before
-// any objective, and within each kind, standing search cells before any
-// search cell.
+// An element keeps the objective it was securing or rescouting while that
+// objective is still one to secure and it can still reach it, and the cell
+// it was searching while that cell is still unexplored, so a faction's
+// targets do not trade places as its elements move. Those standing targets
+// are claimed before any element picks a new one under the same rule:
+// standing objectives before any objective, within each kind standing
+// search cells before any search cell, and standing rescouts before any
+// rescout.
 package decide

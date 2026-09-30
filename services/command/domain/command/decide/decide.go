@@ -105,11 +105,13 @@ type Contact struct {
 
 // Objective is what the assessment knows of one objective the faction has
 // discovered. Holder is the faction that held it when last seen, and means
-// nothing unless Known.
+// nothing unless Known. Age is how many rounds ago it was last seen, 0 for
+// this round.
 type Objective struct {
 	At     Location `json:"at"`
 	Holder string   `json:"holder"`
 	Known  bool     `json:"known"`
+	Age    int      `json:"age"`
 }
 
 // Assessment is what a faction knows after a round, as far as command reads
@@ -147,6 +149,10 @@ const (
 	Secure Rule = "secure"
 	// Search heads an element for an unexplored cell.
 	Search Rule = "search"
+	// Rescout heads an element with nothing else to do for the discovered
+	// objective its faction does not hold that was seen longest ago, so a
+	// stale belief is refreshed.
+	Rescout Rule = "rescout"
 	// Hold keeps an element where it stands.
 	Hold Rule = "hold"
 )
@@ -163,9 +169,9 @@ type Decision struct {
 
 // Decide returns a decision for each of the assessment's own elements, in
 // ID order, for faction. standing holds the decisions made on an earlier
-// assessment: an element that was securing an objective or searching a
-// cell keeps it while it is still one to secure or search and the element
-// can reach it.
+// assessment: an element that was securing or rescouting an objective or
+// searching a cell keeps it while it is still one to secure, rescout, or
+// search and the element can reach it.
 func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision {
 	own := slices.Clone(a.Own)
 	slices.SortFunc(own, func(x, y Element) int { return cmp.Compare(x.ID, y.ID) })
@@ -302,12 +308,60 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		}
 	}
 
+	// An element with nothing else to do rescouts an objective not held,
+	// though another element secures it. Standing rescout targets are
+	// claimed first, in ID order, then each element picks the stalest
+	// objective no other rescout has claimed. None rescouts the objective
+	// it stands on.
+	rescouted := map[Location]bool{}
+	for i, e := range own {
+		d, ok := was[e.ID]
+		if decisions[i].Rule != "" || !ok || d.Rule != Rescout || d.Target == nil {
+			continue
+		}
+		at := *d.Target
+		if _, reach := dist[i][at]; reach && open[at] && at != e.At && !rescouted[at] {
+			rescouted[at] = true
+			decisions[i] = Decision{Element: e.ID, Rule: Rescout, Target: &at}
+		}
+	}
+	for i, e := range own {
+		if decisions[i].Rule != "" {
+			continue
+		}
+		if at, ok := stalest(a.Objectives, dist[i], func(l Location) bool {
+			return open[l] && l != e.At && !rescouted[l]
+		}); ok {
+			rescouted[at] = true
+			decisions[i] = Decision{Element: e.ID, Rule: Rescout, Target: &at}
+		}
+	}
+
 	for i, e := range own {
 		if decisions[i].Rule == "" {
 			decisions[i] = Decision{Element: e.ID, Rule: Hold}
 		}
 	}
 	return decisions
+}
+
+// stalest returns the location of the objective seen longest ago that dist
+// reaches and ok accepts, ties going to the nearest, then to the lowest by
+// [Location.String], or false when none is.
+func stalest(objectives []Objective, dist map[Location]int, ok func(Location) bool) (Location, bool) {
+	var best Objective
+	found := false
+	for _, o := range objectives {
+		n, reach := dist[o.At]
+		if !reach || !ok(o.At) {
+			continue
+		}
+		if !found || o.Age > best.Age || o.Age == best.Age &&
+			(n < dist[best.At] || n == dist[best.At] && o.At.String() < best.At.String()) {
+			best, found = o, true
+		}
+	}
+	return best.At, found
 }
 
 // apart reports whether l lies farther than [SpreadRange], by Chebyshev
