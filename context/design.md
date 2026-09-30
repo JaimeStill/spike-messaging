@@ -271,11 +271,14 @@ The evidence from operations (`services/operations/internal/app`):
   build today only through `go.work`.
 - How trace context propagates as the CloudEvents `traceparent` extension alongside
   go-observability.
-- A consumer that skips stale input must not lose state it will never be sent again. command
-  issues a directive only when a target changes, so operations must apply the newest directive
-  even behind its last observed round, and skips only an older directive; each directive carries
-  the faction's whole target state for that. Whether go-messaging should name this pattern, a
-  change-only event that carries its full state, for other services to follow.
+- A consumer that skips stale input must not lose state it will never be sent again. The
+  skirmish settled the pattern in practice: a producer that emits only on change carries its
+  whole state in each event, and a monotonic counter the producer keeps orders them. command's
+  directive carries every element's target and a `sequence`, and operations skips one at or below
+  the last it applied; intelligence's assessment carries a `revision`, and command skips one at or
+  below the last it decided. Round numbers could not order them, because a revision shares its
+  round with the original. Whether go-messaging should name the pattern, a change-only event with
+  its full state and a producer's sequence, for other services to follow.
 
 ## The CLI layout
 
