@@ -36,7 +36,8 @@ const (
 const settle = 3 * time.Second
 
 // The theater's own readings of the payloads it narrates, as far as it reads
-// them: the services share no Go types.
+// them: the services share no Go types. The narration calls an exercise
+// element a squad, so the type for an element is squad.
 type (
 	theaterStarted struct {
 		Exercise string `json:"exercise"`
@@ -100,10 +101,10 @@ type (
 )
 
 // theaterScenario joins the exercise services' stream and narrates one
-// exercise as a demonstration: its initial conditions, one line for each
-// event that changes something, as the services issue them, and its final
-// conditions, with a ledger of the stream's traffic and the chain's
-// latency.
+// exercise as a demonstration. It narrates the initial conditions, then one
+// line for each event that changes something, as the services issue them,
+// then the final conditions, with a ledger of the stream's traffic and the
+// chain's latency.
 func theaterScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, stream, prefix string
 	maxAge := 24 * time.Hour
@@ -214,8 +215,8 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 // conditions once the start and round 0's observations are in, then one
 // line for each event that changes something, and, on demand, the final
 // conditions. It records each event's type and time for the ledger. Its
-// methods are safe to call from the reactor's goroutine and the scenario's
-// at once.
+// methods are safe to call concurrently from the reactor's goroutine and
+// the scenario's.
 type narrator struct {
 	exercise                    string
 	note                        func(string, ...any)
@@ -462,10 +463,10 @@ func (n *narrator) assessed(d assessmentData) {
 
 // ordered records a faction's orders for their round. operations issues a
 // round's orders when it sees the round before, and issues them again when
-// a directive changes them, and exercise keeps the last it records; so the
-// orders are narrated when their round resolves, as the ones in effect,
-// and orders for a round already resolved, which exercise refuses, are
-// not narrated at all.
+// a directive changes them. exercise keeps the last orders it records, so
+// the theater narrates a round's orders when the round resolves, as the
+// orders in effect. It does not narrate orders for a round already
+// resolved, which exercise refuses.
 func (n *narrator) ordered(d ordersData) {
 	if d.Round <= n.resolves {
 		return
@@ -640,9 +641,9 @@ func squads(ss []squad, full bool) string {
 type standing map[string]map[string]directive
 
 // changes renders each directive of d that does not continue its element's
-// last one, and records d as the faction's standing directives. Each line names
-// what the squad now does and, when it was doing something else, what that
-// was.
+// last one, and records d as the faction's standing directives. Each line
+// names what the squad now does and, when it was doing something else, what
+// that was.
 func (s standing) changes(d directiveData) []string {
 	was := s[d.Faction]
 	now := make(map[string]directive, len(d.Directives))
@@ -675,9 +676,9 @@ func sameDirective(a, b directive) bool {
 
 // doing renders what a directive has its squad do, in the present tense
 // ("engages b2 at a:5,5") or, when was is set, as a participle ("engaging
-// b2 at a:5,5"). command's secure rule reads as a capture. A directive
-// without a rule, as courier's stand-in issues, heads for its target or
-// holds.
+// b2 at a:5,5"). The narration reads command's secure rule as a capture. A
+// directive without a rule, as courier's stand-in issues, heads for its
+// target, or holds when it has none.
 func doing(x directive, was bool) string {
 	verb := func(present, participle string) string {
 		if was {

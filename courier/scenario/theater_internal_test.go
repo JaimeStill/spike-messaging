@@ -54,12 +54,13 @@ func sq(id, kind string, strength int, at map[string]any) map[string]any {
 }
 
 // The narrator tells the initial conditions once the start and both round-0
-// observations are in, then one line for each event that changes something
-// (a sighting, a changed directive, a new set of moving squads in the
-// orders in effect for a round, a fight, a loss, a capture, an objective
-// seen held) and nothing for one that changes nothing: an engagement
-// pursuing its contact, or orders exercise refuses as late. Its final conditions give the verdict, the holders, the
-// survivors and losses, the events by type, and the median of each hop.
+// observations are in. It then tells one line for each event that changes
+// something (a sighting, a changed directive, a new set of moving squads in
+// the orders in effect for a round, a fight, a loss, a capture, an
+// objective seen held) and nothing for an event that changes nothing (an
+// engagement pursuing its contact, or orders that exercise refuses as
+// late). Its final conditions give the verdict, the holders, the survivors
+// and losses, the events by type, and the median latency of each hop.
 func TestNarratorTellsWhatChanges(t *testing.T) {
 	s := newScript(t)
 	s.at(0, startedType, map[string]any{

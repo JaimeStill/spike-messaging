@@ -57,15 +57,15 @@ type Resolution struct {
 	Losses      []Loss       `json:"losses"`
 }
 
-// Engagement is one cell's fight in a round: every element in it, both
-// factions', with its strength before and after the round's losses.
+// Engagement is one cell's fight in a round: every element in the cell, of
+// both factions.
 type Engagement struct {
 	At       Location  `json:"at"`
 	Elements []Engaged `json:"elements"`
 }
 
 // Engaged is one element of an [Engagement]: its strength before and after
-// the round's losses, 0 after when it was destroyed.
+// the round's losses. After is 0 when the element was destroyed.
 type Engaged struct {
 	ID      string `json:"id"`
 	Faction string `json:"faction"`
@@ -73,8 +73,8 @@ type Engaged struct {
 	After   int    `json:"after"`
 }
 
-// Capture is an objective that changed hands: the faction that holds it now,
-// and the one that held it before, "" when it was unheld.
+// Capture is an objective that changed hands. Faction holds it now, and From
+// held it before ("" when it was unheld).
 type Capture struct {
 	At      Location `json:"at"`
 	Faction string   `json:"faction"`
@@ -87,7 +87,7 @@ type Loss struct {
 	Faction string `json:"faction"`
 }
 
-// move applies every order at once, refusing the ones the rules refuse,
+// move applies every order at once. It refuses the orders the rules refuse
 // and every order of an element pinned in a fight.
 func move(s *State, orders []Order) {
 	byID := make(map[string]Order, len(orders))
@@ -220,8 +220,8 @@ func absorb(es []Element, loss int) []Element {
 }
 
 // capture gives each objective held by exactly one faction's elements to
-// that faction, and returns each objective that changed hands, in the
-// map's order.
+// that faction, and returns each objective that changed hands, in the map's
+// objective order.
 func capture(s *State) []Capture {
 	on := make(map[string]map[string]bool)
 	for _, e := range s.Elements {

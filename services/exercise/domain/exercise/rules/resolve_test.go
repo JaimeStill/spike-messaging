@@ -307,7 +307,7 @@ func TestEngage(t *testing.T) {
 }
 
 // A fight lasts while both sides stay in the cell: a force of 4 against one
-// of 3 takes two rounds, and the resolution records each round's strengths
+// of 3 takes two rounds. Each round's resolution records the strengths
 // before and after, and the loss in the round it happens.
 func TestAFightLastsRounds(t *testing.T) {
 	c := loc("a", 1, 1)
@@ -342,7 +342,7 @@ func TestAFightLastsRounds(t *testing.T) {
 
 // A fight holds its elements: an element that starts the round in a cell
 // with the enemy cannot move out, so the fight runs until one side is
-// destroyed, and an element outside the fight still moves.
+// destroyed. An element outside the fight still moves.
 func TestAFightPinsItsElements(t *testing.T) {
 	c := loc("a", 1, 1)
 	s := state(force("r1", "red", 4, c), force("b1", "blue", 3, c), force("r2", "red", 2, loc("a", 3, 3)))

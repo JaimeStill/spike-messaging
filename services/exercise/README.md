@@ -20,15 +20,15 @@ mise run exercise-serve   # run the service on 127.0.0.1:8081
 databases when the volume is first initialized. The service migrates only its own schema, at
 startup.
 
-`fixtures/skirmish.json` is the demonstration: a 9×5 field both sides start in and a 5×3 annex
-reached by a gate from the middle of each long edge, three objectives, and three squads a side,
+`fixtures/skirmish.json` is the demonstration: a 9×5 field that both sides start in, a 5×3 annex
+reached by a gate from the middle of each long edge, three objectives, and three elements a side,
 laid out so neither side is favored, over 20 rounds of 1s. `fixtures/theater.json` is a larger
 exercise: three sectors joined by gates, walls and obstacle fields, five objectives, and six
-elements a side. With all four exercise services running, `mise run demo-theater` creates and
-starts the skirmish, or the theater with `FIXTURE=theater`, and narrates it through courier's
-`theater` scenario. `mise run demo-theater-check` then reconciles every assessment of the run
-against this service's history, the umpire's record, under the suppression rules, and reports
-what each faction wrongly believes at the end.
+elements a side. With all four exercise services running, `mise run demo-theater` creates and starts
+the skirmish, or the theater with `FIXTURE=theater`, and narrates it through courier's `theater`
+scenario, which calls elements squads. `mise run demo-theater-check` then reconciles every
+assessment of the run against this service's history, the umpire's record, under the suppression
+rules, and reports what each faction wrongly believes at the end.
 
 ## API
 

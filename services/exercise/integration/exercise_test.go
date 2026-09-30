@@ -136,11 +136,11 @@ func await(t *testing.T, what string, d time.Duration, ok func() bool) {
 
 // On the running binary, an exercise created and started over the API,
 // with both factions idle, resolves a round every interval on its own
-// reactor and ends at its round limit as a draw. Every
-// event reaches the stream in the chain's order: the start, each faction's
-// observation of each round from 0 to the limit, each round's resolution
-// before its observations, and the conclusion. The
-// umpire's view and the history agree.
+// reactor and ends at its round limit as a draw. Every event reaches the
+// stream in the chain's order: the start, then each round's resolution
+// before each faction's observation of that round (observations run from
+// round 0 to the limit), then the conclusion. The umpire's view and the
+// history agree.
 func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	c := s.Client()

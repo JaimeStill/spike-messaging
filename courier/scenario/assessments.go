@@ -239,7 +239,8 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 			return event.Permanent(err)
 		}
 		if len(w.factions) == 0 {
-			// The start aged out of the stream: wait for the factions seen.
+			// The start aged out of the stream: wait for the factions whose
+			// assessments were narrated.
 			for f := range w.last {
 				w.factions = append(w.factions, f)
 			}
