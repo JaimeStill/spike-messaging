@@ -20,7 +20,7 @@ mise run exercise-serve   # run the service on 127.0.0.1:8081
 databases when the volume is first initialized. The service migrates only its own schema, at
 startup.
 
-`fixtures/skirmish.json` is the demonstration: 40 rounds of 1s between red and blue, with no
+`fixtures/skirmish.json` is the demonstration: 30 rounds of 1s between red and blue, with no
 map, elements, or seed, so the service lays out the skirmish from a seed it draws. With all four
 exercise services running, `mise run demo-theater` creates and starts it, and narrates it through
 courier's `theater` scenario; `SEED=7 mise run demo-theater` replays seed 7. `mise run

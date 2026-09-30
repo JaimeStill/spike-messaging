@@ -27,8 +27,8 @@ func TestSkirmishFixture(t *testing.T) {
 	if c.Seed != nil || c.Map != nil || c.Elements != nil {
 		t.Errorf("the fixture gives a seed, map, or elements: %+v", c)
 	}
-	if c.RoundLimit != 40 || c.RoundInterval != "1s" {
-		t.Errorf("the fixture runs %d rounds of %s, want 40 of 1s", c.RoundLimit, c.RoundInterval)
+	if c.RoundLimit != 30 || c.RoundInterval != "1s" {
+		t.Errorf("the fixture runs %d rounds of %s, want 30 of 1s", c.RoundLimit, c.RoundInterval)
 	}
 	for _, seed := range []int64{0, 7} {
 		if got, want := c.state(seed), rules.Skirmish(seed, c.Factions); !reflect.DeepEqual(got, want) {
