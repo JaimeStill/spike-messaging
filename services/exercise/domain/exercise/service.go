@@ -198,17 +198,18 @@ func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 //
 // The command reads the exercise under a shared lock, so it waits for a
 // round being resolved and checks the orders against the round that
-// resolution leaves. It refuses the following with an error that
-// [event.IsPermanent] reports, because no redelivery could succeed:
+// resolution leaves. It skips an order for an exercise that concluded or
+// stopped, or for a round already resolved: the order is late, not wrong, so
+// the command records nothing and succeeds, and the claim holds, so a
+// redelivery is a repeat. The late faction's elements stood still. It
+// refuses the following with an error that [event.IsPermanent] reports,
+// because no redelivery could succeed:
 //
 //   - an exercise that does not exist ([ErrNotFound]);
 //   - a faction that is not one of the exercise's two, or a round past the
-//     round limit ([ErrValidation]);
-//   - an exercise that concluded or stopped, or an order for a round
-//     already resolved ([ErrConflict]).
+//     round limit ([ErrValidation]).
 //
-// A late order is dropped, so the late faction's elements stand still. A
-// refusal rolls back the claim with the rest of the transaction.
+// A refusal rolls back the claim with the rest of the transaction.
 // RecordOrders raises nothing.
 func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Claim) error {
 	_, err := s.command(ctx, func(tx *sqlate.Tx, _ *event.Queue) (struct{}, error) {
@@ -232,11 +233,8 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 		case !slices.Contains(ex.Factions[:], cmd.Faction):
 			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: faction %q is not in exercise %s",
 				ErrValidation, cmd.Faction, ex.ID))
-		case ex.Status == StatusConcluded || ex.Status == StatusStopped:
-			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w", conflict("record orders for", ex)))
-		case cmd.Round <= ex.Round:
-			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: round %d of exercise %s is already resolved",
-				ErrConflict, cmd.Round, ex.ID))
+		case ex.Status == StatusConcluded || ex.Status == StatusStopped || cmd.Round <= ex.Round:
+			return struct{}{}, nil
 		case cmd.Round > ex.RoundLimit:
 			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: round %d is past exercise %s's round limit, %d",
 				ErrValidation, cmd.Round, ex.ID, ex.RoundLimit))

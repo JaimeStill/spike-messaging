@@ -37,8 +37,9 @@ payload into its command's input, its own reading of the payload:
 | `command-concluded` | `exercise.concluded` | `Close` the exercise's directions |
 
 Every command claims its event through the inbox, so a redelivery changes nothing. An input for
-a direction not open yet, as when an assessment is handled before its start, is redelivered after
-250ms rather than refused.
+a direction not open yet, as when an assessment is handled before its start, is redelivered every
+250ms rather than refused, for up to 240 deliveries, about a minute. Every subscription starts
+at its consumer's creation, so a first boot skips the exercises the stream already retains.
 
 Intelligence numbers each faction's assessments in an exercise with a `revision`, from 1 up.
 `Decide` skips an assessment whose revision is no higher than the last one it decided on, so an

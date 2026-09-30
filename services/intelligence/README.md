@@ -40,7 +40,9 @@ payload into its command's input, its own reading of the payload:
 
 Every command claims its event through the inbox, so a redelivery changes nothing. An input for
 an assessment not open yet, as when a round's observation is handled before its start, is
-redelivered after 250ms rather than refused.
+redelivered every 250ms rather than refused, for up to 240 deliveries, about a minute. Every
+subscription starts at its consumer's creation, so a first boot skips the exercises the stream
+already retains.
 
 The service emits `intelligence.assessment.issued`, whose subject is the exercise's ID: `{exercise,
 faction, round, revision, own, contacts: [{id, faction, kind, strength, health, status, at, seen,

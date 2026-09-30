@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/services/exercise/data"
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise"
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
@@ -96,7 +95,7 @@ func TestStopWaitsOnAResolutionInFlight(t *testing.T) {
 
 // Orders recorded while a resolution holds the exercise wait for it, then
 // judge their round against the round it left: an order for the round just
-// resolved is refused permanently.
+// resolved is skipped and stored nowhere.
 func TestRecordOrdersWaitsOnAResolutionInFlight(t *testing.T) {
 	svc, db := setup(t)
 	ex := started(t, svc, func(c *exercise.CreateExercise) { c.RoundInterval = "1h" })
@@ -109,8 +108,11 @@ func TestRecordOrdersWaitsOnAResolutionInFlight(t *testing.T) {
 	if !blocked {
 		t.Error("the orders did not wait on the row lock")
 	}
-	if !event.IsPermanent(err) {
-		t.Errorf("orders for the round the resolution left = %v, want a permanent refusal", err)
+	if err != nil {
+		t.Errorf("orders for the round the resolution left = %v, want a skip", err)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM exercise_orders`); n != 0 {
+		t.Errorf("the skipped orders left %d rows", n)
 	}
 }
 

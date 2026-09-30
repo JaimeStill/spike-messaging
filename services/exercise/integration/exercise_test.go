@@ -234,10 +234,10 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	}
 }
 
-// Orders for a round already resolved are refused permanently: the orders
-// reactor terminates the delivery rather than redelivering it, so the
-// refusal is logged once, and the exercise is unchanged.
-func TestExercise_PastRoundOrdersAreTerminated(t *testing.T) {
+// Orders for a round already resolved are skipped: the orders reactor
+// handles and acknowledges the delivery rather than redelivering it, so it
+// is logged once, and the exercise is unchanged.
+func TestExercise_PastRoundOrdersAreSkipped(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	c := s.Client()
 	w := watch(t, s)
@@ -263,15 +263,22 @@ func TestExercise_PastRoundOrdersAreTerminated(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	await(t, "the refusal", 10*time.Second, func() bool { return strings.Contains(s.Output(), "event refused") })
-	time.Sleep(time.Second) // a redelivery would log the refusal again
+	await(t, "the skip", 10*time.Second, func() bool {
+		for line := range strings.Lines(s.Output()) {
+			if strings.Contains(line, "event="+id) && strings.Contains(line, "outcome=handled") {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(time.Second) // a redelivery would log the delivery again
 	if n := strings.Count(s.Output(), "event="+id); n != 1 {
-		t.Errorf("the refusal of %s was logged %d times, want once: the delivery must terminate", id, n)
+		t.Errorf("the delivery of %s was logged %d times, want once: the skip must acknowledge it", id, n)
 	}
 	state := webtest.Decode[positions](t, c.Get(t, "/api/exercises/"+ex.ID), http.StatusOK)
 	for _, e := range state.State.Elements {
 		if e.ID == "r1" && (e.At.X != 0 || e.At.Y != 0) {
-			t.Errorf("r1 moved to %d,%d on a refused order", e.At.X, e.At.Y)
+			t.Errorf("r1 moved to %d,%d on a skipped order", e.At.X, e.At.Y)
 		}
 	}
 }

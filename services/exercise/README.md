@@ -86,9 +86,12 @@ the exercise's ID:
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 
-The service consumes `operations.orders.issued` through the `exercise-orders` subscription. It
-permanently refuses orders for a round already resolved, so the broker does not redeliver them,
-and the messaging runtime logs the refusal as `event refused`.
+The service consumes `operations.orders.issued` through the `exercise-orders` subscription, from
+the consumer's creation, so a first boot skips the orders the stream already retains. It skips a
+late order, one for a round already resolved or an exercise that ended: it records nothing and
+acknowledges the delivery. It permanently refuses orders no redelivery could fix, such as an
+unknown exercise or faction, so the broker does not redeliver them, and the messaging runtime
+logs the refusal as `event refused`.
 
 ## Composition
 
