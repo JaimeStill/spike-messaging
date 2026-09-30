@@ -177,7 +177,8 @@ func (w *watch) directives() directives {
 	own := slices.Clone(obs.Own)
 	slices.SortFunc(own, func(a, b element) int { return cmp.Compare(a.ID, b.ID) })
 	taken := map[location]bool{}
-	d := directives{Exercise: w.exercise, Faction: w.faction, Round: obs.Round}
+	// The stand-in issues one directive per run, so its sequence is 1.
+	d := directives{Exercise: w.exercise, Faction: w.faction, Round: obs.Round, Sequence: 1}
 	for _, e := range own {
 		free := slices.DeleteFunc(slices.Clone(objectives), func(o location) bool { return taken[o] })
 		if len(free) == 0 {

@@ -99,7 +99,7 @@ func TestDirectivesDirectsAndWaits(t *testing.T) {
 	}
 	var d struct {
 		Exercise, Faction string
-		Round             int
+		Round, Sequence   int
 		Directives        []struct {
 			Element string
 			Target  *struct{ Sector string }
@@ -108,7 +108,7 @@ func TestDirectivesDirectsAndWaits(t *testing.T) {
 	if err := json.Unmarshal(<-got, &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Exercise != exerciseID || d.Faction != "red" || d.Round != 0 || len(d.Directives) != 4 {
+	if d.Exercise != exerciseID || d.Faction != "red" || d.Round != 0 || d.Sequence != 1 || len(d.Directives) != 4 {
 		t.Errorf("directive = %+v", d)
 	}
 }

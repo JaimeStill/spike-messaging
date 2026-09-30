@@ -188,11 +188,13 @@ type (
 		Target  *location `json:"target"`
 	}
 	// directives is command's directives for a faction's round, which the
-	// directives scenario also issues.
+	// directives scenario also issues. Sequence numbers a faction's
+	// directives from 1, and operations refuses one without it.
 	directives struct {
 		Exercise   string      `json:"exercise"`
 		Faction    string      `json:"faction"`
 		Round      int         `json:"round"`
+		Sequence   int         `json:"sequence"`
 		Directives []directive `json:"directives"`
 	}
 	// order is operations' order to one element.
