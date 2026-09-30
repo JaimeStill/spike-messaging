@@ -27,20 +27,12 @@ import (
 // tag states that the stack is expected.
 func Open(t testing.TB) *sqlate.DB {
 	t.Helper()
-	db, _ := OpenDSN(t)
-	return db
-}
-
-// OpenDSN is Open, also returning the throwaway database's DSN, for a test
-// that hands the DSN to code that opens its own pool.
-func OpenDSN(t testing.TB) (*sqlate.DB, string) {
-	t.Helper()
 	admin := os.Getenv("MESSAGING_DSN")
 	if admin == "" {
 		t.Fatal("MESSAGING_DSN is not set; run under mise with the compose stack up")
 	}
 	dsn := DSN(t, admin, Scratch(t, admin, "messaging"))
-	return sqlate.Wrap(Pool(t, dsn), postgres.Dialect{}), dsn
+	return sqlate.Wrap(Pool(t, dsn), postgres.Dialect{})
 }
 
 // Scratch creates a uniquely named, empty database, <prefix>_test_<hex>, on

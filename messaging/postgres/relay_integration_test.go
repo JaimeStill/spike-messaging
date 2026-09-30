@@ -57,7 +57,7 @@ func (r *recorder) record(_ context.Context, e event.Event) error {
 // test ends, unless the test stops it first.
 func relay(t *testing.T, db *sqlate.DB, fn reactor.Func[event.Event], opts ...reactor.Option) *reactor.Reactor[event.Event] {
 	t.Helper()
-	r := reactor.New(ob.Relay(db, outbox.Poll(poll)), fn, opts...)
+	r := reactor.New(ob.Relay(db, poll), fn, opts...)
 	if err := r.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestShutdownSettlesTheRowInFlight(t *testing.T) {
 	db := migrated(t)
 	emitEach(t, db, "1")
 	entered, release := make(chan struct{}), make(chan struct{})
-	src := watched{ob.Relay(db, outbox.Poll(poll)), make(chan struct{})}
+	src := watched{ob.Relay(db, poll), make(chan struct{})}
 	r := reactor.New[event.Event](src, func(context.Context, event.Event) error {
 		close(entered)
 		<-release
@@ -342,7 +342,7 @@ func TestTimeoutEndsAHungHandler(t *testing.T) {
 	var once sync.Once
 	var first error
 	rec := &recorder{}
-	rel := reactor.New[event.Event](ob.Relay(db, outbox.Poll(poll), outbox.Timeout(50*time.Millisecond)),
+	rel := reactor.New[event.Event](ob.Relay(db, poll, outbox.Timeout(50*time.Millisecond)),
 		func(ctx context.Context, e event.Event) error {
 			hung := false
 			once.Do(func() { hung = true })
@@ -372,7 +372,7 @@ func TestTransactionBoundOutlastsAHandlerThatIgnoresItsDeadline(t *testing.T) {
 	const timeout = 50 * time.Millisecond
 	var once sync.Once
 	rec := &recorder{}
-	relay := reactor.New[event.Event](ob.Relay(db, outbox.Poll(poll), outbox.Timeout(timeout)),
+	relay := reactor.New[event.Event](ob.Relay(db, poll, outbox.Timeout(timeout)),
 		func(ctx context.Context, e event.Event) error {
 			rec.add(e.ID)
 			once.Do(func() { time.Sleep(3 * timeout) }) // ignores ctx
@@ -400,7 +400,7 @@ func TestMarkThatChangesNoRowFailsThePass(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := &recorder{}
-	r := reactor.New[event.Event](broken.Relay(db, outbox.Poll(poll)), rec.record)
+	r := reactor.New[event.Event](broken.Relay(db, poll), rec.record)
 	if err := r.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -434,8 +434,7 @@ func TestDrainPublishesWhatWasCommittedBeforeTheStop(t *testing.T) {
 			db := migrated(t)
 			b := memory.New()
 			rec := observe(t, b)
-			opts := append([]outbox.RelayOption{outbox.Poll(time.Hour)}, tc.opts...)
-			r := reactor.New[event.Event](ob.Relay(db, opts...), b.Publish, reactor.Grace(10*time.Second))
+			r := reactor.New[event.Event](ob.Relay(db, time.Hour, tc.opts...), b.Publish, reactor.Grace(10*time.Second))
 			if err := r.Start(t.Context()); err != nil {
 				t.Fatal(err)
 			}

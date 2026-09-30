@@ -174,13 +174,17 @@ func TestClaimAcrossAckWait(t *testing.T) {
 func TestConsumeClaimsUnderTheSubscription(t *testing.T) {
 	db := migrated(t)
 	b := memory.New()
-	rt, err := messaging.New(messaging.Config{Source: "/test"}, b, postgres.Outbox(), postgres.Inbox(), slog.New(slog.DiscardHandler))
+	cfg := messaging.Config{Source: "/test"}
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := messaging.New(cfg, b, postgres.Outbox(), postgres.Inbox(), time.Second, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	firsts := make(chan []bool, 1)
 	sub := messaging.Subscription{Name: "billing", Types: []string{"lab.demo.ticked"}}
-	r, err := rt.Consume(sub, time.Second, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
+	r, err := rt.Consume(sub, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
 		var got []bool
 		for range 2 {
 			first, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (bool, error) { return claim(ctx, tx) })
@@ -228,16 +232,16 @@ func TestRuntimeLogsTheTraffic(t *testing.T) {
 	b := memory.New()
 	var log lockedBuffer
 	cfg := messaging.Config{Source: "/test"}
-	if err := cfg.Finalize(""); err != nil { // the relay's default poll
+	if err := cfg.Finalize(""); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := messaging.New(cfg, b, postgres.Outbox(), postgres.Inbox(), slog.New(slog.NewTextHandler(&log, nil)))
+	rt, err := messaging.New(cfg, b, postgres.Outbox(), postgres.Inbox(), time.Second, slog.New(slog.NewTextHandler(&log, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	handled := make(chan event.Event, 2)
 	sub := messaging.Subscription{Name: "billing", Types: []string{"lab.demo.tick"}}
-	consumer, err := rt.Consume(sub, time.Second, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
+	consumer, err := rt.Consume(sub, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
 		_, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (bool, error) { return claim(ctx, tx) })
 		handled <- event.Event{}
 		return err
@@ -245,7 +249,7 @@ func TestRuntimeLogsTheTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range []*reactor.Reactor[event.Event]{consumer, rt.Relay(db, time.Second)} {
+	for _, r := range []*reactor.Reactor[event.Event]{consumer, rt.Relay(db)} {
 		if err := r.Start(t.Context()); err != nil {
 			t.Fatal(err)
 		}
