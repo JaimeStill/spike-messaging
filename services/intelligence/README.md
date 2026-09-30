@@ -44,7 +44,7 @@ redelivered after 250ms rather than refused.
 
 The service emits `intelligence.assessment.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, revision, own, contacts: [{id, faction, kind, strength, health, status, at,
-seen, age}], objectives: [{at, holder, known, seen, age}], explored: [{sector, x, y}]}`. It emits
+seen, age}], objectives: [{at, holder, seen, age}], explored: [{sector, x, y}]}`. It emits
 one per faction per observed round, and one more when an alert changes an assessment that already
 covers the alert's round. Exercise raises `exercise.objective.lost` after a round resolves and
 before it is observed, and the two arrive on separate subscriptions. When the assessment has
@@ -62,7 +62,7 @@ Exercise's observation limits what a faction sees by kind, a squad one cell and 
 to the sector. Intelligence keeps a contact at its last-seen cell, and drops it after
 `contact_rounds` rounds unseen or once a friendly element sees that cell empty. The map carries no
 objectives: a faction discovers one when an observation reports it in sight, and the picture lists
-it from then on, with its last-seen holder and its age (`known` is always true). `explored` holds
+it from then on, with its last-seen holder and its age. `explored` holds
 every cell inside a sector's grid that one of the faction's own elements has had in sight, over all
 the rounds so far, sorted by sector, y, then x.
 

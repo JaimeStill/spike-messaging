@@ -1,8 +1,9 @@
 // Package intelligence is the intelligence domain. It keeps what each
 // faction in an exercise knows: for each exercise and faction it stores a
 // picture, the faction's own elements, the enemy contacts it knows of, and
-// every objective's last-seen holder, and it fuses each observed round into
-// that picture and reports the result as the faction's assessment. The pure
+// the objectives it has discovered with each one's last-seen holder, and it
+// fuses each observed round, and each loss alert, into that picture and
+// reports the result as the faction's assessment. The pure
 // fusion package fuses and enforces the suppression rules; this package
 // persists the picture and reports it as events.
 //
@@ -12,7 +13,8 @@
 //     tier header.
 //   - database.go is the domain's SQL client. It is the only file that
 //     imports the query library and the only place that encodes fusion's
-//     picture to JSON for its jsonb column and decodes it back.
+//     picture, and the grid the picture's JSON leaves out, to JSON for their
+//     jsonb columns and decodes them back.
 //   - events.go declares the domain's event, raises it, and holds the
 //     helper every mutating command runs through.
 //   - service.go holds the commands and the query.
@@ -21,14 +23,18 @@
 //
 // # Commands
 //
-// A reactor's adapter invokes each command for an event another service
-// raised. Each command takes an optional [Claim]. The adapter binds the
-// claim over its inbox, and the command runs it first in its transaction, so
-// a redelivery changes nothing.
+// A consuming reactor invokes each command for an event another service
+// raised, with the event's data decoded into the command's input. Each
+// command takes an optional [Claim]. The reactor binds the claim over its
+// inbox, and the command runs it first in its transaction, so a redelivery
+// changes nothing.
 //
 //   - [Service.Open] opens both factions' assessments on exercise.started.
 //   - [Service.Observe] fuses a faction's observation on
 //     exercise.round.observed and raises [AssessmentIssued].
+//   - [Service.Alert] records an objective's new holder on
+//     exercise.objective.lost, and raises [AssessmentIssued] when the
+//     assessment already covers the alert's round and the alert changes it.
 //   - [Service.Close] closes the exercise's assessments on
 //     exercise.concluded.
 //

@@ -108,11 +108,10 @@ type Contact struct {
 // Objective is what the faction knows of one objective, which is listed
 // only once one of its elements has seen it. Holder is the faction that
 // held it when last seen ("" for none), Seen is that round, and Age the
-// rounds since. Known is always true; it stays so the payload's shape does.
+// rounds since.
 type Objective struct {
 	At     Location `json:"at"`
 	Holder string   `json:"holder"`
-	Known  bool     `json:"known"`
 	Seen   int      `json:"seen"`
 	Age    int      `json:"age"`
 }
@@ -122,8 +121,9 @@ type Objective struct {
 // elements have had in sight. Round is the round it is of, -1 before the
 // first. Every list is sorted: elements and contacts by ID, objectives by
 // location, and explored cells by sector, then y, then x. Grid is the
-// map's sectors, kept so the explored cells stay within them; it is not
-// part of the picture's JSON.
+// map's sectors, kept so the explored cells stay within them. It is fixed
+// when the picture opens, so the pictures that follow share it, and it is
+// not part of the picture's JSON.
 type Picture struct {
 	Round      int         `json:"round"`
 	Own        []Element   `json:"own"`
@@ -195,14 +195,14 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 		if holder, ok := status[o.At]; ok {
 			delete(status, o.At)
 			if o.Seen <= round {
-				o = Objective{At: o.At, Holder: holder, Known: true, Seen: round}
+				o = Objective{At: o.At, Holder: holder, Seen: round}
 			}
 		}
 		o.Age = max(round-o.Seen, 0)
 		p.Objectives = append(p.Objectives, o)
 	}
 	for at, holder := range status {
-		p.Objectives = append(p.Objectives, Objective{At: at, Holder: holder, Known: true, Seen: round})
+		p.Objectives = append(p.Objectives, Objective{At: at, Holder: holder, Seen: round})
 	}
 	slices.SortFunc(p.Objectives, byLocation)
 
@@ -216,7 +216,8 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 // when the alert is of that round or a later one. An objective p already
 // saw in a later round than the alert's stands as it is. It reports whether
 // the result differs from p: an alert that restates what p lists changes
-// nothing. The result shares nothing mutable with p.
+// nothing. The result shares nothing mutable with p but the grid, which
+// nothing changes.
 func Alert(p Picture, at Location, holder string, round int) (Picture, bool) {
 	out := p
 	out.Own = make([]Element, len(p.Own))
@@ -230,13 +231,12 @@ func Alert(p Picture, at Location, holder string, round int) (Picture, bool) {
 	}
 	out.Objectives = slices.Clone(p.Objectives)
 	out.Explored = slices.Clone(p.Explored)
-	out.Grid = slices.Clone(p.Grid)
 
 	i := slices.IndexFunc(out.Objectives, func(o Objective) bool { return o.At == at })
 	if i >= 0 && out.Objectives[i].Seen > round {
 		return out, false
 	}
-	o := Objective{At: at, Holder: holder, Known: true, Seen: round, Age: max(p.Round-round, 0)}
+	o := Objective{At: at, Holder: holder, Seen: round, Age: max(p.Round-round, 0)}
 	if i >= 0 {
 		changed := out.Objectives[i] != o
 		out.Objectives[i] = o

@@ -447,7 +447,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 3); err != nil {
+	if err := m.Down(t.Context(), 4); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('assessment') IS NOT NULL`)
@@ -459,4 +459,59 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if !r.Next() || r.Scan(&exists) != nil || exists {
 		t.Error("after down, the assessment table remains")
 	}
+}
+
+// An assessment stored before the grid had its own column held the grid in
+// its picture; migrating up moves it to the column, and down moves it back.
+func TestGridMigrationMovesTheGrid(t *testing.T) {
+	db := pgtest.OpenBare(t)
+	messaging, err := postgres.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := migrate.New(db.DB, data.Migrations(messaging), migrate.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Up(t.Context()); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	const grid = `[{"id": "a", "width": 13, "height": 5}]`
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO assessment (exercise_id, faction, picture)
+		VALUES ('`+exerciseID+`', 'red', jsonb_build_object('round', -1, 'grid', $1::jsonb))`, grid); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Steps(t.Context(), 1); err != nil {
+		t.Fatalf("up to the grid column: %v", err)
+	}
+	if !truth(t, db, `SELECT grid = $1::jsonb AND NOT picture ? 'grid' FROM assessment`, grid) {
+		t.Error("after up, the grid is not in its column alone")
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	if !truth(t, db, `SELECT picture -> 'grid' = $1::jsonb FROM assessment`, grid) {
+		t.Error("after down, the picture does not hold the grid")
+	}
+}
+
+// truth runs q, which selects one boolean from one row, and returns it.
+func truth(t *testing.T, db *data.Database, q string, args ...any) bool {
+	t.Helper()
+	r, err := db.QueryContext(t.Context(), q, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	var v bool
+	if !r.Next() {
+		t.Fatalf("%s: no row", q)
+	}
+	if err := r.Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
