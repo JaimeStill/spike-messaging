@@ -21,7 +21,7 @@ Mounted under `/api/operations`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, its elements, and each element's target |
+| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round of the last directive it applied, its elements, and each element's target |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.

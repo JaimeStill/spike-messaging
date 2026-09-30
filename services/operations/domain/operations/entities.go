@@ -41,18 +41,20 @@ const (
 
 // Operation is one faction's operation in an exercise, as the query shows
 // it: the faction's elements as its last observation left them, the target
-// each one's directive set, and the last observed round it issued orders
-// from, -1 before the first.
+// each one's directive set, the last observed round it issued orders
+// from, and the round of the last directive it applied, each -1 before the
+// first.
 type Operation struct {
-	Exercise  string                    `json:"exercise"`
-	Faction   string                    `json:"faction"`
-	Status    Status                    `json:"status"`
-	LastRound int                       `json:"last_round"`
-	Elements  []route.Element           `json:"elements"`
-	Targets   map[string]route.Location `json:"targets"`
-	UpdatedAt time.Time                 `json:"updated_at"`
-	plan      route.Map
-	limit     int
+	Exercise       string                    `json:"exercise"`
+	Faction        string                    `json:"faction"`
+	Status         Status                    `json:"status"`
+	LastRound      int                       `json:"last_round"`
+	DirectiveRound int                       `json:"directive_round"`
+	Elements       []route.Element           `json:"elements"`
+	Targets        map[string]route.Location `json:"targets"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
+	plan           route.Map
+	limit          int
 }
 
 // Open is the open command's input, operations' reading of an

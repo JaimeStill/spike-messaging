@@ -64,6 +64,7 @@ type operationRow struct {
 	Map        []byte    `json:"map"`
 	RoundLimit int       `json:"round_limit"`
 	LastRound  int       `json:"last_round"`
+	DirRound   int       `json:"directive_round"`
 	Elements   []byte    `json:"elements"`
 	Targets    []byte    `json:"targets"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -72,12 +73,13 @@ type operationRow struct {
 // operation decodes the row.
 func (r operationRow) operation() (Operation, error) {
 	op := Operation{
-		Exercise:  r.ExerciseID,
-		Faction:   r.Faction,
-		Status:    Status(r.Status),
-		LastRound: r.LastRound,
-		UpdatedAt: r.UpdatedAt,
-		limit:     r.RoundLimit,
+		Exercise:       r.ExerciseID,
+		Faction:        r.Faction,
+		Status:         Status(r.Status),
+		LastRound:      r.LastRound,
+		DirectiveRound: r.DirRound,
+		UpdatedAt:      r.UpdatedAt,
+		limit:          r.RoundLimit,
 	}
 	if err := errors.Join(
 		json.Unmarshal(r.Map, &op.plan),
@@ -161,6 +163,7 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	if _, err := s.record.Exec(ctx, tx, query.Args{
 		"exercise_id": op.Exercise, "faction": op.Faction,
 		"elements": enc, "targets": tgt, "last_round": op.LastRound,
+		"directive_round": op.DirectiveRound,
 	}); err != nil {
 		return fmt.Errorf("save operation %s/%s: %w", op.Exercise, op.Faction, err)
 	}
