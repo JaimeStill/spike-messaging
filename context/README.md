@@ -21,7 +21,8 @@ modules: the root module holds the libraries, `messaging/postgres` is the outbox
 Postgres engine, `messaging/nats` is the JetStream provider, `courier` is the CLI, and each
 exercise service under `services/` is a module of its own.
 `mise run split-check` holds the root to the standard library, sqlate's engine-agnostic packages,
-and go-core, and `courier/scenario` to no NATS package.
+and go-core, `courier/scenario` to no NATS package, each service's domain to `core` and its own
+module with no provider, and each service apart from the others.
 
 - **`core/event`**: the CloudEvents 1.0 type, its codec, `Permanent`, and the vocabulary a domain
   raises its events in: `Define` and `EventKind`, `Queue`, and the `Recorder` that emits them
@@ -31,8 +32,9 @@ and go-core, and `courier/scenario` to no NATS package.
 - **`core/lifecycle`** and **`core/logging`**: one-call registration of a component on go-core's
   coordinator, and the throttle that logs a repeating failure once per interval.
 - **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
-  delivery groups, and the `Runtime`, a service's messaging built from its config over an
-  injected broker and engine, with its relay and its consuming reactors. The runtime logs the
+  delivery groups, with the rules every provider shares, and the `Runtime`, a service's
+  messaging built from its config and drain timeout over an injected broker and engine, with its
+  relay and its consuming reactors. The runtime logs the
   traffic it carries: each event the relay publishes, and each delivery a consumer handles, with
   its outcome.
 - **`messaging/outbox` and `messaging/inbox`**: the engine-agnostic sink and relay, and the
@@ -59,17 +61,14 @@ and go-core, and `courier/scenario` to no NATS package.
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **the cleanup** (`cleanup.md`): a holistic architecture review of the whole spike, starting
-   with courier's `theater` and `theater-check`, and the refactor it settles.
-2. **the final validation**: two replicas, drain, outages, convergence, and the import check.
-   Its close states the answer.
+1. **the final validation**: two replicas, drain, outages, and convergence, with the import check
+   `split-check` already holds. Its close states the answer.
 
 ## Notes
 
 - `design.md`: the decisions the spike starts from, the outbox-sequencing rule, and the open
   questions it settles.
 - `exercise.md`: the final demonstration, its guidelines, rules, and services.
-- `cleanup.md`: the next step, a holistic architecture review, and the inputs it starts from.
 
 ## The final validation
 
@@ -81,7 +80,7 @@ The final step's validation answers the question with this evidence:
 4. Two replicas in one delivery group share the work.
 5. A shutdown drains in-flight handling through the coordinator.
 6. An import check finds no provider import outside the composition root and the provider, and
-   no `messaging` import in a domain package.
+   no `messaging` import in a domain package; `mise run split-check` holds it.
 7. An event is emitted only in the transaction of the command that makes it true. The composite
    Postgres and blob case waits on go-storage.
 8. The native request-and-reply use stays inside the `nats` provider and the composition root.
