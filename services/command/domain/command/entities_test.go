@@ -46,11 +46,13 @@ func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 			"at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"ready",
 			"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
-		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":false,"seen":-1,"age":0}]}`), &c)
+		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":true,"seen":2,"age":0}],
+		"explored":[{"sector":"a","x":0,"y":0},{"sector":"a","x":1,"y":0}]}`), &c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Exercise != exerciseID || c.Faction != "red" || c.Round != 2 || len(c.Own) != 1 || len(c.Contacts) != 1 || len(c.Objectives) != 1 {
+	if c.Exercise != exerciseID || c.Faction != "red" || c.Round != 2 || len(c.Own) != 1 || len(c.Contacts) != 1 || len(c.Objectives) != 1 ||
+		len(c.Explored) != 2 {
 		t.Errorf("Decide = %+v", c)
 	}
 }

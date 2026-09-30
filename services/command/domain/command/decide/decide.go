@@ -7,9 +7,16 @@ import (
 	"strconv"
 )
 
-// EngageRange is the most steps a squad goes to engage a contact or to
-// reinforce a fight.
+// EngageRange is the most steps a squad goes to engage a contact.
 const EngageRange = 3
+
+// ReinforceRange is the most steps a squad goes to reinforce a fight.
+const ReinforceRange = 4
+
+// SpreadRange is the Chebyshev distance within which a search target
+// crowds another element's: an element prefers a cell farther than this
+// from every search target already claimed.
+const SpreadRange = 2
 
 // The kinds of element.
 const (
@@ -96,8 +103,9 @@ type Contact struct {
 	Age      int      `json:"age"`
 }
 
-// Objective is what the assessment knows of one objective. Holder is the
-// faction that held it when last seen, and means nothing unless Known.
+// Objective is what the assessment knows of one objective the faction has
+// discovered. Holder is the faction that held it when last seen, and means
+// nothing unless Known.
 type Objective struct {
 	At     Location `json:"at"`
 	Holder string   `json:"holder"`
@@ -105,39 +113,47 @@ type Objective struct {
 }
 
 // Assessment is what a faction knows after a round, as far as command reads
-// it: the round, the faction's own elements, its contacts, and every
-// objective of the map.
+// it: the round, the faction's own elements, its contacts, the objectives
+// it has discovered, and every cell its elements have ever had in sight.
 type Assessment struct {
 	Round      int         `json:"round"`
 	Own        []Element   `json:"own"`
 	Contacts   []Contact   `json:"contacts"`
 	Objectives []Objective `json:"objectives"`
+	Explored   []Location  `json:"explored"`
 }
 
 // Rule is the rule a decision was made by.
 type Rule string
 
 // The rules, in the order [Decide] tries them. Engage is tried twice: an
-// engaged element that does not retreat holds its fight by it, before any
-// reinforce, and a free squad seeks a weaker contact by it, after.
+// engaged element that does not retreat and is outmatched holds its fight
+// by it, beside pursue, before any reinforce, and a free squad seeks a
+// weaker contact by it, after.
 const (
 	// Retreat steps an engaged element out of a fight it is losing, or a
 	// scout out of any fight, into an open neighboring cell.
 	Retreat Rule = "retreat"
-	// Engage keeps an engaged element in its fight, or heads a squad for a
-	// weaker contact within reach.
+	// Pursue keeps an engaged element in a fight its faction at least
+	// matches, ready to fire on an enemy that retreats from it.
+	Pursue Rule = "pursue"
+	// Engage keeps an outmatched engaged element in its fight, or heads a
+	// squad for a weaker contact within reach.
 	Engage Rule = "engage"
 	// Reinforce heads a free squad for a fight of its faction within reach.
 	Reinforce Rule = "reinforce"
-	// Secure heads an element for an objective its faction does not hold.
+	// Secure heads an element for a known objective its faction does not
+	// hold.
 	Secure Rule = "secure"
+	// Search heads an element for an unexplored cell.
+	Search Rule = "search"
 	// Hold keeps an element where it stands.
 	Hold Rule = "hold"
 )
 
 // Decision is what command directs one element to do: the rule, the
-// contact a retreat leaves or an engage or reinforce heads for, and the
-// target, nil for a hold.
+// contact a retreat leaves, a pursue or an engage fights, or a reinforce
+// heads for, and the target, nil for a hold.
 type Decision struct {
 	Element string    `json:"element"`
 	Rule    Rule      `json:"rule"`
@@ -147,8 +163,9 @@ type Decision struct {
 
 // Decide returns a decision for each of the assessment's own elements, in
 // ID order, for faction. standing holds the decisions made on an earlier
-// assessment: an element that was securing an objective keeps it while the
-// objective is still one to secure and the element can reach it.
+// assessment: an element that was securing an objective or searching a
+// cell keeps it while it is still one to secure or search and the element
+// can reach it.
 func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision {
 	own := slices.Clone(a.Own)
 	slices.SortFunc(own, func(x, y Element) int { return cmp.Compare(x.ID, y.ID) })
@@ -158,6 +175,12 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		// known is tested first: an unknown objective's holder is empty,
 		// and it is unheld whatever that field says.
 		open[o.At] = !o.Known || o.Holder != faction
+	}
+	// A cell an element stands in is in its sight, whether or not the
+	// assessment lists it.
+	explored := make(map[Location]bool, len(a.Explored)+len(own))
+	for _, l := range a.Explored {
+		explored[l] = true
 	}
 	was := make(map[string]Decision, len(standing))
 	for _, d := range standing {
@@ -169,6 +192,7 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 	ours, theirs := map[Location]int{}, map[Location]int{}
 	for _, e := range own {
 		ours[e.At] += e.Strength
+		explored[e.At] = true
 	}
 	for _, c := range a.Contacts {
 		if c.Age == 0 {
@@ -185,15 +209,18 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		if e.Status != Engaged || !ok {
 			continue
 		}
-		if e.Kind == Scout || 2*ours[e.At] < theirs[e.At] {
+		if e.Kind == Scout || 3*ours[e.At] < 2*theirs[e.At] {
 			if to, ok := m.retreat(e.At, a.Contacts); ok {
 				decisions[i] = Decision{Element: e.ID, Rule: Retreat, Contact: enemy.ID, Target: &to}
 				continue
 			}
 		}
-		at := e.At
+		at, rule := e.At, Engage
+		if ours[at] >= theirs[at] {
+			rule = Pursue
+		}
 		fights[at] = true
-		decisions[i] = Decision{Element: e.ID, Rule: Engage, Contact: enemy.ID, Target: &at}
+		decisions[i] = Decision{Element: e.ID, Rule: rule, Contact: enemy.ID, Target: &at}
 	}
 	for i, e := range own {
 		if decisions[i].Rule != "" {
@@ -205,12 +232,22 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		}
 	}
 
+	// A scout searches while any unexplored cell is in its reach, and
+	// secures only once none is.
+	unexplored := func(l Location) bool { return !explored[l] }
+	searches := make([]bool, len(own))
+	for i, e := range own {
+		if e.Kind == Scout {
+			_, searches[i] = nearest(dist[i], unexplored)
+		}
+	}
+
 	// Standing targets are claimed first, in ID order, so an element that
 	// was securing an objective keeps it.
 	claimed := map[Location]bool{}
 	for i, e := range own {
 		d, ok := was[e.ID]
-		if decisions[i].Rule != "" || !ok || d.Rule != Secure || d.Target == nil {
+		if decisions[i].Rule != "" || searches[i] || !ok || d.Rule != Secure || d.Target == nil {
 			continue
 		}
 		at := *d.Target
@@ -220,16 +257,68 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		}
 	}
 	for i, e := range own {
-		if decisions[i].Rule != "" {
+		if decisions[i].Rule != "" || searches[i] {
 			continue
 		}
-		decisions[i] = Decision{Element: e.ID, Rule: Hold}
 		if at, ok := nearest(dist[i], func(l Location) bool { return open[l] && !claimed[l] }); ok {
 			claimed[at] = true
 			decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
 		}
 	}
+
+	// Scouts search before squads. Within each kind, standing search
+	// targets are claimed first, in ID order, then each element picks the
+	// nearest unexplored cell unclaimed, preferring one clear of every
+	// search target claimed so far, so the searchers spread.
+	var targets []Location
+	sought := map[Location]bool{}
+	for _, kind := range []string{Scout, Squad} {
+		for i, e := range own {
+			d, ok := was[e.ID]
+			if decisions[i].Rule != "" || e.Kind != kind || !ok || d.Rule != Search || d.Target == nil {
+				continue
+			}
+			at := *d.Target
+			if _, reach := dist[i][at]; reach && !explored[at] && !sought[at] {
+				sought[at] = true
+				targets = append(targets, at)
+				decisions[i] = Decision{Element: e.ID, Rule: Search, Target: &at}
+			}
+		}
+		for i, e := range own {
+			if decisions[i].Rule != "" || e.Kind != kind {
+				continue
+			}
+			free := func(l Location) bool { return !explored[l] && !sought[l] }
+			at, ok := nearest(dist[i], func(l Location) bool { return free(l) && apart(l, targets) })
+			if !ok {
+				at, ok = nearest(dist[i], free)
+			}
+			if ok {
+				sought[at] = true
+				targets = append(targets, at)
+				decisions[i] = Decision{Element: e.ID, Rule: Search, Target: &at}
+			}
+		}
+	}
+
+	for i, e := range own {
+		if decisions[i].Rule == "" {
+			decisions[i] = Decision{Element: e.ID, Rule: Hold}
+		}
+	}
 	return decisions
+}
+
+// apart reports whether l lies farther than [SpreadRange], by Chebyshev
+// distance, from every one of targets in its sector.
+func apart(l Location, targets []Location) bool {
+	for _, t := range targets {
+		if t.Sector == l.Sector && max(abs(t.X-l.X), abs(t.Y-l.Y)) <= SpreadRange {
+			return false
+		}
+	}
+	return true
 }
 
 // strongest returns the strongest contact seen this round at at, ties going
@@ -286,14 +375,14 @@ func (m Map) retreat(at Location, contacts []Contact) (Location, bool) {
 }
 
 // reinforce returns the reinforce decision for e, a squad free to move,
-// toward the nearest of fights within [EngageRange] steps, ties going to
+// toward the nearest of fights within [ReinforceRange] steps, ties going to
 // the lowest by [Location.String], or the zero Decision when there is none.
 // Its contact is the strongest enemy in that fight.
 func reinforce(e Element, fights map[Location]bool, contacts []Contact, dist map[Location]int) Decision {
 	if e.Kind != Squad || e.Status != Ready && e.Status != Recovering {
 		return Decision{}
 	}
-	at, ok := nearest(dist, func(l Location) bool { return fights[l] && dist[l] <= EngageRange })
+	at, ok := nearest(dist, func(l Location) bool { return fights[l] && dist[l] <= ReinforceRange })
 	if !ok {
 		return Decision{}
 	}

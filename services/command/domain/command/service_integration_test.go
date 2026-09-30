@@ -55,12 +55,12 @@ func loc(x, y int) decide.Location {
 	return decide.Location{Sector: "a", Point: decide.Point{X: x, Y: y}}
 }
 
-// openInput is the start of an exercise over one open 5×3 sector "a" with
-// its objective at 4,0.
+// openInput is the start of an exercise over one open 5×3 sector "a",
+// its objectives hidden. red's assessments place one at 4,0.
 func openInput(id string) command.Open {
 	var m decide.Map
 	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","width":5,"height":3,"obstacles":[],
-		"objectives":[{"x":4,"y":0}],"gates":[]}]}`), &m); err != nil {
+		"objectives":[],"gates":[]}]}`), &m); err != nil {
 		panic(err)
 	}
 	return command.Open{Exercise: id, Map: m, Factions: [2]string{"red", "blue"}}
@@ -81,8 +81,20 @@ func squad(id string, at decide.Location) decide.Element {
 		Status: decide.Ready, At: at}
 }
 
+// explored is every cell of openInput's sector, so no element searches.
+var explored = func() []decide.Location {
+	var out []decide.Location
+	for y := range 3 {
+		for x := range 5 {
+			out = append(out, loc(x, y))
+		}
+	}
+	return out
+}()
+
 // red is red's assessment of round: its squad r1 at 0,0 and its scout r2
-// at 0,2, the objective as given, and the contacts it knows.
+// at 0,2, the objective as given, the contacts it knows, and the whole
+// sector explored.
 func red(id string, round int, objective decide.Objective, contacts ...decide.Contact) command.Decide {
 	return command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
 		Round: round,
@@ -92,6 +104,7 @@ func red(id string, round int, objective decide.Objective, contacts ...decide.Co
 		},
 		Contacts:   contacts,
 		Objectives: []decide.Objective{objective},
+		Explored:   explored,
 	}}
 }
 
@@ -205,8 +218,9 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 }
 
 // A changed rule issues a directive though no target changes. r1
-// reinforces r3's fight; once r3 is gone, r1 engages the same contact in
-// the same cell, and the round after, unchanged, issues nothing.
+// reinforces r3's fight, which r3 pursues; once r3 is gone, r1 engages the
+// same contact in the same cell, and the round after, unchanged, issues
+// nothing.
 func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
@@ -220,13 +234,14 @@ func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 	} {
 		c := command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
 			Round: round, Own: own, Contacts: []decide.Contact{b1}, Objectives: []decide.Objective{unknown},
+			Explored: explored,
 		}}
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got := directives(t, db)
-	want := []string{"r1 reinforce b1 a:2,0, r3 engage b1 a:2,0", "r1 engage b1 a:2,0"}
+	want := []string{"r1 reinforce b1 a:2,0, r3 pursue b1 a:2,0", "r1 engage b1 a:2,0"}
 	if len(got) != len(want) {
 		t.Fatalf("outbox holds %d directives, want %d: %+v", len(got), len(want), got)
 	}

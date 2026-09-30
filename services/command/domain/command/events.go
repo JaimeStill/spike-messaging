@@ -19,8 +19,8 @@ var DirectiveIssued = event.Define[DirectiveData]("command.directive.issued")
 // DirectiveData is the event entity of [DirectiveIssued]: the exercise, the
 // faction, the round whose assessment was decided on, and a directive for
 // each live element. A directive gives its element's target, null for a
-// hold, the rule that chose it, and for a retreat, an engage, or a
-// reinforce the contact.
+// hold, the rule that chose it, and for a retreat, a pursue, an engage, or
+// a reinforce the contact.
 type DirectiveData struct {
 	Exercise   string            `json:"exercise"`
 	Faction    string            `json:"faction"`
