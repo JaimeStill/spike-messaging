@@ -60,21 +60,21 @@ func sq(id, kind string, at map[string]any, health ...int) map[string]any {
 
 // The narrator tells the initial conditions once the start, both round-0
 // observations, and the first resolution, which tells the objectives, are
-// in, and names an objective's cell objective:x,y, in the groups it held as
-// in the others. It then tells what each event changes (a sighting, a
-// changed directive of each kind, a new set of moving squads in the orders
-// in effect for a round, or none, a fight, a loss, a capture, an objective
-// seen held, a retreat pursued or unpursued, a squad regrouping, an
-// objective being taken, an objective lost, a revised assessment that
-// learns of the loss) and nothing for an event that changes nothing (an
-// engagement pursuing its contact, or orders that exercise refuses as
-// late). A resolution tells its fights, then each faction's changes
-// together. Consecutive changes of the same round, service, and faction
-// share one heading, even across events and past events that narrate
-// nothing, with the round padded to the round
-// limit's digits and the lines of each group aligned. Its final conditions
-// give the verdict, the holders, the survivors and losses, the events by
-// type, the median latency of each hop, and the check to run.
+// in, and names an objective's cell objective:x,y, in the rounds it held as
+// in the others. It then tells each round as a block once an event of a
+// later round arrives: what the observer recorded (fights, with operators
+// down or squads destroyed, retreats pursued or not, and each faction's
+// captures, from a holder or not, objectives being taken, objectives lost,
+// and squads regrouping), then what each faction knows (sightings, contacts
+// lost, objectives seen held or unheld, a loss learned from the alert),
+// decides (a changed directive of each kind, one squad to a line), and
+// orders (a new set of moving squads, or none), in the round it issued
+// them. It tells nothing for an event that changes nothing (an engagement
+// pursuing its contact, or orders that exercise refuses as late), a round
+// that changes nothing as such, and a change for a round already told as
+// late, in the next block. Its final conditions give the verdict, the
+// holders, the survivors and losses, the events by type, the median
+// latency of each hop, and the check to run.
 func TestNarratorTellsWhatChanges(t *testing.T) {
 	s := newScript(t)
 	s.at(0, startedType, map[string]any{
@@ -157,14 +157,10 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r2", "steps": []any{cell("a", 1, 1)}}}})
 	s.at(2031, ordersType, map[string]any{"faction": "blue", "round": 3, "orders": []any{
 		map[string]any{"element": "b1", "steps": []any{cell("a", 4, 4)}, "retreat": true}}})
-	// r1 holds its fight to fire on a retreat, and r2 looks for objectives.
+	// r1 holds its fight to fire on a retreat; r2 still reinforces.
 	s.at(2032, directiveType, map[string]any{"faction": "red", "round": 2, "directives": []any{
 		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
-		map[string]any{"element": "r2", "rule": "search", "target": cell("b", 0, 0)}}})
-	// r2 stands on a:4,4 to take it, and r1 holds its fight: none of red's
-	// squads moves.
-	s.at(3030, ordersType, map[string]any{"faction": "red", "round": 4, "orders": []any{
-		map[string]any{"element": "r1", "steps": []any{}}, map[string]any{"element": "r2", "steps": []any{}}}})
+		map[string]any{"element": "r2", "rule": "reinforce", "contact": "b1", "target": cell("a", 3, 0)}}})
 	s.at(3000, resolvedType, map[string]any{"round": 3, "engagements": []any{}, "losses": []any{}, "captures": []any{},
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": "blue"}},
 		"retreats": []any{map[string]any{"id": "b1", "faction": "blue", "from": cell("a", 3, 0), "to": cell("a", 4, 4),
@@ -172,6 +168,18 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 				map[string]any{"id": "r1", "faction": "red", "before": 400, "after": 340, "fallen": 0},
 				map[string]any{"id": "r3", "faction": "red", "before": 200, "after": 150, "fallen": 1}}}},
 		"progress": []any{map[string]any{"at": cell("a", 4, 4), "faction": "red", "rounds": 1}}})
+	// r2 stands on a:4,4 to take it, and r1 holds its fight: none of red's
+	// squads moves.
+	s.at(3030, ordersType, map[string]any{"faction": "red", "round": 4, "orders": []any{
+		map[string]any{"element": "r1", "steps": []any{}}, map[string]any{"element": "r2", "steps": []any{}}}})
+	// r2 looks for objectives.
+	s.at(3012, directiveType, map[string]any{"faction": "red", "round": 3, "directives": []any{
+		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
+		map[string]any{"element": "r2", "rule": "search", "target": cell("b", 0, 0)}}})
+	// blue's directive for round 2 arrives once round 3 has resolved and
+	// round 2 is narrated: it is told late, in round 3's block.
+	s.at(3001, directiveType, map[string]any{"faction": "blue", "round": 2, "directives": []any{
+		map[string]any{"element": "b1", "rule": "hold", "target": nil}}})
 	s.at(4000, resolvedType, map[string]any{"round": 4, "retreats": []any{}, "progress": []any{},
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": "red"}},
 		"engagements": []any{map[string]any{"at": cell("a", 4, 4), "elements": []any{
@@ -185,19 +193,12 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	s.at(4001, observedType, map[string]any{"faction": "red", "round": 4, "own": []any{
 		sq("r1", "squad", cell("a", 3, 0), 100, 100, 100, 10), sq("r2", "scout", cell("a", 4, 4), 100)}})
 	s.at(4002, observedType, map[string]any{"faction": "blue", "round": 4, "own": []any{}})
-	s.at(4003, concludedType, map[string]any{"round": 4, "winner": "red", "reason": "elimination"})
-	if s.n.settled.isFired() {
-		t.Fatal("settled before the final round's assessments")
-	}
 	s.at(4012, assessmentType, map[string]any{"faction": "red", "round": 4,
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true}}})
 	s.at(4013, assessmentType, map[string]any{"faction": "blue", "round": 4,
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4}}})
-	if !s.n.settled.isFired() {
-		t.Fatal("not settled once each faction's final assessment was in")
-	}
 	// intelligence revises blue's round-4 assessment for the alert: the
-	// narration tells what the revision changed, and observed→assessed
+	// narration tells what the revision changed, and observed -> assessed
 	// still measures the round's first assessment.
 	s.at(4014, assessmentType, map[string]any{"faction": "blue", "round": 4,
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4},
@@ -205,6 +206,24 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	s.at(4022, directiveType, map[string]any{"faction": "red", "round": 4, "directives": []any{
 		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
 		map[string]any{"element": "r2", "rule": "rescout", "target": cell("b", 1, 1)}}})
+	// Round 5 changes nothing.
+	s.at(5000, resolvedType, map[string]any{"round": 5, "retreats": []any{}, "engagements": []any{}, "losses": []any{}, "captures": []any{}, "progress": []any{},
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": "red"}}})
+	s.at(5001, observedType, map[string]any{"faction": "red", "round": 5, "own": []any{
+		sq("r1", "squad", cell("a", 3, 0), 100, 100, 100, 10), sq("r2", "scout", cell("a", 4, 4), 100)}})
+	s.at(5002, observedType, map[string]any{"faction": "blue", "round": 5, "own": []any{}})
+	s.at(5003, concludedType, map[string]any{"round": 5, "winner": "red", "reason": "elimination"})
+	if s.n.settled.isFired() {
+		t.Fatal("settled before the final round's assessments")
+	}
+	s.at(5012, assessmentType, map[string]any{"faction": "red", "round": 5,
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true}}})
+	s.at(5013, assessmentType, map[string]any{"faction": "blue", "round": 5,
+		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red", "known": true, "seen": 4},
+			map[string]any{"at": cell("b", 1, 1), "holder": "red", "known": true, "seen": 4}}})
+	if !s.n.settled.isFired() {
+		t.Fatal("not settled once each faction's final assessment was in")
+	}
 
 	want := []string{
 		"skirmish: 12 rounds at 1s",
@@ -219,89 +238,74 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"  blue",
 		"    b1 squad 3x100 @ a:4,0",
 		"",
-		"0   intelligence  blue",
-		"  observe -> objective:4,4 unheld",
-		"0   command       red",
-		"  r1 capture -> objective:4,4",
-		"  r2 hold",
+		"round 0",
+		"  red",
+		"    decides  r1 capture -> objective:4,4",
+		"             r2 hold",
+		"    orders   move r1",
+		"  blue",
+		"    knows    objective:4,4 unheld",
 		"",
-		"1   operations    red",
-		"  move r1",
-		"1   intelligence  red",
-		"  spot b1 300 @ a:3,0",
-		"1   command       red",
-		"  r1 engage -> a:3,0  b1",
-		"1   command       blue",
-		"  b1 fight @ a:3,0  r1",
+		"round 1",
+		"  red",
+		"    knows    spotted b1 300 @ a:3,0",
+		"    decides  r1 engage -> a:3,0 b1",
+		"    orders   move r1 r2",
+		"  blue",
+		"    decides  b1 fight @ a:3,0 r1",
 		"",
-		"2   operations    red",
-		"  move r1 r2",
-		"2   exercise",
-		"  fight @ a:3,0",
-		"    b1 300 -> 190 (1 down)",
-		"    r1 400 -> 310",
-		// Red's observation tells r2 regrouping under the heading of its
-		// retreat: blue's, between them, narrates nothing.
-		"2   exercise      red",
-		"  r2 retreat a:0,1 -> a:0,0 unpursued",
-		"  r2 regroup sits out 3",
-		"2   command       red",
-		"  r2 reinforce -> a:3,0",
-		"2   command       blue",
-		"  b1 retreat -> objective:4,4",
-		"2   command       red",
-		"  r1 pursue @ a:3,0   b1",
-		"  r2 search -> b:0,0",
+		// Round 2 lists the fight before the retreat and, with the
+		// observer, r2 regrouping, which red's observation tells. The
+		// decides row lists one squad to a line, aligned.
+		"round 2",
+		"  observer",
+		"    fight    a:3,0  b1 300->190 (1 down)  r1 400->310",
+		"    retreat  r2 a:0,1 -> a:0,0 unpursued",
+		"    red      r2 regroups, sits out 3",
+		"  red",
+		"    decides  r1 pursue    @ a:3,0  b1",
+		"             r2 reinforce -> a:3,0",
+		"    orders   move r2 · pursue r1",
+		"  blue",
+		"    decides  b1 retreat -> objective:4,4",
+		"    orders   retreat b1",
 		"",
-		"3   operations    red",
-		"  move   r2",
-		"  pursue r1",
-		"3   operations    blue",
-		"  retreat b1",
-		"3   exercise      red",
-		"  take objective:4,4 1/2",
-		"3   exercise      blue",
-		"  b1 retreat a:3,0 -> objective:4,4",
-		"    b1 190 -> 100 (1 down)",
-		"    r1 400 -> 340",
-		"    r3 200 -> 150 (1 down)",
+		"round 3",
+		"  observer",
+		"    retreat  b1 a:3,0 -> objective:4,4 pursued  b1 190->100 (1 down), r1 400->340, r3 200->150 (1 down)",
+		"    red      takes objective:4,4 1/2",
+		"  red",
+		"    decides  r2 search -> b:0,0",
+		"    orders   all hold",
+		// blue's decision for round 2 arrived after its block.
+		"  late     2 blue decides b1 hold",
 		"",
-		"4   operations    red",
-		"  hold all",
-		"4   exercise",
-		"  fight @ objective:4,4",
-		"    b1 100 ->  0 (1 down)",
-		"    r2 100 -> 60",
-		"4   exercise      red",
-		"  capture objective:4,4",
-		"  capture objective:1,1 from blue",
-		// The loss alert follows the resolution, so blue's loss joins its
-		// group.
-		"4   exercise      blue",
-		"  b1 destroyed",
-		"  lose objective:1,1 to red",
-		"4   intelligence  red",
-		"  lose track b1",
-		"  observe    -> objective:4,4 held by red",
-		// The revision joins the round's first assessment under one heading.
-		"4   intelligence  blue",
-		"  observe -> objective:4,4 held by red",
-		"  learn   -> objective:1,1 lost to red",
-		"4   command       red",
-		"  r2 rescout -> objective:1,1",
+		"round 4",
+		"  observer",
+		"    fight    objective:4,4  b1 100->0 destroyed  r2 100->60",
+		"    red      captures objective:4,4 · objective:1,1 from blue",
+		"    blue     loses objective:1,1 to red",
+		"  red",
+		"    knows    lost b1 · objective:4,4 held by red",
+		"    decides  r2 rescout -> objective:1,1",
+		"  blue",
+		"    knows    objective:4,4 held by red · objective:1,1 lost to red",
+		"",
+		"round 5  no change",
 	}
-	// The last group stays open until the narration finishes.
+	// The last round's block waits for the narration to finish.
 	s.n.finish()
 	if got := strings.Join(s.lines, "\n"); got != strings.Join(want, "\n") {
 		t.Errorf("narration:\n%s\n\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 
 	// observed -> assessed: red 0 (8ms), red 1 (10ms), red 4 (11ms), blue 4
-	// (11ms, its first assessment, not the revision); assessed -> directed:
-	// 10ms, 15ms, and red 4's 10ms; directed -> ordered, to the next round's
-	// first orders after it, medians at 20ms.
+	// (11ms, its first assessment, not the revision), red 5 and blue 5
+	// (11ms); assessed -> directed: 10ms, 15ms, and red 4's 10ms; directed
+	// -> ordered, to the next round's first orders after it, medians at
+	// 18ms.
 	want = []string{
-		"verdict  red wins by elimination after round 4",
+		"verdict  red wins by elimination after round 5",
 		"objectives",
 		"  objective:4,4  red",
 		"  objective:1,1  red",
@@ -309,19 +313,19 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"  r1 squad 100,100,100,10",
 		"  r2 scout 1x100",
 		"blue  strength 0, lost b1",
-		"events  36",
-		"  exercise.started                1",
-		"  exercise.round.resolved         4",
-		"  exercise.objective.lost         1",
-		"  exercise.round.observed         9",
-		"  intelligence.assessment.issued  6",
-		"  command.directive.issued        7",
-		"  operations.orders.issued        7",
-		"  exercise.concluded              1",
+		"events  43",
+		"  exercise.started                 1",
+		"  exercise.round.resolved          5",
+		"  exercise.objective.lost          1",
+		"  exercise.round.observed         11",
+		"  intelligence.assessment.issued   8",
+		"  command.directive.issued         9",
+		"  operations.orders.issued         7",
+		"  exercise.concluded               1",
 		"chain p50",
 		"  observed -> assessed  11ms",
 		"  assessed -> directed  10ms (rounds with a directive)",
-		"  directed -> ordered   20ms",
+		"  directed -> ordered   18ms",
 		"check  mise run demo-theater-check " + theaterID,
 	}
 	if got := strings.Join(s.n.final(), "\n"); got != strings.Join(want, "\n") {

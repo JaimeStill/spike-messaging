@@ -1,6 +1,9 @@
 package scenario
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // part is one cell of a line in a list. A cell aligns with the cells of
 // the same key in the same position of the other lines of its list: it is
@@ -18,9 +21,6 @@ func col(key, text string) part { return part{key: key, text: text} }
 
 // apart is col set off by two spaces.
 func apart(key, text string) part { return part{key: key, text: text, apart: true} }
-
-// num is col right set, as a number is.
-func num(key, text string) part { return part{key: key, text: text, right: true} }
 
 // detail is one line of a list, with the list under it.
 type detail struct {
@@ -86,3 +86,34 @@ func list(ds []detail, indent string, name func(string) string) []string {
 
 // same renders a cell's text as it is.
 func same(s string) string { return s }
+
+// labeled is a row of items under a label, as a round's block lists them.
+type labeled struct {
+	label string
+	items []string
+	each  bool // one item to a line, however few
+}
+
+// wrapAt is the width past which a row lists one item to a line.
+const wrapAt = 100
+
+// lines renders a row at indent: its label padded to width, then its
+// items, joined by " · " on one line, or one to a line aligned under the
+// first when the row asks for it or one line would pass wrapAt. name
+// renders each item first.
+func (l labeled) lines(indent string, width int, name func(string) string) []string {
+	items := make([]string, len(l.items))
+	for i, it := range l.items {
+		items[i] = name(it)
+	}
+	head := fmt.Sprintf("%s%-*s  ", indent, width, l.label)
+	if one := head + strings.Join(items, " · "); !l.each && len(one) <= wrapAt || len(items) == 0 {
+		return []string{strings.TrimRight(one, " ")}
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = strings.Repeat(" ", len(head)) + it
+	}
+	out[0] = head + items[0]
+	return out
+}

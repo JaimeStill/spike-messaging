@@ -30,19 +30,20 @@
 //
 // The theater scenario is the demonstration. It joins the same stream
 // before an exercise starts and narrates the exercise as the services play
-// it: the initial conditions, held until the umpire's first resolution
+// it: the initial conditions, held until the observer's first resolution
 // tells the objectives (which the factions do not know, and which the
-// narration names objective:x,y), with the seed; what each event changes,
-// one verb to a line, grouped under a heading of its round, its service,
-// and its faction, with consecutive changes under the same heading sharing
-// it and each group's lines aligned; and the final conditions, with the
+// narration names objective:x,y), with the seed; each round as a block,
+// told once an event of a later round arrives, by side: what the observer
+// (exercise, the umpire) recorded of the round, then what each faction
+// knows, decides, and orders in it, with a change that arrives after its
+// round's block told late in the next; and the final conditions, with the
 // events on the stream by type and the median latency of each hop in the
 // chain.
 //
 // The theater-check scenario reconciles a run afterward. It joins the same
 // stream under a new durable, which reads it from its beginning, collects
 // the exercise's assessments, and checks each against exercise's history,
-// the umpire's record, which it reads over exercise's HTTP API: what the
+// the observer's record, which it reads over exercise's HTTP API: what the
 // faction truly had and saw that round, under intelligence's suppression
 // rules. It fails on any inconsistency.
 package scenario

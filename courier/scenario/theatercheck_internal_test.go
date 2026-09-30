@@ -34,9 +34,9 @@ func contact(e map[string]any, seen, age int) map[string]any {
 	return c
 }
 
-// umpireOf is a round of history: the state's holders and resolution's
+// observerOf is a round of history: the state's holders and resolution's
 // captures, and each faction's observation, red's then blue's.
-func umpireOf(round int, holders map[string]string, captures []any, red, blue map[string]any) map[string]any {
+func observerOf(round int, holders map[string]string, captures []any, red, blue map[string]any) map[string]any {
 	h := map[string]any{
 		"round": round,
 		"state": map[string]any{
@@ -68,21 +68,21 @@ func assessed(round int, faction string, own, contacts, objectives []any) map[st
 // alert tells red, which no longer sees it. Blue's scout b1 sees r1 in
 // round 0, then remembers it. intelligence revises red's round-2
 // assessment for the alert.
-func fixture(t *testing.T) ([]umpireRound, []map[string]any) {
+func fixture(t *testing.T) ([]observerRound, []map[string]any) {
 	r1 := func(x, y int) map[string]any { return sq("r1", "squad", cell("a", x, y), 100) }
 	b1 := func(x, y int) map[string]any { return sq("b1", "scout", cell("a", x, y), 80) }
 	seen := func(x, y int, holder string) map[string]any {
 		return map[string]any{"at": cell("a", x, y), "holder": holder}
 	}
-	history := decode[[]umpireRound](t, []any{
-		umpireOf(0, map[string]string{}, nil,
+	history := decode[[]observerRound](t, []any{
+		observerOf(0, map[string]string{}, nil,
 			seeing([]any{r1(0, 0)}, []any{}, []any{seen(1, 1, "")}),
 			seeing([]any{b1(2, 0)}, []any{r1(0, 0)}, []any{seen(1, 1, "")})),
-		umpireOf(1, map[string]string{"a:1,1": "red"},
+		observerOf(1, map[string]string{"a:1,1": "red"},
 			[]any{map[string]any{"at": cell("a", 1, 1), "faction": "red", "from": ""}},
 			seeing([]any{r1(1, 1)}, []any{}, []any{seen(1, 1, "red")}),
 			seeing([]any{b1(4, 2)}, []any{}, []any{seen(4, 4, "")})),
-		umpireOf(2, map[string]string{"a:1,1": "blue"},
+		observerOf(2, map[string]string{"a:1,1": "blue"},
 			[]any{map[string]any{"at": cell("a", 1, 1), "faction": "blue", "from": "red"}},
 			seeing([]any{r1(0, 4)}, []any{}, []any{}),
 			seeing([]any{b1(4, 2)}, []any{}, []any{seen(4, 4, "")})),
@@ -101,19 +101,19 @@ func fixture(t *testing.T) ([]umpireRound, []map[string]any) {
 	}
 }
 
-func check(t *testing.T, history []umpireRound, raw []map[string]any, k int) ([]string, int) {
+func check(t *testing.T, history []observerRound, raw []map[string]any, k int) ([]string, int) {
 	t.Helper()
 	all := make([]checkedAssessment, len(raw))
 	for i, a := range raw {
 		all[i] = decode[checkedAssessment](t, a)
 	}
-	return checkTheater(theaterID, history, &umpireVerdict{Winner: "blue", Reason: "limit"}, all, k)
+	return checkTheater(theaterID, history, &observerVerdict{Winner: "blue", Reason: "limit"}, all, k)
 }
 
 // Assessments that follow the suppression rules are consistent, the last
 // of a round's revisions standing, and an objective a loss alert told of
-// is accepted out of sight. The report lists what each faction believes of
-// every objective, and the verdict.
+// is accepted out of sight. The report gives the observer's verdict and
+// holders, and what each faction believes of every objective.
 func TestTheaterCheckAcceptsConsistentAssessments(t *testing.T) {
 	history, raw := fixture(t)
 	lines, errs := check(t, history, raw, 3)
@@ -122,16 +122,16 @@ func TestTheaterCheckAcceptsConsistentAssessments(t *testing.T) {
 		"  rounds          3",
 		"  assessments     7, 1 revised",
 		"  contact rounds  3",
-		"consistent  every assessment matches the umpire's record under the suppression rules",
-		"beliefs  red",
-		"  objective:1,1  blue          truly blue",
-		"  objective:4,4  undiscovered  truly unheld",
-		"beliefs  blue",
-		"  objective:1,1  unheld (seen 2 ago)  truly blue",
-		"  objective:4,4  unheld               truly unheld",
-		"verdict  blue by limit",
-		"truly held",
-		"  blue  objective:1,1",
+		"consistent  every assessment matches the observer's record under the suppression rules",
+		"observer",
+		"  verdict   blue by limit",
+		"  holds     blue objective:1,1",
+		"red",
+		"  believes  objective:1,1  blue          truly blue",
+		"            objective:4,4  undiscovered  truly unheld",
+		"blue",
+		"  believes  objective:1,1  unheld (seen 2 ago)  truly blue",
+		"            objective:4,4  unheld               truly unheld",
 	}
 	if errs != 0 || !slices.Equal(lines, want) {
 		t.Errorf("%d inconsistencies; report:\n%s\n\nwant:\n%s", errs, strings.Join(lines, "\n"), strings.Join(want, "\n"))

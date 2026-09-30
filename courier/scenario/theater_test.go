@@ -54,7 +54,8 @@ func TestTheaterNarratesAnExercise(t *testing.T) {
 		for _, w := range []string{
 			"tiny: 1 rounds at 1s",
 			"    seed        7",
-			"  1  exercise      blue\n    b1 destroyed\n",
+			"  round 0  no change\n",
+			"  round 1\n    observer\n      blue     b1 destroyed\n",
 			"  verdict  red wins by elimination after round 1",
 			"  check  mise run demo-theater-check " + exerciseID,
 		} {

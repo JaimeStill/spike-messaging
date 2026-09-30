@@ -13,9 +13,9 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 )
 
-// umpire stands in for exercise's API: one round, round 0, in which red's
+// observer stands in for exercise's API: one round, round 0, in which red's
 // squad sees the objective at a:1,1 and blue's squad sees nothing.
-func umpire(t *testing.T) *httptest.Server {
+func observer(t *testing.T) *httptest.Server {
 	at := func(x, y int) map[string]any { return map[string]any{"sector": "a", "x": x, "y": y} }
 	history := []any{map[string]any{
 		"round": 0,
@@ -50,7 +50,7 @@ func squadAt(id string, at map[string]any) map[string]any {
 }
 
 // The theater-check scenario reads an exercise's assessments from the
-// stream's beginning, and the umpire's record from exercise's API, and
+// stream's beginning, and the observer's record from exercise's API, and
 // reconciles them: it passes when they agree, and fails on an
 // inconsistency.
 func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
@@ -64,9 +64,9 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 		{"consistent", "", []string{
 			"  theater  " + exerciseID + "\n    rounds          1\n    assessments     2, 0 revised\n    contact rounds  3\n",
 			"  consistent  every assessment matches",
-			"  beliefs  red\n    objective:1,1  unheld  truly unheld\n",
-			"  beliefs  blue\n    objective:1,1  undiscovered  truly unheld\n",
-			"  verdict  red by limit\n  truly held  none\n",
+			"  observer\n    verdict   red by limit\n    holds     none\n",
+			"  red\n    believes  objective:1,1  unheld  truly unheld\n",
+			"  blue\n    believes  objective:1,1  undiscovered  truly unheld",
 		}, false},
 		{"inconsistent", "blue", []string{
 			"  inconsistencies  1\n    round 0 red: objective:1,1 is in sight and unheld, but not reported so\n",
@@ -93,7 +93,7 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 				}
 				rep, out := reporter()
 				cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-				cmd.SetArgs([]string{"--exercise", exerciseID, "--exercise-url", umpire(t).URL, "--wait", "5s", "--idle", "50ms"})
+				cmd.SetArgs([]string{"--exercise", exerciseID, "--exercise-url", observer(t).URL, "--wait", "5s", "--idle", "50ms"})
 				err := cmd.ExecuteContext(t.Context())
 				if tc.fails != (err != nil) {
 					t.Fatalf("err = %v, want failure %v\n%s", err, tc.fails, out)
