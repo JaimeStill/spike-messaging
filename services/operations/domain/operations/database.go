@@ -64,7 +64,6 @@ type operationRow struct {
 	Map        []byte    `json:"map"`
 	RoundLimit int       `json:"round_limit"`
 	LastRound  int       `json:"last_round"`
-	DirRound   int       `json:"directive_round"`
 	DirSeq     int       `json:"directive_sequence"`
 	Elements   []byte    `json:"elements"`
 	Targets    []byte    `json:"targets"`
@@ -75,32 +74,37 @@ type operationRow struct {
 // operation decodes the row.
 func (r operationRow) operation() (Operation, error) {
 	op := Operation{
-		Exercise:       r.ExerciseID,
-		Faction:        r.Faction,
-		Status:         Status(r.Status),
-		LastRound:      r.LastRound,
-		DirectiveRound: r.DirRound,
-		DirectiveSeq:   r.DirSeq,
-		UpdatedAt:      r.UpdatedAt,
-		limit:          r.RoundLimit,
+		Exercise:     r.ExerciseID,
+		Faction:      r.Faction,
+		Status:       Status(r.Status),
+		LastRound:    r.LastRound,
+		DirectiveSeq: r.DirSeq,
+		UpdatedAt:    r.UpdatedAt,
+		limit:        r.RoundLimit,
 	}
+	var targets map[string]route.Location
+	var rules map[string]string
 	if err := errors.Join(
 		json.Unmarshal(r.Map, &op.plan),
 		json.Unmarshal(r.Elements, &op.Elements),
-		json.Unmarshal(r.Targets, &op.Targets),
-		json.Unmarshal(r.Rules, &op.Rules),
+		json.Unmarshal(r.Targets, &targets),
+		json.Unmarshal(r.Rules, &rules),
 	); err != nil {
 		return Operation{}, fmt.Errorf("operation %s/%s: decode: %w", r.ExerciseID, r.Faction, err)
+	}
+	op.Standing = make(map[string]route.Standing, len(targets))
+	for id, at := range targets {
+		op.Standing[id] = route.Standing{Target: at, Rule: rules[id]}
 	}
 	return op, nil
 }
 
 // encode returns v as JSON text, the form a jsonb column's parameter is
-// bound from.
-func encode(v any) (string, error) {
+// bound from. what names v in an error.
+func encode(what string, v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("encode %s: %w", what, err)
 	}
 	return string(b), nil
 }
@@ -108,9 +112,9 @@ func encode(v any) (string, error) {
 // insert opens one faction's operation over m, with the exercise's round
 // limit, unless it is open already.
 func (s *store) insert(ctx context.Context, tx *sqlate.Tx, id, faction string, m route.Map, limit int) error {
-	enc, err := encode(m)
+	enc, err := encode("map", m)
 	if err != nil {
-		return fmt.Errorf("encode map: %w", err)
+		return err
 	}
 	if _, err := s.open.Exec(ctx, tx, query.Args{"exercise_id": id, "faction": faction, "map": enc, "round_limit": limit}); err != nil {
 		return fmt.Errorf("open operation %s/%s: %w", id, faction, err)
@@ -146,37 +150,30 @@ func (s *store) all(ctx context.Context, id string) ([]Operation, error) {
 	return out, nil
 }
 
-// save records op's elements, targets, rules, last round, and last
-// directive's round.
+// save records op's elements, its standing as targets and rules, its last
+// round, and its last directive's sequence.
 func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	elements := op.Elements
 	if elements == nil {
 		elements = []route.Element{}
 	}
-	targets := op.Targets
-	if targets == nil {
-		targets = map[string]route.Location{}
-	}
-	rules := op.Rules
-	if rules == nil {
-		rules = map[string]string{}
-	}
-	enc, err := encode(elements)
+	targets, rules := split(op.Standing)
+	enc, err := encode("elements", elements)
 	if err != nil {
-		return fmt.Errorf("encode elements: %w", err)
+		return err
 	}
-	tgt, err := encode(targets)
+	tgt, err := encode("targets", targets)
 	if err != nil {
-		return fmt.Errorf("encode targets: %w", err)
+		return err
 	}
-	rls, err := encode(rules)
+	rls, err := encode("rules", rules)
 	if err != nil {
-		return fmt.Errorf("encode rules: %w", err)
+		return err
 	}
 	if _, err := s.record.Exec(ctx, tx, query.Args{
 		"exercise_id": op.Exercise, "faction": op.Faction,
 		"elements": enc, "targets": tgt, "rules": rls, "last_round": op.LastRound,
-		"directive_round": op.DirectiveRound, "directive_sequence": op.DirectiveSeq,
+		"directive_sequence": op.DirectiveSeq,
 	}); err != nil {
 		return fmt.Errorf("save operation %s/%s: %w", op.Exercise, op.Faction, err)
 	}

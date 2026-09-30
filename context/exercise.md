@@ -35,7 +35,8 @@ exercise's `rules/doc.go` states them in full.
 - **The seed** is drawn when a create gives none, stored, and read only from exercise's API: the
   layout and every fight follow from it, so no faction's event carries it. A seed replays a run
   together with the orders the run recorded; the services' orders depend on timing, so a seed
-  alone replays one only as far as they arrive alike. Checkpoint A saw seed 7 replay identically.
+  alone replays one only as far as they arrive alike. The event totals, such as re-issued orders,
+  vary with timing; the replay is the rounds, the final conditions, and a consistent check.
 - **Objectives are hidden.** `exercise.started` carries the terrain alone (`Map.Terrain()`), and a
   faction learns an objective only when its observation reports it in sight.
 - **Time** runs in rounds of 1s, 30 of them in the fixture. An order for a round already resolved
@@ -88,21 +89,22 @@ it. Each README states its API, stages, and events.
   or a squad below two thirds of the enemy's strength in its cell, to the open neighbor farthest
   from other contacts; **pursue** in a fight its faction at least matches, or **engage** in place;
   **reinforce** a held fight within 4 steps; **engage** a weaker contact within 3; **secure** the
-  nearest known objective not held, an element standing on one claiming it first; **search** the
-  nearest unexplored cell, scouts first, spread apart; **rescout** the known objective not held
+  nearest discovered objective not held, an element standing on one claiming it first; **search** the
+  nearest unexplored cell, scouts first, spread apart; **rescout** the discovered objective not held
   and seen longest ago; **hold**. It skips an assessment at or below the last revision it
   decided, issues a directive only when some element's rule or target changes, and gives each
   directive a monotonic `sequence`.
 - **operations** plans each element's steps toward its target by breadth-first search, orders a
   one-step flagged retreat or a stepless `pursue`, leaves engaged and recovering elements in
   place, and keeps a faction's elements apart except in its fights. It skips a directive at or
-  below the last sequence it applied. `directive_round` no longer guards anything.
-- **The rule names** (`retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`,
-  `hold`) are a string contract between command, operations, and courier, with no shared type.
+  below the last sequence it applied.
+- **The rule names** are a string contract between command, operations, and courier, with no
+  shared type; command's `decide/doc.go` lists them under "Rule names".
 - **courier's `theater`** narrates an exercise as one block per round once the round is complete:
   the observer's record (fights, retreats, each faction's captures and losses), then each
-  faction's `knows`, `decides`, and `orders`. The observer's view, the seed and the objectives,
-  comes from exercise's API, never from the factions' events. **`theater-check`** reads a run's
+  faction's `knows`, `decides`, and `orders`. The observer's view, the seed, the objectives,
+  and the rules block (the capture rounds and each kind's sight), comes from exercise's API, never
+  from the factions' events, so courier mirrors no rule. **`theater-check`** reads a run's
   assessments from the stream and the truth from exercise's history API, compares each with the
   observer's own observations, and fails on any inconsistency; `demo-theater-check` runs it.
 

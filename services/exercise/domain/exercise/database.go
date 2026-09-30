@@ -105,6 +105,7 @@ func (r exerciseRow) exercise() (Exercise, error) {
 		Round:         r.Round,
 		RoundLimit:    r.RoundLimit,
 		RoundInterval: (time.Duration(r.RoundIntervalMS) * time.Millisecond).String(),
+		Rules:         currentRules(),
 		NextRoundAt:   r.NextRoundAt,
 		CreatedAt:     r.CreatedAt,
 		UpdatedAt:     r.UpdatedAt,

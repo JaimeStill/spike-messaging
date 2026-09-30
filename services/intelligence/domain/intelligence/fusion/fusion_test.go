@@ -12,7 +12,7 @@ import (
 )
 
 func loc(sector string, x, y int) fusion.Location {
-	return fusion.Location{Sector: sector, Point: fusion.Point{X: x, Y: y}}
+	return fusion.Location{Sector: sector, X: x, Y: y}
 }
 
 func squad(id, faction string, strength int, at fusion.Location) fusion.Element {
@@ -172,16 +172,16 @@ func TestFuseDiscoversObjectives(t *testing.T) {
 	seen.Objectives = []fusion.ObjectiveStatus{{At: loc("b", 1, 1), Holder: ""}, {At: loc("a", 1, 0), Holder: "blue"}}
 	p := fusion.Fuse(fusion.Open(grid), seen, 3)
 	want := []fusion.Objective{
-		{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 3},
-		{At: loc("b", 1, 1), Known: true, Seen: 3},
+		{At: loc("a", 1, 0), Holder: "blue", Seen: 3},
+		{At: loc("b", 1, 1), Seen: 3},
 	}
 	if !reflect.DeepEqual(p.Objectives, want) {
 		t.Errorf("discovered = %+v, want %+v", p.Objectives, want)
 	}
 	p = fusion.Fuse(p, observe(5, own), 3)
 	want = []fusion.Objective{
-		{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 3, Age: 2},
-		{At: loc("b", 1, 1), Known: true, Seen: 3, Age: 2},
+		{At: loc("a", 1, 0), Holder: "blue", Seen: 3, Age: 2},
+		{At: loc("b", 1, 1), Seen: 3, Age: 2},
 	}
 	if !reflect.DeepEqual(p.Objectives, want) {
 		t.Errorf("aged = %+v, want %+v", p.Objectives, want)
@@ -190,9 +190,9 @@ func TestFuseDiscoversObjectives(t *testing.T) {
 	again.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 1, 0), Holder: "red"}, {At: loc("a", 0, 0), Holder: ""}}
 	p = fusion.Fuse(p, again, 3)
 	want = []fusion.Objective{
-		{At: loc("a", 0, 0), Known: true, Seen: 6},
-		{At: loc("a", 1, 0), Holder: "red", Known: true, Seen: 6},
-		{At: loc("b", 1, 1), Known: true, Seen: 3, Age: 3},
+		{At: loc("a", 0, 0), Seen: 6},
+		{At: loc("a", 1, 0), Holder: "red", Seen: 6},
+		{At: loc("b", 1, 1), Seen: 3, Age: 3},
 	}
 	if !reflect.DeepEqual(p.Objectives, want) {
 		t.Errorf("updated = %+v, want %+v", p.Objectives, want)
@@ -212,8 +212,8 @@ func TestAlert(t *testing.T) {
 		t.Error("an added objective reported no change")
 	}
 	want := []fusion.Objective{
-		{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 3},
-		{At: loc("a", 5, 5), Holder: "red", Known: true, Seen: 3},
+		{At: loc("a", 1, 0), Holder: "blue", Seen: 3},
+		{At: loc("a", 5, 5), Holder: "red", Seen: 3},
 	}
 	if !reflect.DeepEqual(added.Objectives, want) {
 		t.Errorf("added = %+v, want %+v", added.Objectives, want)
@@ -224,7 +224,7 @@ func TestAlert(t *testing.T) {
 	if !changed2 {
 		t.Error("an updated objective reported no change")
 	}
-	want = []fusion.Objective{{At: loc("a", 5, 5), Holder: "blue", Known: true, Seen: 4, Age: 1}}
+	want = []fusion.Objective{{At: loc("a", 5, 5), Holder: "blue", Seen: 4, Age: 1}}
 	if !reflect.DeepEqual(updated.Objectives, want) {
 		t.Errorf("updated = %+v, want %+v", updated.Objectives, want)
 	}
@@ -260,7 +260,7 @@ func TestAlertAgesAndLaterSightingsWin(t *testing.T) {
 	p := fusion.Open(grid)
 	p.Round = 2
 	ahead, _ := fusion.Alert(p, loc("a", 1, 1), "blue", 4)
-	if want := (fusion.Objective{At: loc("a", 1, 1), Holder: "blue", Known: true, Seen: 4}); ahead.Objectives[0] != want {
+	if want := (fusion.Objective{At: loc("a", 1, 1), Holder: "blue", Seen: 4}); ahead.Objectives[0] != want {
 		t.Errorf("ahead = %+v, want %+v", ahead.Objectives[0], want)
 	}
 	stale, changed := fusion.Alert(ahead, loc("a", 1, 1), "red", 3)
@@ -272,7 +272,8 @@ func TestAlertAgesAndLaterSightingsWin(t *testing.T) {
 	}
 }
 
-// An alert shares nothing mutable with the picture it changes.
+// An alert shares nothing mutable with the picture it changes but the grid,
+// which nothing changes.
 func TestAlertCopies(t *testing.T) {
 	own := []fusion.Element{squad("r1", "red", 2, loc("a", 0, 0))}
 	p := fusion.Fuse(fusion.Open(grid), observe(1, own, squad("b1", "blue", 3, loc("a", 2, 0))), 3)
@@ -293,7 +294,7 @@ func TestFuseKeepsAnAlertedObjective(t *testing.T) {
 	p, _ = fusion.Alert(p, loc("a", 1, 0), "blue", 5)
 	late := observe(4, own)
 	late.Objectives = []fusion.ObjectiveStatus{{At: loc("a", 1, 0), Holder: "red"}}
-	want := []fusion.Objective{{At: loc("a", 1, 0), Holder: "blue", Known: true, Seen: 5}}
+	want := []fusion.Objective{{At: loc("a", 1, 0), Holder: "blue", Seen: 5}}
 	if got := fusion.Fuse(p, late, 3).Objectives; !reflect.DeepEqual(got, want) {
 		t.Errorf("fused over = %+v, want %+v", got, want)
 	}

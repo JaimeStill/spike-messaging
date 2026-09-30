@@ -57,6 +57,7 @@ func Run(t *testing.T, newBroker func(t *testing.T) messaging.Broker) {
 		{"Ready", testReady},
 		{"SubscribeRejectsInvalid", testSubscribeRejectsInvalid},
 		{"BindingMustMatch", testBindingMustMatch},
+		{"BindingNormalizesTypes", testBindingNormalizesTypes},
 		{"PublishRejectsInvalid", testPublishRejectsInvalid},
 		{"TypeRule", testTypeRule},
 		{"Deduplicates", testDeduplicates},
@@ -508,6 +509,24 @@ func testBindingMustMatch(t *testing.T, b messaging.Broker) {
 	defer cancel()
 	if err := src.Receive(ctx, func(context.Context, event.Event) error { return nil }); err == nil {
 		t.Error("a different configuration under an existing Name bound the consumer")
+	}
+}
+
+// Subscriptions whose Types differ only in order and repeats mean the same
+// filter, as [messaging.Subscription.Normalize] gives it, so they bind one
+// consumer and share its work.
+func testBindingNormalizesTypes(t *testing.T, b messaging.Broker) {
+	var d deliveries
+	first := member(t, b, messaging.Subscription{Name: "normal", Types: []string{"b", "a", "a"}}, d.record("1"))
+	second := member(t, b, messaging.Subscription{Name: "normal", Types: []string{"a", "b"}}, d.record("2"))
+	publish(t, b, ev("1", "a"), ev("2", "b"), ev("3", "c"), ev("end", "a"))
+	eventually(t, func() bool { return d.count("1")+d.count("2")+d.count("end") == 3 }, "the group to handle every matching event")
+	time.Sleep(quiet)
+	if got := len(d.seen()); got != 3 {
+		t.Errorf("delivered %v, want 1, 2, and end once each", d.seen())
+	}
+	if !first.Ready() || !second.Ready() {
+		t.Error("a member stopped: the subscriptions did not bind one consumer")
 	}
 }
 

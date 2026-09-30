@@ -4,21 +4,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
-)
-
-const (
-	// DefaultAckWait is the AckWait of a subscription that sets none.
-	DefaultAckWait = 30 * time.Second
-	// Duplicates is the deduplication window: a publish of a source and id
-	// seen within it is dropped. It is JetStream's default window.
-	Duplicates = 2 * time.Minute
 )
 
 // Broker is an in-memory [messaging.Broker]. Its zero value is not usable;
@@ -30,7 +21,7 @@ type Broker struct {
 	mu        sync.Mutex
 	log       []message // an event's sequence is its index
 	consumers map[string]*consumer
-	seen      map[identity]time.Time // to when it was first published, within Duplicates
+	seen      map[identity]time.Time // to when it was first published, within the window
 }
 
 // identity is what makes a CloudEvents event unique: its source and id.
@@ -49,14 +40,11 @@ func New() *Broker {
 
 var _ messaging.Broker = (*Broker)(nil)
 
-// Publish appends e to the log and wakes every consumer, unless an event
-// with e's source and id was published within [Duplicates], in which case it
-// drops e and returns nil.
+// Publish appends e to the log and wakes every consumer. When an event with
+// e's source and id was published within [messaging.DefaultDuplicates],
+// Publish instead drops e and returns nil.
 func (b *Broker) Publish(_ context.Context, e event.Event) error {
-	h, body, err := event.Encode(e)
-	if err == nil {
-		err = messaging.CheckType(e.Type)
-	}
+	h, body, err := messaging.Encode(e)
 	if err != nil {
 		return fmt.Errorf("memory: publish: %w", err)
 	}
@@ -64,7 +52,7 @@ func (b *Broker) Publish(_ context.Context, e event.Event) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for id, at := range b.seen {
-		if now.Sub(at) >= Duplicates {
+		if now.Sub(at) >= messaging.DefaultDuplicates {
 			delete(b.seen, id)
 		}
 	}
@@ -88,7 +76,7 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
-	sub = normalize(sub)
+	sub = sub.Normalize()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c, ok := b.consumers[sub.Name]
@@ -99,20 +87,4 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 		return nil, fmt.Errorf("memory: subscription %q exists with a different configuration", sub.Name)
 	}
 	return &source{b: b, c: c}, nil
-}
-
-// normalize gives sub the form its consumer keeps and compares: the default
-// AckWait filled in, and Types copied, sorted, and nil when empty, so the
-// caller cannot change the filter afterward and configurations that mean
-// the same thing compare equal.
-func normalize(sub messaging.Subscription) messaging.Subscription {
-	if sub.AckWait == 0 {
-		sub.AckWait = DefaultAckWait
-	}
-	if len(sub.Types) == 0 {
-		sub.Types = nil
-	} else {
-		sub.Types = slices.Sorted(slices.Values(sub.Types))
-	}
-	return sub
 }

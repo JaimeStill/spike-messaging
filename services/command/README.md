@@ -54,9 +54,9 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 
 1. **Retreat.** An engaged element steps out of its fight when it is a scout, or when its
    faction's strength in the cell is below two thirds of the enemy's there. It steps to the
-   adjacent open cell free of the enemy and of its own faction's elements that lies farthest from the nearest contact outside the
-   fight, ties going up, right, down, then left. Only the enemy elements that pursue fire on a
-   retreat.
+   adjacent open cell free of the enemy and of its own faction's elements that lies farthest from
+   the nearest contact outside the fight, ties going up, right, down, then left. Only the enemy
+   elements that pursue fire on a retreat.
 2. **Pursue or engage in place.** An engaged element that doesn't retreat, or has nowhere to go,
    holds its fight: its target is its own cell. It pursues when its faction's strength in the
    cell is at least the enemy's, and so fires on an enemy that retreats; otherwise it engages.
@@ -65,31 +65,30 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 4. **Engage.** A squad heads for the nearest known contact weaker than itself within 3 steps, at
    the cell it was last seen in.
 5. **Secure.** Otherwise the element heads for the nearest reachable discovered objective that its
-   faction isn't known to hold and that no other element is heading for. An element standing on
+   faction doesn't hold and that no other element is heading for. An element standing on
    such an objective takes it before any other element picks, so none sends it away. A scout
-   secures only once no unexplored cell is in its reach. An element keeps the objective it was securing while
-   that objective is still one to secure.
+   secures only once no unexplored cell is in its reach. An element keeps the objective it was
+   securing while that objective is still one to secure.
 6. **Search.** Otherwise the element heads for the nearest reachable unexplored cell that no other
    element is searching, preferring one more than two cells from every cell already taken, so the
    searchers spread. Scouts pick before squads, and an element keeps the cell it was searching
    while that cell is still unexplored.
-7. **Rescout.** Otherwise the element heads for the discovered objective its faction isn't known
-   to hold that was seen longest ago, ties going to the nearest, that no other element is
+7. **Rescout.** Otherwise the element heads for the discovered objective its faction doesn't
+   hold that was seen longest ago, ties going to the nearest, that no other element is
    rescouting and that it doesn't stand on, though another element may be securing it. An idle
    element so refreshes a belief that may be stale, and keeps the objective it was rescouting
    while that objective is still one to secure.
 8. **Hold.** Otherwise it stands where it is.
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
-`{exercise, faction, round, sequence, directives: [{element, rule, contact, target}]}`, where `rule` is
-`retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a hold's
-target is null. A retreat, a pursue, an engage, and a reinforce have a contact: the enemy the
+`{exercise, faction, round, sequence, directives: [{element, rule, contact, target}]}`, where `rule`
+is `retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a
+hold's target is null. A retreat, a pursue, an engage, and a reinforce have a contact: the enemy the
 element leaves, fights, or heads for, the strongest in the cell when a fight holds several. The
 service emits the event only when a decision changes an element's target or rule. The `sequence`
 numbers the faction's directives in the exercise from 1 up, so a consumer can skip a directive no
 higher than the last it applied. The event lists every live element, so it carries the faction's
-whole target state. The operations service reads
-each directive's element, rule, and target.
+whole target state. The operations service reads each directive's element, rule, and target.
 
 The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer
 logs each delivery with its outcome.

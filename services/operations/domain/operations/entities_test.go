@@ -1,10 +1,13 @@
 package operations_test
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/JaimeStill/spike-messaging/services/operations/domain/operations"
+	"github.com/JaimeStill/spike-messaging/services/operations/domain/operations/route"
 )
 
 const exerciseID = "01999f4e-6a3b-7c2d-8e1f-0a1b2c3d4e5f"
@@ -36,5 +39,32 @@ func TestValidate(t *testing.T) {
 		if err := c.Validate(); !errors.Is(err, operations.ErrValidation) {
 			t.Errorf("%s: Validate = %v, want ErrValidation", name, err)
 		}
+	}
+}
+
+// An operation's JSON shows its standing as targets and rules, each keyed
+// by element, as the API always has.
+func TestOperationJSONShowsTheStanding(t *testing.T) {
+	at := route.Location{Sector: "a", X: 4, Y: 0}
+	op := operations.Operation{Faction: "red", Standing: map[string]route.Standing{"r1": {Target: at, Rule: "secure"}}}
+	b, err := json.Marshal(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"targets": map[string]any{"r1": map[string]any{"sector": "a", "x": 4.0, "y": 0.0}},
+		"rules":   map[string]any{"r1": "secure"},
+	}
+	for k, v := range want {
+		if !reflect.DeepEqual(got[k], v) {
+			t.Errorf("%s = %v, want %v", k, got[k], v)
+		}
+	}
+	if _, ok := got["Standing"]; ok || got["faction"] != "red" {
+		t.Errorf("JSON = %s, want the operation's fields beside targets and rules", b)
 	}
 }

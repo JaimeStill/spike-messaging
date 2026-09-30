@@ -85,9 +85,17 @@ here, this note is the spike's own.
 - **An event type is a sequence of subject tokens.** `event.CheckType` requires `.`-separated
   tokens, none empty, with no whitespace, `*`, or `>`, so a provider can route on the type as a
   subject. `event.Define` checks it when a domain declares a kind, and `messaging.CheckType`
-  delegates to it, so a type a domain can define is a type a broker routes; `messaging.IsToken` is the rule for a durable or stream name, which also excludes `/`
-  and `\`. Both providers enforce both rules, and the conformance suite proves them. Rejected: a
-  rule in the nats provider alone, which lets memory accept what NATS cannot route.
+  delegates to it, so a type a domain can define is a type a broker routes; `messaging.CheckName`
+  is the rule for a durable or stream name, which also excludes `/` and `\`. Both providers
+  enforce both rules, and the conformance suite proves them. Rejected: a rule in the nats provider
+  alone, which lets memory accept what NATS cannot route.
+- **`messaging` holds every rule the providers share**: `DefaultAckWait`, `DefaultDuplicates`,
+  `Encode` (the check and encoding every `Publish` makes), and `Subscription.Normalize`, the
+  consumer form that sorts the types and drops repeats, so subscriptions that mean the same filter
+  bind one consumer. The conformance case `BindingNormalizesTypes` holds both providers to it.
+  The outbox and the inbox share one check of an engine's statements
+  (`messaging/internal/engine`). Rejected: each provider defining its own defaults, which let
+  memory refuse a binding nats accepted.
 - **Deduplication keys on the event's source and id**, which together identify a CloudEvents
   event and which the inbox already claims on. Both providers keep a two-minute window,
   JetStream's default; nats sends the length-prefixed source and the id as `Nats-Msg-Id`.
@@ -110,6 +118,12 @@ here, this note is the spike's own.
   such as HTTP, does its own.
 - **The native request and reply runs through `nats.Broker.Conn()`**, in the composition root
   alone. `split-check` holds `courier/scenario` to no NATS package.
+- **A service's composition root is `internal/app` with `internal/config`,** which carries the
+  provider's configuration block. `split-check` holds a service's domain and data packages to the
+  spike's `core` and their own module, with no provider (nats.go, pgx, sqlate's Postgres dialect,
+  go-database), leaving their integration tests out since those compose the sink; and it holds
+  every package of a service, tests included, apart from every other service. That is evidence 6
+  as a standing check.
 - **A handler claims on its own context.** `Inbox.Claim` runs in a transaction on the handler's
   context, so the `AckWait` deadline rolls a slow handler's claim back, and the redelivery's claim
   waits on its lock, then claims once (`TestClaimAcrossAckWait`). Under `REPEATABLE READ` or
@@ -128,10 +142,12 @@ here, this note is the spike's own.
   a constructor that dials, which every service root had to wrap in a component of its own.
 - **A service's messaging is one `messaging.Runtime`.** `messaging.New` takes the service's
   `messaging.Config` (its CloudEvents source and the relay's poll), the broker, the engine's
-  outbox and inbox statements, and a logger, and builds the outbox, the inbox, and the
-  recorder, with no I/O. The root injects the provider and the engine, so `messaging` names
-  neither. `Runtime.Relay` builds the relay reactor with its last pass at a quarter of the drain
-  timeout. `Runtime.Consume[T]`, a generic method, builds a consuming reactor: it decodes each
+  outbox and inbox statements, the process's drain timeout, and a logger. It checks the config
+  and the timeout, and builds the outbox, the inbox, and the recorder, with no I/O; `Recorder` is
+  the one field a service reads. The root injects the provider and the engine, so `messaging`
+  names neither, and passes the drain timeout once, so `Relay` and `Consume` take none.
+  `Runtime.Relay` builds the relay reactor with its last pass at a quarter of the drain timeout;
+  the outbox's relay takes its poll as a required argument. `Runtime.Consume[T]`, a generic method, builds a consuming reactor: it decodes each
   event's data into the consumer's own type, refusing data that does not decode with
   `event.Permanent`, hands the consumer a claim bound over the inbox under the subscription's
   name. It logs every delivery with the consumer, the event's type, id, and subject, and its
@@ -185,72 +201,42 @@ interface and registration by name and stage (`Register(name, stage, comp)`), wi
 The stage stays at the call site, because it is the process's dependency order, which a library
 can't know. A library constant such as go-database's `admin.Stage` is the smell this removes.
 
-The spike builds against published go-core, so it tests the hypothesis without changing it. The
-reactor is a component, and the composition root adapts it with today's `lifecycle.Service`. How
-often that adapter recurs, and whether anything wants more than the three methods, is the evidence
-for the go-core change.
+The spike builds against published go-core, so it tests the hypothesis without changing it.
 
-The evidence from step 1's `cmd/every`, now courier's `every` scenario:
+The evidence:
 
-- **One adapter.** It is hand-written, at `StageRoot`.
-- **More than three methods.** The reactor also needs `Err`, which the root passes to `Monitor`.
-  Registering a reactor takes two calls (`Add` and `Monitor`) and a rule tying `reactor.Grace`
-  to the coordinator's drain timeout. A single registration could carry all of it.
-- **Readiness lags `Start`.** The coordinator marks the process ready as soon as `Start`
-  returns, before the reactor's source is receiving, so a probe of the component's check can
-  briefly read not ready. Each service's lifecycle test awaits readiness before it reads the
-  checks.
+- **The adapter recurred** in every composition root that ran a reactor, until `core/lifecycle`
+  replaced it: step 1's `every` scenario, courier's `coordinator.go`, and exercise's `reactors.go`
+  each copied the three methods into a `lifecycle.Service` by hand and monitored `Err` beside it.
+- **A reactor wants a fourth method.** It also reports a failure after `Start` on `Err`, which
+  the coordinator must monitor; the database and the broker have no such channel.
+- **Readiness lags `Start`.** The coordinator marks the process ready as soon as `Start` returns,
+  before a reactor's source is receiving, so each service's lifecycle test awaits readiness, and
+  courier's `request` waits on its responder's own `Ready`.
 - **The coordinator drops errors in two windows.** It stops reading monitored channels at the
   signal, and it drops a drain error that arrives at its deadline. The reactor covers both
-  itself: `Shutdown` returns a failure that was sent on `Err` but never read, and `Grace`, set
-  below the drain timeout, reports cancelled handlers before the deadline. A coordinator that
-  gave participants a short window to report late errors would make both unnecessary.
-
-The evidence from courier's scenarios:
-
-- **One adapter serves every reactor.** `courier/scenario/coordinator.go` adapts a component with
-  `Start`, `Shutdown`, `Ready`, and `Err` into a `lifecycle.Service` and monitors its `Err`. That
-  interface is the proposed component interface, with `Err` as its fourth member.
-- **Stages order the drain.** In `group`, the publisher sits at `StageRoot` and the workers at
-  stage 0, so the drain stops publishing before the workers drain. In `outbox`, the relay sits at
-  `StageRoot` for the same reason. A reactor that consumes sits below the root, and one that
-  produces work sits at the root, as the HTTP server does.
-- **Readiness lags again.** `request` waits on its responder's own `Ready` before it sends,
-  because the coordinator is ready before its services' sources are receiving.
-
-The evidence from the exercise service (`services/exercise/internal/app`), gathered before the
-extraction:
-
-- **The stages.** 0: the database and the broker; 1: go-database's schema service; 2: the
-  statements' verification; 3: the orders reactor, which consumes; 4: the relay; root: the server
-  and the resolver, which produce. Consumers sit below the relay, and the relay below the
-  producers.
-- **A library constant sets a stage.** The verify stage is `admin.Stage + 1`, go-database's
-  constant, and every stage above it follows from it: the smell a registration by stage at the
-  call site removes.
-- **The adapter recurred.** `reactors.go` had its own `register`, courier's `add` again, with
-  the same four methods.
+  itself: `Shutdown` returns a failure sent on `Err` but never read, and `Grace`, below the drain
+  timeout, reports cancelled handlers before the deadline. A coordinator that gave participants
+  a short window to report late errors would make both unnecessary.
+- **Stages order the drain by what commits events.** 0: the database and the broker; 1:
+  go-database's schema service; 2: the statements' verification; then the relay below every
+  reactor that commits events, and above those that commit none (exercise's orders consumer sits
+  below it, operations' consumers above it); root: the server and the producers. A library
+  constant sets a stage: the verify stage is `admin.Stage + 1`, the smell a registration by stage
+  at the call site removes.
 
 The result: `core/lifecycle` holds the proposed component interface, `Component` (`Start`,
-`Shutdown`, `Ready`, `Err`), and `Register(lc, name, stage, c)`, which adds the component with its
-readiness check and monitors its `Err`. exercise, operations, and courier all register their
-reactors through it, so one call replaces the adapter, and the stage stays at the call site.
-
-The evidence from operations (`services/operations/internal/app`):
-
-- **The relay sits below every stage that commits events.** exercise's orders consumer emits
-  nothing, so it sits below the relay. operations' consumers raise its orders, so they sit above
-  the relay (3: relay; 4: the four consumers), and the drain stops them before the relay's last
-  pass publishes what they committed. A reactor's stage follows from whether it commits events,
-  not whether it consumes.
+`Shutdown`, `Ready`), `Monitored`, a component that adds `Err`, and `Register(lc, name, stage,
+c)`, which adds the component with its readiness check and monitors `Err` when the component is
+`Monitored`. Every service registers its database, its broker, and its reactors through it; only
+the start-only verification stays a `lifecycle.Service`. The trade-off: `Register` finds `Err` by
+a type assertion, so a reactor wrapped in a type without `Err` would register unmonitored, where a
+four-method `Component` caught that at compile time.
 
 ## Open questions
 
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration");
   `core/lifecycle` is the candidate, used by every root.
-- The import check in the final validation must let a `_test.go` file import the memory
-  provider, its test double, and must hold the exercise services apart from each other.
-  `split-check`'s allow-list over `go list -deps -test` is a starting shape for it.
 - How the relay and a nats source report the errors they survive. A database error only makes
   the relay not ready, and a handler error, such as a broker that is down, reaches nothing; a
   source's failing pulls only make it not ready. Both need an error hook or the observability
@@ -263,7 +249,8 @@ The evidence from operations (`services/operations/internal/app`):
   `CreateOrUpdateStream`, so the services sharing the exercise's stream must configure it alike,
   and one set to an unbounded `MaxAge` removes the retention. go-messaging needs a way to bind a
   stream without provisioning it, or one owner for its configuration.
-- The relay's 10s default `Timeout` is untested against a slow broker.
+- The relay's 10s default `Timeout` is untested against a slow broker, and `Runtime` cannot set
+  it: `messaging.Config` has no field for it.
 - A durable consumer outlives the process that made it. courier's release deletes only the
   consumers its own run subscribed, so a run that dies without its release leaves its consumer
   on the stream. The nats provider sets no `InactiveThreshold`, so nothing reaps it.
@@ -278,7 +265,13 @@ The evidence from operations (`services/operations/internal/app`):
   the last it applied; intelligence's assessment carries a `revision`, and command skips one at or
   below the last it decided. Round numbers could not order them, because a revision shares its
   round with the original. Whether go-messaging should name the pattern, a change-only event with
-  its full state and a producer's sequence, for other services to follow.
+  its full state and a producer's sequence, for other services to follow. The exercise's round
+  interval is an implicit barrier: a live run replays a seed only if each round's last directive
+  arrives before the round is due. A hard barrier, resolving a round once both factions' orders
+  are in with a timeout default, trades liveness for determinism.
+- courier's join scenarios wait differently: the theater and the check wait on `--wait`, the
+  assessments and directives scenarios on the coordinator's fixed patience. courier also never
+  reads a directive's `sequence`, which the assessments narration could use to skip a stale one.
 
 ## The CLI layout
 

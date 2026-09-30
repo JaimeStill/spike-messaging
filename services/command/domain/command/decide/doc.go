@@ -16,9 +16,10 @@
 //     its elements there, is below two thirds of the enemy's, summed over
 //     the contacts seen there this round. It steps to the orthogonally
 //     adjacent open cell holding no contact seen this round and none of
-//     its faction's own elements that lies farthest, by Chebyshev distance, from the nearest known contact
-//     outside the fight, ties going to the first of up, right, down, left.
-//     Its contact is the strongest enemy in the fight;
+//     its faction's own elements that lies farthest, by Chebyshev
+//     distance, from the nearest known contact outside the fight, ties
+//     going to the first of up, right, down, left. Its contact is the
+//     strongest enemy in the fight;
 //  2. pursue or engage in place: an engaged element that does not retreat,
 //     or has no cell to retreat to, holds its fight, its target its own
 //     cell and its contact the strongest enemy there. Its rule is pursue
@@ -30,11 +31,11 @@
 //     enemy there. Any number of squads may reinforce one fight;
 //  4. engage: a squad heads for the nearest known contact weaker than
 //     itself within [EngageRange] steps, at the cell it was last seen in;
-//  5. secure: otherwise an element heads for the nearest known objective
-//     its faction does not hold that none of its other elements is heading
-//     for. An element standing on such an objective secures it before any
-//     other element picks one, so none sends it away. A scout secures only
-//     when no unexplored cell is in its reach;
+//  5. secure: otherwise an element heads for the nearest discovered
+//     objective its faction does not hold that none of its other elements
+//     is heading for. An element standing on such an objective secures it
+//     before any other element picks one, so none sends it away. A scout
+//     secures only when no unexplored cell is in its reach;
 //  6. search: otherwise an element heads for the nearest unexplored cell
 //     that none of its other elements is searching, preferring one farther
 //     than [SpreadRange] from every cell they search, so the searchers
@@ -64,19 +65,42 @@
 // and not an obstacle, or, from a gate's cell, traverses the link to the
 // linked gate's cell. A target no step sequence reaches is never chosen.
 //
-// An objective is held by the faction only when the assessment knows it
-// is: an objective no element has seen is unheld, whatever its holder
-// field says. A held belief can be stale, since the assessment keeps an
-// objective as it was last seen, so an objective the faction believes it
-// holds is not secured until an element sees it again.
+// An objective is held by the faction when its holder, as the assessment
+// last saw it, is the faction. A held belief can be stale, since the
+// assessment keeps an objective as it was last seen, so an objective the
+// faction believes it holds is not secured until an element sees it again.
 //
 // An element keeps the objective it was securing or rescouting while that
 // objective is still one to secure and it can still reach it, and the cell
 // it was searching while that cell is still unexplored, so a faction's
-// targets do not trade places as its elements move. Those standing targets
-// are claimed before any element picks a new one under the same rule:
-// standing objectives, after the objectives elements stand on, before any
-// objective, within each kind standing
-// search cells before any search cell, and standing rescouts before any
-// rescout.
+// targets do not trade places as its elements move. Within each rule, the
+// standing targets are claimed before any element picks a new one. For
+// secure, the objectives elements stand on come first, then the standing
+// objectives, then any other objective. For search, within each kind, the
+// standing search cells come before any other search cell, and for
+// rescout, the standing rescouts come before any other rescout.
+//
+// # Rule names
+//
+// A [Decision] names its [Rule] by a string that command's
+// command.directive.issued event carries. The operations service and the
+// courier CLI read these strings, so the eight names are a contract with
+// them:
+//
+//   - "retreat" ([Retreat]): the element steps out of its fight, to an
+//     adjacent cell, and its contact is the enemy it leaves;
+//   - "pursue" ([Pursue]): the element holds a fight its faction at least
+//     matches, ready to fire on an enemy that retreats, and its contact is
+//     the enemy it fights;
+//   - "engage" ([Engage]): the element holds a fight it is outmatched in,
+//     or a squad heads for a weaker contact, and its contact is that
+//     enemy;
+//   - "reinforce" ([Reinforce]): a squad heads for a fight of its faction,
+//     and its contact is the strongest enemy there;
+//   - "secure" ([Secure]): the element heads for a discovered objective its
+//     faction does not hold;
+//   - "search" ([Search]): the element heads for an unexplored cell;
+//   - "rescout" ([Rescout]): the element heads for the stalest discovered
+//     objective its faction does not hold, to see it again;
+//   - "hold" ([Hold]): the element stands where it is, its target null.
 package decide

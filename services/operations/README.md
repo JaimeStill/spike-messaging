@@ -21,7 +21,7 @@ Mounted under `/api/operations`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round and sequence of the last directive it applied, its elements, and each element's target and rule |
+| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the sequence of the last directive it applied, its elements, and each element's target and rule |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -58,8 +58,8 @@ Each ready element steps toward its target along a shortest path, found by bread
 over open cells and gates (`domain/operations/route`), up to its moves per round: a squad one, a
 scout two. An engaged element stays in its fight, because exercise pins it there, unless its
 rule is `retreat` and its target is one step away: then its order is that step, flagged as a
-retreat. If its rule is `pursue`, its order has no steps and is flagged as a pursuit: it stays in its
-cell and fires on an enemy that retreats from it. Any other engaged element gets no order. A
+retreat. If its rule is `pursue`, its order has no steps and is flagged as a pursuit: it stays in
+its cell and fires on an enemy that retreats from it. Any other engaged element gets no order. A
 recovering element stays. No two of a faction's elements end a round on one cell, except a cell
 where one of its engaged elements stands, which reinforcements may join.
 

@@ -47,7 +47,7 @@ func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 			"at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"ready",
 			"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
-		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":true,"seen":2,"age":0}],
+		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","seen":2,"age":0}],
 		"explored":[{"sector":"a","x":0,"y":0},{"sector":"a","x":1,"y":0}]}`), &c)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 // The directive's payload is the shape operations reads, each directive
 // with its rule, and an engage with its contact, under its sequence.
 func TestDirectiveDataShape(t *testing.T) {
-	at := decide.Location{Sector: "a", Point: decide.Point{X: 1, Y: 0}}
+	at := decide.Location{Sector: "a", X: 1, Y: 0}
 	d := command.DirectiveData{Exercise: exerciseID, Faction: "red", Round: 3, Sequence: 2, Directives: []decide.Decision{
 		{Element: "r1", Rule: decide.Engage, Contact: "b1", Target: &at},
 		{Element: "r2", Rule: decide.Secure, Target: &at},

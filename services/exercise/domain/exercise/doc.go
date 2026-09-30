@@ -32,7 +32,9 @@
 //
 //   - Start raises [Started], then [RoundObserved] for round 0, one per
 //     faction.
-//   - Each resolved round raises [RoundObserved], one per faction.
+//   - Each resolved round raises [RoundResolved], then [ObjectiveLost] for
+//     each objective taken from the faction that held it, then
+//     [RoundObserved], one per faction.
 //   - The round that ends the exercise raises [Concluded], and so does a
 //     stop of an exercise that had started.
 //
@@ -48,8 +50,8 @@
 //
 // # Orders
 //
-// [Service.RecordOrders] is the command a reactor's adapter invokes for the
-// orders a faction issued. It takes an optional [Claim], which the adapter
+// [Service.RecordOrders] is the command a consuming reactor invokes for the
+// orders a faction issued. It takes an optional [Claim], which the reactor
 // binds over its inbox, and runs the claim first in the command's
 // transaction, so a redelivery changes nothing. The command reads the
 // exercise under a shared lock, so it waits for a resolution in flight. It

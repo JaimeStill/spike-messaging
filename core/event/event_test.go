@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"reflect"
 	"strings"
@@ -95,9 +96,7 @@ func TestDecodeRejects(t *testing.T) {
 	}
 	with := func(k, v string) event.Header {
 		h := event.Header{}
-		for key, vs := range valid {
-			h[key] = vs
-		}
+		maps.Copy(h, valid)
 		if v == "" {
 			delete(h, k)
 		} else {
@@ -202,9 +201,8 @@ func TestPermanent(t *testing.T) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Error("errors.Is does not reach the cause")
 	}
-	var pe *fs.PathError
 	cause := event.Permanent(&fs.PathError{Op: "open", Path: "x", Err: fs.ErrNotExist})
-	if !errors.As(cause, &pe) {
+	if _, ok := errors.AsType[*fs.PathError](cause); !ok {
 		t.Error("errors.As does not reach the cause")
 	}
 }

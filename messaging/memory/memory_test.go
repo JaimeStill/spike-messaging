@@ -46,15 +46,13 @@ func TestLateOutcomeIgnored(t *testing.T) {
 		}
 		rs = append(rs, r)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for calls.Load() < 2 && time.Now().Before(deadline) {
 			time.Sleep(time.Millisecond)
 		}
 		close(release)
-	}()
+	})
 	if err := b.Publish(context.Background(), event.Event{ID: "x", Source: "/t", Type: "t"}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +77,7 @@ func TestBindingComparesMeaning(t *testing.T) {
 		t.Fatal(err)
 	}
 	types[0] = "changed" // the consumer must keep its own copy
-	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: memory.DefaultAckWait}); err != nil {
+	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: messaging.DefaultAckWait}); err != nil {
 		t.Errorf("the same types in another order, with the default AckWait spelled out, must bind: %v", err)
 	}
 	if _, err := b.Subscribe(messaging.Subscription{Name: "empty", Types: []string{}}); err != nil {

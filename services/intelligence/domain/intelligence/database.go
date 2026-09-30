@@ -64,6 +64,7 @@ type assessmentRow struct {
 	ClosedRound *int      `json:"closed_round"`
 	Revision    int       `json:"revision"`
 	Picture     []byte    `json:"picture"`
+	Grid        []byte    `json:"grid"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
@@ -79,40 +80,38 @@ func (r assessmentRow) assessment() (Assessment, error) {
 	if r.ClosedRound != nil {
 		a.closedRound = *r.ClosedRound
 	}
-	var st storedPicture
-	if err := json.Unmarshal(r.Picture, &st); err != nil {
-		return Assessment{}, fmt.Errorf("assessment %s/%s: decode: %w", r.ExerciseID, r.Faction, err)
+	if err := json.Unmarshal(r.Picture, &a.Picture); err != nil {
+		return Assessment{}, fmt.Errorf("assessment %s/%s: decode picture: %w", r.ExerciseID, r.Faction, err)
 	}
-	a.Picture = st.Picture
-	a.Grid = st.Grid
+	if err := json.Unmarshal(r.Grid, &a.Grid); err != nil {
+		return Assessment{}, fmt.Errorf("assessment %s/%s: decode grid: %w", r.ExerciseID, r.Faction, err)
+	}
 	return a, nil
 }
 
-// storedPicture is the picture's stored form: the picture, and the grid
-// its JSON leaves out.
-type storedPicture struct {
-	fusion.Picture
-	Grid []fusion.Sector `json:"grid"`
-}
-
-// encode returns p as JSON text, the form a jsonb column's parameter is
-// bound from.
-func encode(p fusion.Picture) (string, error) {
-	b, err := json.Marshal(storedPicture{Picture: p, Grid: p.Grid})
+// encode returns v as JSON text, the form a jsonb column's parameter is
+// bound from. what names v in an error.
+func encode(what string, v any) (string, error) {
+	b, err := json.Marshal(v)
 	if err != nil {
-		return "", fmt.Errorf("encode picture: %w", err)
+		return "", fmt.Errorf("encode %s: %w", what, err)
 	}
 	return string(b), nil
 }
 
 // insert opens one faction's assessment from picture p, unless it is open
-// already.
+// already. It stores p's grid in a column beside the picture, once, because
+// nothing changes the grid.
 func (s *store) insert(ctx context.Context, tx *sqlate.Tx, id, faction string, p fusion.Picture) error {
-	enc, err := encode(p)
+	picture, err := encode("picture", p)
 	if err != nil {
 		return err
 	}
-	if _, err := s.open.Exec(ctx, tx, query.Args{"exercise_id": id, "faction": faction, "picture": enc}); err != nil {
+	grid, err := encode("grid", p.Grid)
+	if err != nil {
+		return err
+	}
+	if _, err := s.open.Exec(ctx, tx, query.Args{"exercise_id": id, "faction": faction, "picture": picture, "grid": grid}); err != nil {
 		return fmt.Errorf("open assessment %s/%s: %w", id, faction, err)
 	}
 	return nil
@@ -148,12 +147,12 @@ func (s *store) all(ctx context.Context, id string) ([]Assessment, error) {
 
 // save records a's picture and revision.
 func (s *store) save(ctx context.Context, tx *sqlate.Tx, a Assessment) error {
-	enc, err := encode(a.Picture)
+	picture, err := encode("picture", a.Picture)
 	if err != nil {
 		return err
 	}
 	if _, err := s.record.Exec(ctx, tx, query.Args{
-		"exercise_id": a.Exercise, "faction": a.Faction, "picture": enc, "revision": a.Revision,
+		"exercise_id": a.Exercise, "faction": a.Faction, "picture": picture, "revision": a.Revision,
 	}); err != nil {
 		return fmt.Errorf("save assessment %s/%s: %w", a.Exercise, a.Faction, err)
 	}

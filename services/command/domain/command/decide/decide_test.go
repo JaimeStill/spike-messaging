@@ -11,7 +11,7 @@ import (
 )
 
 func loc(sector string, x, y int) decide.Location {
-	return decide.Location{Sector: sector, Point: decide.Point{X: x, Y: y}}
+	return decide.Location{Sector: sector, X: x, Y: y}
 }
 
 // squad returns a ready squad of the operators' health given, four at
@@ -41,10 +41,10 @@ func contact(id string, strength int, at decide.Location) decide.Contact {
 	return decide.Contact{ID: id, Strength: strength, At: at}
 }
 
-func unknown(at decide.Location) decide.Objective { return decide.Objective{At: at} }
+func unheld(at decide.Location) decide.Objective { return decide.Objective{At: at} }
 
 func held(by string, at decide.Location) decide.Objective {
-	return decide.Objective{At: at, Holder: by, Known: true}
+	return decide.Objective{At: at, Holder: by}
 }
 
 // open returns one open w×h sector, a, with the obstacles given.
@@ -102,7 +102,7 @@ func TestDecodesTheEventShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := decide.Map{Sectors: []decide.Sector{{
-		ID: "a", Width: 3, Height: 1, Obstacles: []decide.Point{{X: 1}}, Objectives: []decide.Point{{X: 2}},
+		ID: "a", Width: 3, Height: 1, Obstacles: []decide.Point{{X: 1}},
 		Gates: []decide.Gate{{At: decide.Point{}, To: loc("b", 0, 0)}},
 	}}}
 	if !reflect.DeepEqual(m, want) {
@@ -114,7 +114,7 @@ func TestDecodesTheEventShapes(t *testing.T) {
 			"at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"recovering",
 			"at":{"sector":"a","x":1,"y":0},"seen":3,"age":1}],
-		"objectives":[{"at":{"sector":"a","x":2,"y":0},"holder":"blue","known":true,"seen":2,"age":2}],
+		"objectives":[{"at":{"sector":"a","x":2,"y":0},"holder":"blue","seen":2,"age":2}],
 		"explored":[{"sector":"a","x":0,"y":0},{"sector":"a","x":2,"y":0}]}`), &a); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestEngagesTheNearestWeakerContact(t *testing.T) {
 			contact("b2", 100, loc("a", 0, 2)),
 			contact("b1", 100, loc("a", 2, 0)),
 		},
-		Objectives: []decide.Objective{unknown(loc("a", 1, 0))},
+		Objectives: []decide.Objective{unheld(loc("a", 1, 0))},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 engage b1 a:2,0")
 }
@@ -176,7 +176,7 @@ func TestEngagesOnlyAWeakerContactInReach(t *testing.T) {
 			contact("b1", 200, loc("a", 1, 0)),
 			contact("b2", 100, loc("a", 4, 0)),
 		},
-		Objectives: []decide.Objective{unknown(loc("a", 0, 4))},
+		Objectives: []decide.Objective{unheld(loc("a", 0, 4))},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:0,4")
 }
@@ -186,7 +186,7 @@ func TestScoutsDoNotEngage(t *testing.T) {
 	a := decide.Assessment{
 		Own:        []decide.Element{scout("r1", loc("a", 0, 0))},
 		Contacts:   []decide.Contact{contact("b1", 50, loc("a", 1, 0))},
-		Objectives: []decide.Objective{unknown(loc("a", 4, 4))},
+		Objectives: []decide.Objective{unheld(loc("a", 4, 4))},
 		Explored:   explored(open(5, 5)),
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:4,4")
@@ -309,7 +309,7 @@ func TestSquadsReinforceAFight(t *testing.T) {
 			contact("b1", 300, fight),
 			contact("b2", 100, loc("a", 3, 5)),
 		},
-		Objectives: []decide.Objective{unknown(loc("a", 6, 0))},
+		Objectives: []decide.Objective{unheld(loc("a", 6, 0))},
 		Explored:   explored(open(7, 7)),
 	}
 	check(t, decide.Decide(open(7, 7), "red", a, nil),
@@ -346,27 +346,25 @@ func TestAWallPutsANearContactOutOfReach(t *testing.T) {
 	a := decide.Assessment{
 		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
 		Contacts:   []decide.Contact{contact("b1", 100, loc("a", 2, 0))},
-		Objectives: []decide.Objective{unknown(loc("a", 0, 3))},
+		Objectives: []decide.Objective{unheld(loc("a", 0, 3))},
 	}
 	check(t, decide.Decide(m, "red", a, nil), "r1 secure a:0,3")
 }
 
-// An element secures the nearest objective its faction does not hold. An
-// unknown objective is unheld whatever its holder says, and one it
-// believes it holds is left, however stale the belief.
+// An element secures the nearest objective its faction does not hold. One
+// it believes it holds is left, however stale the belief.
 func TestSecuresTheNearestObjectiveNotHeld(t *testing.T) {
 	a := decide.Assessment{
 		Own: []decide.Element{scout("r1", loc("a", 0, 0))},
 		Objectives: []decide.Objective{
 			held("red", loc("a", 1, 0)),
-			{At: loc("a", 2, 0), Holder: "red"}, // unknown: its holder means nothing
 			held("blue", loc("a", 0, 1)),
 		},
 		Explored: explored(open(5, 5)),
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:0,1")
 
-	a.Objectives = []decide.Objective{held("red", loc("a", 1, 0)), {At: loc("a", 2, 0), Holder: "red"}}
+	a.Objectives = []decide.Objective{stale(held("red", loc("a", 1, 0)), 5), unheld(loc("a", 2, 0))}
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 secure a:2,0")
 }
 
@@ -379,7 +377,7 @@ func TestSecuresEachObjectiveOnce(t *testing.T) {
 			scout("r1", loc("a", 0, 0)),
 			scout("r2", loc("a", 1, 0)),
 		},
-		Objectives: []decide.Objective{unknown(loc("a", 2, 0)), unknown(loc("a", 4, 0))},
+		Objectives: []decide.Objective{unheld(loc("a", 2, 0)), unheld(loc("a", 4, 0))},
 		Explored:   explored(open(5, 5)),
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil),
@@ -393,7 +391,7 @@ func TestAnElementOnAnObjectiveSecuresIt(t *testing.T) {
 	m := open(7, 7)
 	a := decide.Assessment{
 		Own:        []decide.Element{squad("r1", loc("a", 3, 4)), squad("r2", loc("a", 3, 3))},
-		Objectives: []decide.Objective{unknown(loc("a", 3, 3)), unknown(loc("a", 6, 6))},
+		Objectives: []decide.Objective{unheld(loc("a", 3, 3)), unheld(loc("a", 6, 6))},
 		Explored:   explored(m),
 	}
 	check(t, decide.Decide(m, "red", a, nil), "r1 secure a:6,6", "r2 secure a:3,3")
@@ -405,7 +403,7 @@ func TestAnElementOnAnObjectiveSecuresIt(t *testing.T) {
 func TestKeepsAStandingTarget(t *testing.T) {
 	a := decide.Assessment{
 		Own:        []decide.Element{scout("r1", loc("a", 3, 0)), scout("r2", loc("a", 0, 4))},
-		Objectives: []decide.Objective{unknown(loc("a", 4, 0)), unknown(loc("a", 0, 0))},
+		Objectives: []decide.Objective{unheld(loc("a", 4, 0)), unheld(loc("a", 0, 0))},
 		Explored:   explored(open(5, 5)),
 	}
 	far, near := loc("a", 0, 0), loc("a", 4, 0)
@@ -429,7 +427,7 @@ func TestAStandingTargetYields(t *testing.T) {
 	a := decide.Assessment{
 		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
 		Contacts:   []decide.Contact{contact("b1", 100, loc("a", 0, 1))},
-		Objectives: []decide.Objective{unknown(target)},
+		Objectives: []decide.Objective{unheld(target)},
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, standing), "r1 engage b1 a:0,1")
 
@@ -449,7 +447,7 @@ func TestReachesAcrossAGate(t *testing.T) {
 	a := decide.Assessment{
 		Own:        []decide.Element{squad("r1", loc("a", 0, 0))},
 		Contacts:   []decide.Contact{contact("b1", 100, loc("b", 1, 0))},
-		Objectives: []decide.Objective{unknown(loc("b", 3, 0))},
+		Objectives: []decide.Objective{unheld(loc("b", 3, 0))},
 	}
 	// a:0,0 → a:1,0 → b:0,0 → b:1,0 is three steps: in reach.
 	check(t, decide.Decide(m, "red", a, nil), "r1 engage b1 b:1,0")
@@ -463,18 +461,17 @@ func TestIgnoresAnUnreachableObjective(t *testing.T) {
 	m := open(3, 3, decide.Point{X: 1, Y: 2}, decide.Point{X: 2, Y: 1})
 	a := decide.Assessment{
 		Own:        []decide.Element{scout("r1", loc("a", 0, 0))},
-		Objectives: []decide.Objective{unknown(loc("a", 2, 2))},
+		Objectives: []decide.Objective{unheld(loc("a", 2, 2))},
 		Explored:   explored(m),
 	}
 	check(t, decide.Decide(m, "red", a, nil), "r1 hold")
 }
 
-// An objective the assessment does not list is undiscovered, and never
-// secured, though the map places one there; with the board explored and
-// no objective discovered, an element holds.
+// Only an objective the assessment lists is discovered, and the map
+// places none; with the board explored and no objective discovered, an
+// element holds.
 func TestSecuresOnlyADiscoveredObjective(t *testing.T) {
 	m := open(5, 5)
-	m.Sectors[0].Objectives = []decide.Point{{X: 4, Y: 4}}
 	a := decide.Assessment{Own: []decide.Element{squad("r1", loc("a", 0, 0))}, Explored: explored(m)}
 	check(t, decide.Decide(m, "red", a, nil), "r1 hold")
 }
@@ -519,7 +516,7 @@ func TestAScoutSearchesBeforeItSecures(t *testing.T) {
 	m := open(5, 1)
 	a := decide.Assessment{
 		Own:        []decide.Element{scout("r1", loc("a", 0, 0))},
-		Objectives: []decide.Objective{unknown(loc("a", 2, 0))},
+		Objectives: []decide.Objective{unheld(loc("a", 2, 0))},
 		Explored:   explored(m, loc("a", 4, 0)),
 	}
 	check(t, decide.Decide(m, "red", a, nil), "r1 search a:4,0")
@@ -569,7 +566,7 @@ func TestRescoutsTheStalestObjectiveNotHeld(t *testing.T) {
 			stale(held("blue", loc("a", 5, 0)), 1),
 			stale(held("blue", loc("a", 0, 0)), 3),
 			stale(held("red", loc("a", 2, 0)), 6),
-			stale(unknown(loc("a", 8, 0)), 3),
+			stale(unheld(loc("a", 8, 0)), 3),
 		},
 		Explored: explored(m),
 	}
@@ -597,7 +594,7 @@ func TestRescoutsEachObjectiveOnce(t *testing.T) {
 		},
 		Objectives: []decide.Objective{
 			stale(held("blue", loc("a", 3, 0)), 1),
-			stale(unknown(loc("a", 0, 0)), 2),
+			stale(unheld(loc("a", 0, 0)), 2),
 			stale(held("blue", loc("a", 4, 2)), 9), // walled off
 		},
 		Explored: explored(m),
@@ -606,7 +603,7 @@ func TestRescoutsEachObjectiveOnce(t *testing.T) {
 		"r1 secure a:3,0", "r2 secure a:0,0", "r3 rescout a:0,0", "r4 rescout a:3,0")
 }
 
-// With every objective known to be its faction's and nothing unexplored,
+// With every objective believed to be its faction's and nothing unexplored,
 // an element holds.
 func TestHoldsWhenEveryObjectiveIsHeld(t *testing.T) {
 	m := open(5, 5)

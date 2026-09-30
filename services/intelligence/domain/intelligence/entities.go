@@ -131,10 +131,10 @@ func (c Close) Validate() error {
 // Claim is an idempotency claim that a command runs in its transaction
 // before it does anything else. It reports whether this is the first time
 // the command's input was handled. On false the command changes nothing and
-// succeeds. A reactor's adapter binds a Claim over its inbox and the event
-// it handles. A caller without an inbox, such as a test, passes a nil
-// Claim, which claims nothing. It is an alias, so the claim a consumer
-// built by messaging's Consume hands over is one.
+// succeeds. The consuming reactor binds a Claim over its inbox and the
+// event it handles. A caller without an inbox, such as a test, passes a nil
+// Claim, which claims nothing. It is an alias, so the claim that
+// messaging's Consume supplies to a consumer is a Claim.
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 
 func checkExercise(id string) error {

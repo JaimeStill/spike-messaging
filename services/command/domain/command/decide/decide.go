@@ -66,12 +66,11 @@ type Gate struct {
 
 // Sector is one W×H grid of the map, with its features.
 type Sector struct {
-	ID         string  `json:"id"`
-	Width      int     `json:"width"`
-	Height     int     `json:"height"`
-	Obstacles  []Point `json:"obstacles"`
-	Objectives []Point `json:"objectives"`
-	Gates      []Gate  `json:"gates"`
+	ID        string  `json:"id"`
+	Width     int     `json:"width"`
+	Height    int     `json:"height"`
+	Obstacles []Point `json:"obstacles"`
+	Gates     []Gate  `json:"gates"`
 }
 
 // Map is the exercise's public map.
@@ -104,13 +103,11 @@ type Contact struct {
 }
 
 // Objective is what the assessment knows of one objective the faction has
-// discovered. Holder is the faction that held it when last seen, and means
-// nothing unless Known. Age is how many rounds ago it was last seen, 0 for
-// this round.
+// discovered. Holder is the faction that held it when last seen, empty when
+// none did. Age is how many rounds ago it was last seen, 0 for this round.
 type Objective struct {
 	At     Location `json:"at"`
 	Holder string   `json:"holder"`
-	Known  bool     `json:"known"`
 	Age    int      `json:"age"`
 }
 
@@ -144,8 +141,8 @@ const (
 	Engage Rule = "engage"
 	// Reinforce heads a free squad for a fight of its faction within reach.
 	Reinforce Rule = "reinforce"
-	// Secure heads an element for a known objective its faction does not
-	// hold.
+	// Secure heads an element for a discovered objective its faction does
+	// not hold.
 	Secure Rule = "secure"
 	// Search heads an element for an unexplored cell.
 	Search Rule = "search"
@@ -173,81 +170,25 @@ type Decision struct {
 // searching a cell keeps it while it is still one to secure, rescout, or
 // search and the element can reach it.
 func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision {
-	own := slices.Clone(a.Own)
-	slices.SortFunc(own, func(x, y Element) int { return cmp.Compare(x.ID, y.ID) })
-
-	open := make(map[Location]bool, len(a.Objectives))
-	for _, o := range a.Objectives {
-		// known is tested first: an unknown objective's holder is empty,
-		// and it is unheld whatever that field says.
-		open[o.At] = !o.Known || o.Holder != faction
-	}
-	// A cell an element stands in is in its sight, whether or not the
-	// assessment lists it.
-	explored := make(map[Location]bool, len(a.Explored)+len(own))
-	for _, l := range a.Explored {
-		explored[l] = true
-	}
-	was := make(map[string]Decision, len(standing))
-	for _, d := range standing {
-		was[d.Element] = d
-	}
-
-	// The strength each side has in a cell: the faction's from all its
-	// elements there, the enemy's from the contacts seen there this round.
-	// A cell one of its elements stands in is occupied.
-	ours, theirs := map[Location]int{}, map[Location]int{}
-	occupied := map[Location]bool{}
-	for _, e := range own {
-		ours[e.At] += e.Strength
-		occupied[e.At] = true
-		explored[e.At] = true
-	}
-	for _, c := range a.Contacts {
-		if c.Age == 0 {
-			theirs[c.At] += c.Strength
-		}
-	}
-
-	decisions := make([]Decision, len(own))
-	dist := make([]map[Location]int, len(own))
-	fights := map[Location]bool{}
-	for i, e := range own {
-		dist[i] = m.distances(e.At)
-		enemy, ok := strongest(a.Contacts, e.At)
-		if e.Status != Engaged || !ok {
+	p := newPlan(m, faction, a, standing)
+	fights := p.fight(m, a.Contacts)
+	for i, e := range p.own {
+		if p.decisions[i].Rule != "" {
 			continue
 		}
-		if e.Kind == Scout || 3*ours[e.At] < 2*theirs[e.At] {
-			if to, ok := m.retreat(e.At, a.Contacts, occupied); ok {
-				decisions[i] = Decision{Element: e.ID, Rule: Retreat, Contact: enemy.ID, Target: &to}
-				continue
-			}
-		}
-		at, rule := e.At, Engage
-		if ours[at] >= theirs[at] {
-			rule = Pursue
-		}
-		fights[at] = true
-		decisions[i] = Decision{Element: e.ID, Rule: rule, Contact: enemy.ID, Target: &at}
-	}
-	for i, e := range own {
-		if decisions[i].Rule != "" {
-			continue
-		}
-		decisions[i] = reinforce(e, fights, a.Contacts, dist[i])
-		if decisions[i].Rule == "" {
-			decisions[i] = engage(e, a.Contacts, dist[i])
+		p.decisions[i] = reinforce(e, fights, a.Contacts, p.dist[i])
+		if p.decisions[i].Rule == "" {
+			p.decisions[i] = engage(e, a.Contacts, p.dist[i])
 		}
 	}
 
 	// A scout searches while any unexplored cell is in its reach, and
 	// secures only once none is.
-	unexplored := func(l Location) bool { return !explored[l] }
-	searches := make([]bool, len(own))
-	for i, e := range own {
+	unexplored := func(l Location) bool { return !p.explored[l] }
+	searches := make([]bool, len(p.own))
+	for i, e := range p.own {
 		if e.Kind == Scout {
-			_, searches[i] = nearest(dist[i], unexplored)
+			_, searches[i] = nearest(p.dist[i], unexplored)
 		}
 	}
 
@@ -256,32 +197,24 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 	// targets are claimed next, in ID order, so an element that was
 	// securing an objective keeps it.
 	claimed := map[Location]bool{}
-	for i, e := range own {
-		if decisions[i].Rule != "" || searches[i] || !open[e.At] || claimed[e.At] {
+	for i, e := range p.own {
+		if p.decisions[i].Rule != "" || searches[i] || !p.open[e.At] || claimed[e.At] {
 			continue
 		}
 		at := e.At
 		claimed[at] = true
-		decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
+		p.decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
 	}
-	for i, e := range own {
-		d, ok := was[e.ID]
-		if decisions[i].Rule != "" || searches[i] || !ok || d.Rule != Secure || d.Target == nil {
+	p.keep(Secure, claimed,
+		func(i int) bool { return !searches[i] },
+		func(_ Element, at Location) bool { return p.open[at] })
+	for i, e := range p.own {
+		if p.decisions[i].Rule != "" || searches[i] {
 			continue
 		}
-		at := *d.Target
-		if _, reach := dist[i][at]; open[at] && reach && !claimed[at] {
+		if at, ok := nearest(p.dist[i], func(l Location) bool { return p.open[l] && !claimed[l] }); ok {
 			claimed[at] = true
-			decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
-		}
-	}
-	for i, e := range own {
-		if decisions[i].Rule != "" || searches[i] {
-			continue
-		}
-		if at, ok := nearest(dist[i], func(l Location) bool { return open[l] && !claimed[l] }); ok {
-			claimed[at] = true
-			decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
+			p.decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
 		}
 	}
 
@@ -292,31 +225,22 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 	var targets []Location
 	sought := map[Location]bool{}
 	for _, kind := range []string{Scout, Squad} {
-		for i, e := range own {
-			d, ok := was[e.ID]
-			if decisions[i].Rule != "" || e.Kind != kind || !ok || d.Rule != Search || d.Target == nil {
+		targets = append(targets, p.keep(Search, sought,
+			func(i int) bool { return p.own[i].Kind == kind },
+			func(_ Element, at Location) bool { return !p.explored[at] })...)
+		for i, e := range p.own {
+			if p.decisions[i].Rule != "" || e.Kind != kind {
 				continue
 			}
-			at := *d.Target
-			if _, reach := dist[i][at]; reach && !explored[at] && !sought[at] {
-				sought[at] = true
-				targets = append(targets, at)
-				decisions[i] = Decision{Element: e.ID, Rule: Search, Target: &at}
-			}
-		}
-		for i, e := range own {
-			if decisions[i].Rule != "" || e.Kind != kind {
-				continue
-			}
-			free := func(l Location) bool { return !explored[l] && !sought[l] }
-			at, ok := nearest(dist[i], func(l Location) bool { return free(l) && apart(l, targets) })
+			free := func(l Location) bool { return !p.explored[l] && !sought[l] }
+			at, ok := nearest(p.dist[i], func(l Location) bool { return free(l) && apart(l, targets) })
 			if !ok {
-				at, ok = nearest(dist[i], free)
+				at, ok = nearest(p.dist[i], free)
 			}
 			if ok {
 				sought[at] = true
 				targets = append(targets, at)
-				decisions[i] = Decision{Element: e.ID, Rule: Search, Target: &at}
+				p.decisions[i] = Decision{Element: e.ID, Rule: Search, Target: &at}
 			}
 		}
 	}
@@ -327,35 +251,140 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 	// objective no other rescout has claimed. None rescouts the objective
 	// it stands on.
 	rescouted := map[Location]bool{}
-	for i, e := range own {
-		d, ok := was[e.ID]
-		if decisions[i].Rule != "" || !ok || d.Rule != Rescout || d.Target == nil {
+	p.keep(Rescout, rescouted,
+		func(int) bool { return true },
+		func(e Element, at Location) bool { return p.open[at] && at != e.At })
+	for i, e := range p.own {
+		if p.decisions[i].Rule != "" {
 			continue
 		}
-		at := *d.Target
-		if _, reach := dist[i][at]; reach && open[at] && at != e.At && !rescouted[at] {
-			rescouted[at] = true
-			decisions[i] = Decision{Element: e.ID, Rule: Rescout, Target: &at}
-		}
-	}
-	for i, e := range own {
-		if decisions[i].Rule != "" {
-			continue
-		}
-		if at, ok := stalest(a.Objectives, dist[i], func(l Location) bool {
-			return open[l] && l != e.At && !rescouted[l]
+		if at, ok := stalest(a.Objectives, p.dist[i], func(l Location) bool {
+			return p.open[l] && l != e.At && !rescouted[l]
 		}); ok {
 			rescouted[at] = true
-			decisions[i] = Decision{Element: e.ID, Rule: Rescout, Target: &at}
+			p.decisions[i] = Decision{Element: e.ID, Rule: Rescout, Target: &at}
 		}
 	}
 
-	for i, e := range own {
-		if decisions[i].Rule == "" {
-			decisions[i] = Decision{Element: e.ID, Rule: Hold}
+	for i, e := range p.own {
+		if p.decisions[i].Rule == "" {
+			p.decisions[i] = Decision{Element: e.ID, Rule: Hold}
 		}
 	}
-	return decisions
+	return p.decisions
+}
+
+// plan is what [Decide] works from and fills in: the faction's elements in
+// ID order, the path distance from each to every location it reaches, the
+// decision each has so far, and what the assessment and the standing
+// decisions say of the map's cells.
+type plan struct {
+	own       []Element
+	dist      []map[Location]int
+	decisions []Decision
+
+	// open marks each discovered objective the faction does not hold, which
+	// an element may secure or rescout. explored marks each cell its
+	// elements have had in sight, and occupied each cell one of them stands
+	// in.
+	open     map[Location]bool
+	explored map[Location]bool
+	occupied map[Location]bool
+	// ours and theirs are the strength each side has in a cell: the
+	// faction's from all its elements there, the enemy's from the contacts
+	// seen there this round.
+	ours, theirs map[Location]int
+	// was is the standing decision of each element that has one, by ID.
+	was map[string]Decision
+}
+
+// newPlan returns the plan for faction's elements on assessment a, with no
+// element decided yet.
+func newPlan(m Map, faction string, a Assessment, standing []Decision) *plan {
+	own := slices.Clone(a.Own)
+	slices.SortFunc(own, func(x, y Element) int { return cmp.Compare(x.ID, y.ID) })
+	p := &plan{
+		own:       own,
+		dist:      make([]map[Location]int, len(own)),
+		decisions: make([]Decision, len(own)),
+		open:      make(map[Location]bool, len(a.Objectives)),
+		explored:  make(map[Location]bool, len(a.Explored)+len(own)),
+		occupied:  map[Location]bool{},
+		ours:      map[Location]int{},
+		theirs:    map[Location]int{},
+		was:       make(map[string]Decision, len(standing)),
+	}
+	for _, o := range a.Objectives {
+		p.open[o.At] = o.Holder != faction
+	}
+	for _, l := range a.Explored {
+		p.explored[l] = true
+	}
+	for _, d := range standing {
+		p.was[d.Element] = d
+	}
+	// A cell an element stands in is in its sight, whether or not the
+	// assessment lists it.
+	for i, e := range own {
+		p.dist[i] = m.distances(e.At)
+		p.ours[e.At] += e.Strength
+		p.occupied[e.At] = true
+		p.explored[e.At] = true
+	}
+	for _, c := range a.Contacts {
+		if c.Age == 0 {
+			p.theirs[c.At] += c.Strength
+		}
+	}
+	return p
+}
+
+// fight decides each engaged element's fight, in ID order: the element
+// retreats, or holds its cell by pursue or engage. It returns the cells held
+// that way, which are the fights a free squad may reinforce.
+func (p *plan) fight(m Map, contacts []Contact) map[Location]bool {
+	fights := map[Location]bool{}
+	for i, e := range p.own {
+		enemy, ok := strongest(contacts, e.At)
+		if e.Status != Engaged || !ok {
+			continue
+		}
+		if e.Kind == Scout || 3*p.ours[e.At] < 2*p.theirs[e.At] {
+			if to, ok := m.retreat(e.At, contacts, p.occupied); ok {
+				p.decisions[i] = Decision{Element: e.ID, Rule: Retreat, Contact: enemy.ID, Target: &to}
+				continue
+			}
+		}
+		at, rule := e.At, Engage
+		if p.ours[at] >= p.theirs[at] {
+			rule = Pursue
+		}
+		fights[at] = true
+		p.decisions[i] = Decision{Element: e.ID, Rule: rule, Contact: enemy.ID, Target: &at}
+	}
+	return fights
+}
+
+// keep gives each undecided element, in ID order, the target of its standing
+// decision again, when that decision is by rule r, may accepts the element
+// by index, the target is in the element's reach and still accepts it, and
+// claimed does not hold it yet. It marks each kept target in claimed and
+// returns the targets in the order kept.
+func (p *plan) keep(r Rule, claimed map[Location]bool, may func(i int) bool, still func(e Element, at Location) bool) []Location {
+	var kept []Location
+	for i, e := range p.own {
+		d, ok := p.was[e.ID]
+		if p.decisions[i].Rule != "" || !may(i) || !ok || d.Rule != r || d.Target == nil {
+			continue
+		}
+		at := *d.Target
+		if _, reach := p.dist[i][at]; reach && still(e, at) && !claimed[at] {
+			claimed[at] = true
+			kept = append(kept, at)
+			p.decisions[i] = Decision{Element: e.ID, Rule: r, Target: &at}
+		}
+	}
+	return kept
 }
 
 // stalest returns the location of the objective seen longest ago that dist
@@ -406,10 +435,11 @@ func strongest(contacts []Contact, at Location) (Contact, bool) {
 
 // retreat returns the cell an element at at retreats to: the orthogonally
 // adjacent open cell of its sector, holding no contact seen this round and
-// none of the faction's own elements, which occupied marks, farthest by Chebyshev distance from the nearest known contact outside
-// the fight at at, ties going to the first of up, right, down, left. The
-// fight's own contacts are one step from every neighbor, so they would
-// tie them all. It returns false when no such neighbor is open.
+// none of the faction's own elements, which occupied marks, farthest by
+// Chebyshev distance from the nearest known contact outside the fight at
+// at, ties going to the first of up, right, down, left. The fight's own
+// contacts are one step from every neighbor, so they would tie them all.
+// It returns false when no such neighbor is open.
 func (m Map) retreat(at Location, contacts []Contact, occupied map[Location]bool) (Location, bool) {
 	s, ok := m.sector(at.Sector)
 	if !ok {

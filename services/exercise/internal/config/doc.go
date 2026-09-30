@@ -2,6 +2,6 @@
 // root composes the library capability blocks (log, server, database) with
 // the messaging block ([MessagingConfig]) and the shutdown timeout, and
 // [Load] reads the layered files and finalizes the result under the
-// service's env prefix. The unexported envPrefix const is the single place a seeded
-// service renames its environment namespace.
+// service's env prefix. The unexported envPrefix const is the single place a
+// seeded service renames its environment namespace.
 package config

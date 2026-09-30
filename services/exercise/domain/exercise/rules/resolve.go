@@ -31,51 +31,6 @@ type Order struct {
 	Pursue  bool       `json:"pursue,omitempty"`
 }
 
-// Resolve resolves round of s under orders: it moves, exchanges fire between
-// each retreat and its pursuers, fights, and captures, then observes the
-// next state for each faction and judges it against limit, the exercise's
-// round limit. Every random draw comes from seed and round alone, so a round
-// resolves the same way each time it is resolved under the same orders. It
-// returns the next state, the observations indexed like s.Factions, the
-// verdict, and the round's [Resolution]. Resolve does not change s or
-// orders; the next state shares no slice or map with s, and its elements are
-// sorted by ID.
-func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
-	rng := rand.New(rand.NewPCG(uint64(seed), uint64(round)))
-	next = s.clone()
-	stayed := make(map[string]Element, len(next.Elements))
-	for _, e := range next.Elements {
-		stayed[e.ID] = e
-	}
-	retreats := move(&next, orders)
-	res.Retreats = volley(&next, stayed, retreats, orders, rng)
-	res.Engagements = fight(&next, rng)
-	res.Losses = bury(&next)
-	settle(&next, retreats)
-	res.Captures, res.Progress = capture(&next)
-	return next, Observe(next, round), Judge(next, round, limit), res
-}
-
-// contested returns the cells, by [Location.Key], that hold both factions'
-// elements.
-func contested(es []Element) map[string]bool {
-	factions := make(map[string]map[string]bool)
-	for _, e := range es {
-		k := e.At.Key()
-		if factions[k] == nil {
-			factions[k] = make(map[string]bool)
-		}
-		factions[k][e.Faction] = true
-	}
-	out := make(map[string]bool)
-	for k, fs := range factions {
-		if len(fs) > 1 {
-			out[k] = true
-		}
-	}
-	return out
-}
-
 // Resolution is what a round's resolution did, as the umpire records it:
 // each retreat and the exchange it drew, each fight, each element
 // destroyed, each objective that changed hands, and each objective a
@@ -143,6 +98,57 @@ type Advance struct {
 type Loss struct {
 	ID      string `json:"id"`
 	Faction string `json:"faction"`
+}
+
+// Resolve resolves round of s under orders. It moves the elements, exchanges
+// fire between each retreat and its pursuers, fights, and captures, then
+// observes the next state for each faction and judges it against limit, the
+// exercise's round limit. Every random draw comes from seed and round alone,
+// so a round resolves the same way each time it is resolved under the same
+// orders. It returns the next state, the observations indexed like
+// s.Factions, the verdict, and the round's [Resolution]. Resolve does not
+// change s or orders; the next state shares no slice or map with s, and its
+// elements are sorted by ID.
+func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
+	rng := rand.New(rand.NewPCG(uint64(seed), uint64(round)))
+	next = s.clone()
+	stayed := make(map[string]Element, len(next.Elements))
+	for _, e := range next.Elements {
+		stayed[e.ID] = e
+	}
+	retreats := move(&next, orders)
+	res.Retreats = volley(&next, stayed, retreats, orders, rng)
+	res.Engagements = fight(&next, rng)
+	res.Losses = bury(&next)
+	settle(&next, retreats)
+	res.Captures, res.Progress = capture(&next)
+	return next, Observe(next, round), Judge(next, round, limit), res
+}
+
+// contested returns the cells, by [Location.Key], that hold both factions'
+// elements.
+func contested(es []Element) map[string]bool {
+	out := make(map[string]bool)
+	for k, fs := range factionsAt(es) {
+		if len(fs) > 1 {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// factionsAt returns, for each cell by [Location.Key] that holds elements,
+// the set of factions whose elements it holds.
+func factionsAt(es []Element) map[string]map[string]bool {
+	out := make(map[string]map[string]bool)
+	for _, e := range es {
+		k := e.At.Key()
+		if out[k] == nil {
+			out[k] = make(map[string]bool)
+		}
+		out[k][e.Faction] = true
+	}
+	return out
 }
 
 // move applies every order at once. It refuses the orders the rules refuse,
@@ -269,12 +275,38 @@ func wound(es []Element, damage map[operator]int) {
 	}
 }
 
-// volley plays out the pursuit of each retreat. Each element of the other
-// faction that stood in the cell a retreat left at the round's start, not
-// recovering, stays there, and whose order pursues, fires once with all its operators at the retreating element, and the
-// retreating element's operators fire back once at the pursuers' operators,
-// all at once. A retreat no one pursues draws no fire. Retreats resolve in
-// ID order.
+// strengths holds elements' strength and living operators before a round's
+// fire, keyed by index into the state's elements, so the fire's toll can be
+// read against them once it lands.
+type strengths map[int][2]int
+
+// measure returns the strengths of the elements of es at the given indexes.
+func measure(es []Element, at []int) strengths {
+	out := make(strengths, len(at))
+	for _, i := range at {
+		out[i] = [2]int{sum(es[i].Health), living(es[i].Health)}
+	}
+	return out
+}
+
+// engaged returns the element of es at index i as an [Engaged]: its strength
+// before the fire, from b, and after it, from es, and the operators it lost
+// between them.
+func (b strengths) engaged(es []Element, i int) Engaged {
+	e := es[i]
+	return Engaged{
+		ID: e.ID, Faction: e.Faction,
+		Before: b[i][0], After: sum(e.Health), Fallen: b[i][1] - living(e.Health),
+	}
+}
+
+// volley plays out the pursuit of each retreat. A pursuer is an element of
+// the other faction that stood in the cell the retreat left at the round's
+// start, is not recovering, stays there, and has an order that pursues. Each
+// pursuer fires once with all its operators at the retreating element, and
+// the retreating element's operators fire back once at the pursuers'
+// operators, all at once. A retreat no one pursues draws no fire. Retreats
+// resolve in ID order.
 func volley(s *State, stayed map[string]Element, retreats map[string]Location, orders []Order, rng *rand.Rand) []Retreat {
 	pursues := make(map[string]bool, len(orders))
 	for _, o := range orders {
@@ -293,22 +325,16 @@ func volley(s *State, stayed map[string]Element, retreats map[string]Location, o
 			}
 		}
 		slices.SortFunc(pursuers, func(a, b int) int { return cmp.Compare(s.Elements[a].ID, s.Elements[b].ID) })
-		before := make(map[int][2]int, len(pursuers)+1)
-		for _, j := range append([]int{i}, pursuers...) {
-			before[j] = [2]int{sum(s.Elements[j].Health), living(s.Elements[j].Health)}
-		}
+		before := measure(s.Elements, append([]int{i}, pursuers...))
 		them, us := operators(s.Elements, pursuers), operators(s.Elements, []int{i})
 		damage := [2]map[operator]int{shoot(them, us, rng), shoot(us, them, rng)}
 		wound(s.Elements, damage[0])
 		wound(s.Elements, damage[1])
 		r := Retreat{ID: id, Faction: e.Faction, From: from, To: e.At, Pursuers: []Engaged{}}
-		r.Before, r.After, r.Fallen = before[i][0], sum(s.Elements[i].Health), before[i][1]-living(s.Elements[i].Health)
+		self := before.engaged(s.Elements, i)
+		r.Before, r.After, r.Fallen = self.Before, self.After, self.Fallen
 		for _, j := range pursuers {
-			p := s.Elements[j]
-			r.Pursuers = append(r.Pursuers, Engaged{
-				ID: p.ID, Faction: p.Faction,
-				Before: before[j][0], After: sum(p.Health), Fallen: before[j][1] - living(p.Health),
-			})
+			r.Pursuers = append(r.Pursuers, before.engaged(s.Elements, j))
 		}
 		out = append(out, r)
 	}
@@ -339,21 +365,14 @@ func fight(s *State, rng *rand.Rand) []Engagement {
 		}
 		here := slices.Clone(cells[key])
 		slices.SortFunc(here, func(a, b int) int { return cmp.Compare(s.Elements[a].ID, s.Elements[b].ID) })
-		before := make(map[int][2]int, len(here))
-		for _, i := range here {
-			before[i] = [2]int{sum(s.Elements[i].Health), living(s.Elements[i].Health)}
-		}
+		before := measure(s.Elements, here)
 		ops := [2][]operator{operators(s.Elements, sides[0]), operators(s.Elements, sides[1])}
 		damage := [2]map[operator]int{shoot(ops[0], ops[1], rng), shoot(ops[1], ops[0], rng)}
 		wound(s.Elements, damage[0])
 		wound(s.Elements, damage[1])
 		g := Engagement{At: s.Elements[here[0]].At}
 		for _, i := range here {
-			e := s.Elements[i]
-			g.Elements = append(g.Elements, Engaged{
-				ID: e.ID, Faction: e.Faction,
-				Before: before[i][0], After: sum(e.Health), Fallen: before[i][1] - living(e.Health),
-			})
+			g.Elements = append(g.Elements, before.engaged(s.Elements, i))
 		}
 		out = append(out, g)
 	}
@@ -406,14 +425,7 @@ func settle(s *State, retreats map[string]Location) {
 // changed hands and each count still short of a capture, both in the map's
 // objective order.
 func capture(s *State) ([]Capture, []Advance) {
-	on := make(map[string]map[string]bool)
-	for _, e := range s.Elements {
-		k := e.At.Key()
-		if on[k] == nil {
-			on[k] = make(map[string]bool)
-		}
-		on[k][e.Faction] = true
-	}
+	on := factionsAt(s.Elements)
 	captures, progress := []Capture{}, []Advance{}
 	for _, o := range s.Map.objectives() {
 		k := o.Key()

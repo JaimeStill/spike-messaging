@@ -3,6 +3,7 @@ package rules
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -19,6 +20,9 @@ const (
 	// per round and sees two cells.
 	Scout Kind = "scout"
 )
+
+// Kinds is every kind of element, in the order the package lists them.
+var Kinds = []Kind{Squad, Scout}
 
 // Moves returns the number of steps an element of kind k may take in one
 // round, or 0 for a kind the package does not know.
@@ -231,12 +235,7 @@ func (s Sector) inside(p Point) bool {
 
 // obstacle reports whether p carries an obstacle.
 func (s Sector) obstacle(p Point) bool {
-	for _, o := range s.Obstacles {
-		if o == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.Obstacles, p)
 }
 
 // gate returns the gate at p, if p carries one.

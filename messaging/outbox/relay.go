@@ -16,21 +16,11 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 )
 
-const (
-	// DefaultPoll is how long an idle relay waits before its next pass.
-	DefaultPoll = time.Second
-	// DefaultTimeout bounds the handling of one row.
-	DefaultTimeout = 10 * time.Second
-)
+// defaultTimeout bounds the handling of one row unless [Timeout] sets it.
+const defaultTimeout = 10 * time.Second
 
 // RelayOption configures a Relay.
 type RelayOption func(*Relay)
-
-// Poll sets how long the relay waits between passes once a pass finds no
-// row, or ends on a failure. It must be positive.
-func Poll(d time.Duration) RelayOption {
-	return func(r *Relay) { r.poll = d }
-}
 
 // Timeout sets the deadline on each row's handler context. The row stays
 // locked while its handler runs, so the timeout bounds how long a hung
@@ -43,12 +33,14 @@ func Timeout(d time.Duration) RelayOption {
 }
 
 // Drain sets how long a relay keeps publishing once it is cancelled. The
-// relay makes one last pass on a context of its own, bounded by d, and
-// returns when the outbox is empty, a row fails, or d runs out, so the
-// events committed while the producers drained are published before the
-// process exits rather than at its next start. Set d below the reactor's
-// [reactor.Grace], which cancels the pass's handlers when it runs out. The
-// default, 0, makes no last pass. It must not be negative.
+// relay makes one last pass on a context of its own, bounded by d. The pass
+// returns when the outbox is empty or a row fails, so the events committed
+// while the producers drained are published before the process exits rather
+// than at its next start. Once d runs out, the pass claims no further row.
+// A row already claimed settles on its own deadlines, as every row does: its
+// handler's [Timeout] and its transaction's twice that. The reactor's
+// [reactor.Grace] cancels the handler first if it runs out sooner, so set d
+// below the Grace. The default, 0, makes no last pass. d must not be negative.
 func Drain(d time.Duration) RelayOption {
 	return func(r *Relay) { r.drain = d }
 }
@@ -75,7 +67,7 @@ func Drain(d time.Duration) RelayOption {
 // Several relays share the rows, and each row is claimed by one relay at a
 // time, but they publish in no particular order.
 type Relay struct {
-	o       *Outbox
+	eng     Engine
 	db      sqlate.Beginner
 	poll    time.Duration
 	timeout time.Duration
@@ -84,17 +76,6 @@ type Relay struct {
 }
 
 var _ reactor.Source[event.Event] = (*Relay)(nil)
-
-func newRelay(o *Outbox, db sqlate.Beginner, opts ...RelayOption) *Relay {
-	r := &Relay{o: o, db: db, poll: DefaultPoll, timeout: DefaultTimeout}
-	for _, opt := range opts {
-		opt(r)
-	}
-	if r.poll <= 0 || r.timeout <= 0 || r.drain < 0 {
-		panic("outbox: relay poll and timeout must be positive, and drain not negative")
-	}
-	return r
-}
 
 // errCorrupt marks a row that can never become an event.
 var errCorrupt = errors.New("corrupt row")
@@ -170,7 +151,7 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 		}
 	}()
 
-	claimed, err := r.o.eng.ClaimRow.Scan(scanRow).One(ctx, tx, nil)
+	claimed, err := r.eng.ClaimRow.Scan(scanRow).One(ctx, tx, nil)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -194,7 +175,7 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 	if err != nil {
 		return false, handlerError{fmt.Errorf("outbox: relay: event %s: %w", e.ID, err)}
 	}
-	n, err := r.o.eng.MarkPublished.Exec(settle, tx, query.Args{"seq": seq})
+	n, err := r.eng.MarkPublished.Exec(settle, tx, query.Args{"seq": seq})
 	if err != nil {
 		return false, err
 	}
@@ -211,7 +192,9 @@ func (r *Relay) next(ctx context.Context, fn reactor.Func[event.Event]) (handled
 
 // Ready reports whether the relay is receiving and no pass since its last
 // successful one has failed to reach the database. It is true from the
-// start of Receive, before the first pass.
+// start of Receive, before the first pass. A handler's error, such as a
+// broker that is down, leaves the relay ready: the row waits for the next
+// pass, and readiness speaks only for the database.
 func (r *Relay) Ready() bool { return r.ready.Load() }
 
 // row is one claimed outbox row.

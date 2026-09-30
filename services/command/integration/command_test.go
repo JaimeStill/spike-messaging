@@ -166,7 +166,7 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 			"exercise": id, "faction": "red", "revision": round + 1, "round": round,
 			"own":        []any{r1},
 			"contacts":   contacts,
-			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "known": true, "seen": 0, "age": 0}},
+			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "seen": 0, "age": 0}},
 			"explored":   []any{at(0, 0), at(1, 0), at(0, 1), at(1, 1)},
 		})
 	}
@@ -175,7 +175,7 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12, "objectives": []any{}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
 	})
 	await(t, "round 0's directive", 10*time.Second, func() bool { return len(w.directives(t)) >= 1 })

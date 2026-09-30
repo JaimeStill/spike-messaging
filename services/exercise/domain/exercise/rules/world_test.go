@@ -164,3 +164,14 @@ func TestTerrainHidesTheObjectives(t *testing.T) {
 		t.Errorf("Terrain changed the map: %+v", m.Sectors[0])
 	}
 }
+
+// Every kind the package lists moves, sees, and fields operators, so a kind
+// added to Kinds without its rules fails here rather than reach a client
+// with a sight of 0.
+func TestEveryKindHasItsRules(t *testing.T) {
+	for _, k := range rules.Kinds {
+		if k.Moves() < 1 || k.Sight() < 1 || k.Operators() < 1 {
+			t.Errorf("%s: moves %d, sight %d, operators %d, want each positive", k, k.Moves(), k.Sight(), k.Operators())
+		}
+	}
+}

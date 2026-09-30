@@ -96,11 +96,9 @@ type Decide struct {
 
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Decide) Validate() error {
-	var revision error
-	if c.Revision < 1 {
-		revision = fmt.Errorf("revision %d is not positive", c.Revision)
-	}
-	return invalid([]error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), revision})
+	return invalid([]error{
+		checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), checkCounter("revision", c.Revision),
+	})
 }
 
 // Close is the close command's input, command's reading of an
@@ -118,10 +116,10 @@ func (c Close) Validate() error {
 // Claim is an idempotency claim that a command runs in its transaction
 // before it does anything else. It reports whether this is the first time
 // the command's input was handled. On false the command changes nothing and
-// succeeds. A reactor's adapter binds a Claim over its inbox and the event
-// it handles. A caller without an inbox, such as a test, passes a nil
-// Claim, which claims nothing. It is an alias, so the claim that a consumer
-// built by messaging's Consume passes to its handler is a Claim.
+// succeeds. The consuming reactor binds a Claim over its inbox and the
+// event it handles. A caller without an inbox, such as a test, passes a nil
+// Claim, which claims nothing. It is an alias, so the claim that
+// messaging's Consume supplies to a consumer is a Claim.
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 
 func checkExercise(id string) error {
@@ -141,6 +139,14 @@ func checkFaction(f string) error {
 func checkRound(r int) error {
 	if r < 0 {
 		return fmt.Errorf("round %d is negative", r)
+	}
+	return nil
+}
+
+// checkCounter checks n, a producer's counter, which counts from 1.
+func checkCounter(name string, n int) error {
+	if n < 1 {
+		return fmt.Errorf("%s %d is not positive", name, n)
 	}
 	return nil
 }

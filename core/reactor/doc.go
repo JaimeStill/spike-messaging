@@ -5,8 +5,9 @@
 // or a schedule. A [Reactor] runs one source into one [Func] and is a
 // lifecycle component, with the Start, Shutdown, and Ready methods other
 // infrastructure exposes, plus [Reactor.Err] for a failure while running. The
-// package knows nothing of messaging or of the coordinator; the composition
-// root registers a reactor at the stage it chooses and monitors its Err.
+// package knows nothing of messaging or of the coordinator. The composition
+// root registers a reactor at the stage it chooses, and the registration
+// monitors the reactor's Err.
 //
 // # Drain
 //

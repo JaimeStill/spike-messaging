@@ -28,9 +28,8 @@ func TestAssessmentsNarratesUntilConcluded(t *testing.T) {
 			"own":      []any{map[string]any{"id": "r1", "at": at("a", 0, 0)}, map[string]any{"id": "r2", "at": at("a", 4, 4)}},
 			"contacts": contacts,
 			"objectives": []any{
-				map[string]any{"at": at("a", 0, 0), "holder": faction, "known": true},
-				map[string]any{"at": at("a", 0, 4), "known": true, "age": 1},
-				map[string]any{"at": at("b", 3, 3), "known": false},
+				map[string]any{"at": at("a", 0, 0), "holder": faction},
+				map[string]any{"at": at("a", 0, 4), "age": 1},
 			},
 		})
 	}
@@ -62,29 +61,15 @@ func TestAssessmentsNarratesUntilConcluded(t *testing.T) {
 			t.Fatalf("%v\n%s", err, out)
 		}
 		got := out.String()
-		for _, w := range []string{
-			"round 1 red: own r1 a:0,0 · r2 a:4,4 | contacts b1 a:12,2 seen 1 age 2 | objectives a:0,0 red · a:0,4 unheld age 1 · b:3,3 unknown",
-			"round 2 red: own r1 a:0,0 · r2 a:4,4 | contacts none",
-			"red dropped b1",
-			"round 2 blue:", "round 3 red:", "round 3 blue:",
-			"concluded after round 3: red wins by objectives", "drained cleanly",
-		} {
-			if !strings.Contains(got, w) {
-				t.Errorf("narration lacks %q:\n%s", w, got)
-			}
-		}
+		golden(t, "assessments-until-concluded", got)
 		for _, w := range []string{"b9", "b8", "another"} {
 			if strings.Contains(got, w) {
 				t.Errorf("narration holds %q, which is stale or another exercise's:\n%s", w, got)
 			}
 		}
-		if n := strings.Count(got, "round 1 red:"); n != 1 {
-			t.Errorf("narrated round 1 red %d times, want once", n)
-		}
 		if n := released.Load(); n != 1 {
 			t.Errorf("released %d times, want once", n)
 		}
-		t.Log("\n" + got)
 	}
 }
 
@@ -107,10 +92,7 @@ func TestAssessmentsNarratesOneFaction(t *testing.T) {
 		if err := cmd.ExecuteContext(t.Context()); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
-		got := out.String()
-		if !strings.Contains(got, "round 1 red:") || strings.Contains(got, "blue") || !strings.Contains(got, "with no winner: rounds") {
-			t.Errorf("narration:\n%s", got)
-		}
+		golden(t, "assessments-one-faction", out.String())
 	}
 }
 
@@ -158,16 +140,7 @@ func TestAssessmentsNarratesDirectives(t *testing.T) {
 		if err := cmd.ExecuteContext(t.Context()); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
-		got := out.String()
-		for _, w := range []string{
-			"round 0 red directs: r1 capture -> a:4,4 · r2 hold",
-			"round 1 red directs: r1 engage -> a:5,5 b2\n",
-			"round 0 blue directs: b1 head -> a:0,4",
-		} {
-			if !strings.Contains(got, w) {
-				t.Errorf("narration lacks %q:\n%s", w, got)
-			}
-		}
+		golden(t, "assessments-directives", out.String())
 	}
 }
 

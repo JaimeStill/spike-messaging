@@ -67,3 +67,45 @@ func TestRegister(t *testing.T) {
 		t.Error("the run ended without draining the component")
 	}
 }
+
+// plain is a component with no Err, such as a database or a broker.
+type plain struct{ started, stopped atomic.Bool }
+
+func (p *plain) Start(context.Context) error    { p.started.Store(true); return nil }
+func (p *plain) Shutdown(context.Context) error { p.stopped.Store(true); return nil }
+func (p *plain) Ready() bool                    { return p.started.Load() }
+
+// A component with no Err registers as its own readiness check, starts with
+// the run, and drains when the run ends.
+func TestRegisterWithoutErr(t *testing.T) {
+	lc := golifecycle.New()
+	p := &plain{}
+	lifecycle.Register(lc, "plain", 0, p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan struct{})
+	lc.OnReady(func() { close(ready) })
+	done := make(chan error, 1)
+	go func() { done <- lc.Run(ctx, failsafe) }()
+
+	select {
+	case <-ready:
+	case <-time.After(failsafe):
+		t.Fatal("timed out waiting for the run to be ready")
+	}
+	if checks := lc.Checks(); len(checks) != 1 || checks[0].Name != "plain" || !checks[0].Checker.Ready() {
+		t.Fatalf("Checks = %+v, want plain, ready", checks)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run = %v", err)
+		}
+	case <-time.After(failsafe):
+		t.Fatal("the run did not end")
+	}
+	if !p.stopped.Load() {
+		t.Error("the run ended without draining the component")
+	}
+}

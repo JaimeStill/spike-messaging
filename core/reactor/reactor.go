@@ -219,8 +219,8 @@ func (r *Reactor[T]) Ready() bool {
 }
 
 // Err yields the error that ends the source while the reactor is running,
-// then closes when the source returns. A composition root passes it to the
-// coordinator's Monitor, so a dead reactor ends the process.
+// then closes when the source returns. Registering the reactor monitors this
+// channel, so a dead reactor ends the process.
 func (r *Reactor[T]) Err() <-chan error {
 	return r.errs
 }

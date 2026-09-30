@@ -14,7 +14,7 @@ import (
 // sink writes each event as an outbox row in the command's transaction. The
 // rows become visible to the relay when that transaction commits, and are
 // discarded with it on a rollback.
-type sink struct{ o *Outbox }
+type sink struct{ eng Engine }
 
 // Write encodes each event and inserts it on tx, in order. An event whose
 // source and id are already in the outbox fails, and so fails the
@@ -30,7 +30,7 @@ func (s sink) Write(ctx context.Context, tx *sqlate.Tx, es ...event.Event) error
 			return fmt.Errorf("outbox: write %s: %w", e.ID, err)
 		}
 		args := query.Args{"source": e.Source, "id": e.ID, "header": header, "data": data}
-		if _, err := s.o.eng.Emit.Exec(ctx, tx, args); err != nil {
+		if _, err := s.eng.Emit.Exec(ctx, tx, args); err != nil {
 			return fmt.Errorf("outbox: write %s: %w", e.ID, err)
 		}
 	}

@@ -40,10 +40,9 @@ func (d detail) with(sub ...detail) detail {
 	return d
 }
 
-// list renders ds one line each, at indent, and the list under each two
-// spaces deeper, its cells aligned among themselves. name renders each
-// cell's text first.
-func list(ds []detail, indent string, name func(string) string) []string {
+// list renders ds one line each, at indent, and each detail's sub-list two
+// spaces deeper. The cells of one list align among themselves.
+func list(ds []detail, indent string) []string {
 	type column struct {
 		at  int
 		key string
@@ -52,7 +51,7 @@ func list(ds []detail, indent string, name func(string) string) []string {
 	for _, d := range ds {
 		for i, c := range d.cells {
 			k := column{i, c.key}
-			width[k] = max(width[k], len(name(c.text)))
+			width[k] = max(width[k], len(c.text))
 		}
 	}
 	var out []string
@@ -60,7 +59,7 @@ func list(ds []detail, indent string, name func(string) string) []string {
 		var b strings.Builder
 		b.WriteString(indent)
 		for i, c := range d.cells {
-			t := name(c.text)
+			t := c.text
 			pad := strings.Repeat(" ", width[column{i, c.key}]-len(t))
 			switch {
 			case i == 0:
@@ -79,13 +78,10 @@ func list(ds []detail, indent string, name func(string) string) []string {
 			}
 		}
 		out = append(out, b.String())
-		out = append(out, list(d.sub, indent+"  ", name)...)
+		out = append(out, list(d.sub, indent+"  ")...)
 	}
 	return out
 }
-
-// same renders a cell's text as it is.
-func same(s string) string { return s }
 
 // labeled is a row of items under a label, as a round's block lists them.
 type labeled struct {
@@ -97,23 +93,18 @@ type labeled struct {
 // wrapAt is the width past which a row lists one item to a line.
 const wrapAt = 100
 
-// lines renders a row at indent: its label padded to width, then its
-// items, joined by " · " on one line, or one to a line aligned under the
-// first when the row asks for it or one line would pass wrapAt. name
-// renders each item first.
-func (l labeled) lines(indent string, width int, name func(string) string) []string {
-	items := make([]string, len(l.items))
-	for i, it := range l.items {
-		items[i] = name(it)
-	}
+// lines renders a row at indent: its label padded to width, then its items,
+// joined by " · " on one line, or one to a line, aligned under the first,
+// when the row asks for it or one line would pass wrapAt.
+func (l labeled) lines(indent string, width int) []string {
 	head := fmt.Sprintf("%s%-*s  ", indent, width, l.label)
-	if one := head + strings.Join(items, " · "); !l.each && len(one) <= wrapAt || len(items) == 0 {
+	if one := head + strings.Join(l.items, " · "); !l.each && len(one) <= wrapAt || len(l.items) == 0 {
 		return []string{strings.TrimRight(one, " ")}
 	}
-	out := make([]string, len(items))
-	for i, it := range items {
+	out := make([]string, len(l.items))
+	for i, it := range l.items {
 		out[i] = strings.Repeat(" ", len(head)) + it
 	}
-	out[0] = head + items[0]
+	out[0] = head + l.items[0]
 	return out
 }

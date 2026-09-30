@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/standards-lab/sqlate"
 	"github.com/standards-lab/sqlate/query"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
+	"github.com/JaimeStill/spike-messaging/messaging/internal/engine"
 )
 
 // Engine is the SQL a database engine's module supplies for the inbox. The
@@ -31,12 +31,8 @@ type Inbox struct {
 // New returns an inbox over eng, once eng defines its statement with the
 // parameters [Engine] names.
 func New(eng Engine) (*Inbox, error) {
-	switch {
-	case eng.Claim.Name() == "":
-		return nil, errors.New("inbox: engine: Claim is not defined")
-	case !slices.Equal(slices.Sorted(slices.Values(eng.Claim.Params())), []string{"consumer", "id", "source"}):
-		return nil, fmt.Errorf("inbox: engine: Claim (%s) takes parameters %v, want [consumer id source]",
-			eng.Claim.Name(), slices.Sorted(slices.Values(eng.Claim.Params())))
+	if err := engine.Check("Claim", eng.Claim, "consumer", "source", "id"); err != nil {
+		return nil, fmt.Errorf("inbox: engine: %w", err)
 	}
 	return &Inbox{eng: eng}, nil
 }

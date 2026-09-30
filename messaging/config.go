@@ -38,8 +38,7 @@ func (c *Config) Merge(src *Config) {
 
 // Finalize defaults RelayPoll to [DefaultRelayPoll], reads the block's
 // environment overrides when a prefix is given (<PREFIX>_MESSAGING_SOURCE
-// and …_RELAY_POLL), and validates that the source is set and the poll is
-// positive.
+// and …_RELAY_POLL), and validates the result.
 func (c *Config) Finalize(envPrefix string) error {
 	if c.RelayPoll == 0 {
 		c.RelayPoll = libconfig.Duration(DefaultRelayPoll)
@@ -53,6 +52,12 @@ func (c *Config) Finalize(envPrefix string) error {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
+	return c.Validate()
+}
+
+// Validate reports every way c is unusable: the source must be set and the
+// poll positive.
+func (c Config) Validate() error {
 	var errs []error
 	if c.Source == "" {
 		errs = append(errs, errors.New("source is required"))
