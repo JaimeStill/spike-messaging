@@ -138,7 +138,8 @@ func await(t *testing.T, what string, d time.Duration, ok func() bool) {
 // with both factions idle, resolves a round every interval on its own
 // reactor and ends at its round limit as a draw. Every
 // event reaches the stream in the chain's order: the start, each faction's
-// observation of each round from 0 to the limit, and the conclusion. The
+// observation of each round from 0 to the limit, each round's resolution
+// before its observations, and the conclusion. The
 // umpire's view and the history agree.
 func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
@@ -152,7 +153,7 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	}
 	webtest.Decode[view](t, c.Post(t, "/api/exercises/"+ex.ID+"/start", nil), http.StatusOK)
 
-	want := 1 + 2*(limit+1) + 1
+	want := 1 + 2*(limit+1) + limit + 1
 	await(t, "the exercise's events", 15*time.Second, func() bool { return len(w.seen()) >= want })
 	time.Sleep(300 * time.Millisecond) // nothing more follows the conclusion
 	events := w.seen()
@@ -162,7 +163,8 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	if events[0].Type != "exercise.started" || events[len(events)-1].Type != "exercise.concluded" {
 		t.Errorf("first and last = %s, %s", events[0].Type, events[len(events)-1].Type)
 	}
-	for i, e := range events[1 : len(events)-1] {
+	i, resolved := 0, 0
+	for _, e := range events[1 : len(events)-1] {
 		var d struct {
 			Faction string `json:"faction"`
 			Round   int    `json:"round"`
@@ -170,10 +172,18 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			t.Fatal(err)
 		}
+		if e.Type == "exercise.round.resolved" {
+			// A round's resolution precedes its observations.
+			if resolved++; d.Round != resolved || i != 2*resolved {
+				t.Errorf("the resolution of round %d came after %d observations, want round %d's before its own", d.Round, i, resolved)
+			}
+			continue
+		}
 		if e.Type != "exercise.round.observed" || d.Round != i/2 || d.Faction != []string{"red", "blue"}[i%2] {
 			t.Errorf("event %d = %s round %d faction %q, want the observation of round %d by %s",
 				i+1, e.Type, d.Round, d.Faction, i/2, []string{"red", "blue"}[i%2])
 		}
+		i++
 	}
 	for _, e := range events {
 		if e.Subject != ex.ID || e.Source != "/exercise" {

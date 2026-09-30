@@ -51,6 +51,10 @@ Each event is written in the transaction of the command that makes it true, and 
 the exercise's ID:
 
 - `exercise.started`: the public settings, including the map but not the elements.
+- `exercise.round.resolved`: one per resolved round, before its observations: the umpire's record
+  of the round's engagements, with every element's strength before and after, the objectives
+  that changed hands, and the elements destroyed. It shows both factions, so it is for an
+  observer of the whole exercise, such as courier's theater narration; no service consumes it.
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 

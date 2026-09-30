@@ -19,6 +19,12 @@ var (
 	// RoundObserved reports what one faction observed after a round. Each
 	// round raises one per faction, and the start raises them for round 0.
 	RoundObserved = event.Define[ObservedData]("exercise.round.observed")
+	// RoundResolved reports what a round's resolution did, as the umpire
+	// records it: its engagements, the objectives that changed hands, and
+	// the elements destroyed. Each resolved round raises one, before its
+	// observations. It reveals every faction's elements, so it is for an
+	// observer of the whole exercise, not for a faction's services.
+	RoundResolved = event.Define[ResolvedData]("exercise.round.resolved")
 	// Concluded reports an exercise that ended, by its verdict or by a stop,
 	// so a consumer closes what it holds of it.
 	Concluded = event.Define[ConcludedData]("exercise.concluded")
@@ -46,6 +52,14 @@ type ObservedData struct {
 	Own        []rules.Element         `json:"own"`
 	Contacts   []rules.Element         `json:"contacts"`
 	Objectives []rules.ObjectiveStatus `json:"objectives"`
+}
+
+// ResolvedData is the event entity of [RoundResolved]: the round and its
+// resolution flattened beside the exercise.
+type ResolvedData struct {
+	Exercise string `json:"exercise"`
+	Round    int    `json:"round"`
+	rules.Resolution
 }
 
 // ConcludedData is the event entity of [Concluded]: the last round, the
@@ -104,6 +118,11 @@ func raiseObserved(q *event.Queue, id string, obs [2]rules.Observation) {
 	for _, d := range observedData(id, obs) {
 		RoundObserved.Raise(q, id, d)
 	}
+}
+
+// raiseResolved raises the resolved event for round of exercise id.
+func raiseResolved(q *event.Queue, id string, round int, res rules.Resolution) {
+	RoundResolved.Raise(q, id, ResolvedData{Exercise: id, Round: round, Resolution: res})
 }
 
 // raiseConcluded raises the concluded event for exercise id, ended after

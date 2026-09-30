@@ -250,9 +250,9 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 // for it, ignoring an order for an element of the other faction. The
 // exercise then advances to the round, with its next round due one interval
 // from the database's clock, or concludes when the round's verdict is over.
-// Its history records the round. ResolveDue raises [RoundObserved] for each
-// faction's observation of the round, then [Concluded] if the exercise
-// concluded.
+// Its history records the round. ResolveDue raises [RoundResolved] with the
+// round's resolution, then [RoundObserved] for each faction's observation of
+// the round, then [Concluded] if the exercise concluded.
 func (s *Service) ResolveDue(ctx context.Context) (int, error) {
 	ids, err := s.store.due(ctx)
 	if err != nil {
@@ -290,7 +290,7 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		next, obs, v, _ := rules.Resolve(ex.State, round, ex.RoundLimit, ownOrders(ex.State, recorded))
+		next, obs, v, res := rules.Resolve(ex.State, round, ex.RoundLimit, ownOrders(ex.State, recorded))
 		if v.Over {
 			ok, err = s.store.markConcluded(ctx, tx, id, StatusRunning, round, next, v)
 		} else {
@@ -305,6 +305,7 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 		if err := s.store.addRound(ctx, tx, id, Round{Round: round, State: next, Observations: obs, Verdict: v}); err != nil {
 			return false, err
 		}
+		raiseResolved(q, id, round, res)
 		raiseObserved(q, id, obs)
 		if v.Over {
 			raiseConcluded(q, id, round, v)
