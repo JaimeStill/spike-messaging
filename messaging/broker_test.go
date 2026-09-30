@@ -12,6 +12,9 @@ func TestValidate(t *testing.T) {
 	if err := (messaging.Subscription{Name: "workers", Types: []string{"a"}}).Validate(); err != nil {
 		t.Errorf("valid subscription: %v", err)
 	}
+	if err := (messaging.Subscription{Name: "workers", Start: messaging.StartNew}).Validate(); err != nil {
+		t.Errorf("valid StartNew subscription: %v", err)
+	}
 	cases := map[string]struct {
 		sub  messaging.Subscription
 		want string
@@ -27,6 +30,8 @@ func TestValidate(t *testing.T) {
 		"negative max":   {messaging.Subscription{Name: "a", MaxDeliver: -1}, "max deliver"},
 		"negative wait":  {messaging.Subscription{Name: "a", AckWait: -1}, "ack wait"},
 		"negative retry": {messaging.Subscription{Name: "a", RetryDelay: -1}, "retry delay"},
+		"unknown start":  {messaging.Subscription{Name: "a", Start: messaging.StartNew + 1}, "start position"},
+		"negative start": {messaging.Subscription{Name: "a", Start: -1}, "start position"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
