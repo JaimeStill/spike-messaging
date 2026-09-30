@@ -62,15 +62,14 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 		fails    bool
 	}{
 		{"consistent", "", []string{
-			"theater " + exerciseID + ": 1 rounds, 2 assessments (0 revised), contact_rounds 3",
-			"consistent: every assessment matches",
-			"red   objective:1,1  believes unheld; truly unheld",
-			"blue  objective:1,1  believes undiscovered; truly unheld",
-			"verdict: red by limit; truly held: none",
+			"  theater  " + exerciseID + "\n    rounds          1\n    assessments     2, 0 revised\n    contact rounds  3\n",
+			"  consistent  every assessment matches",
+			"  beliefs  red\n    objective:1,1  unheld  truly unheld\n",
+			"  beliefs  blue\n    objective:1,1  undiscovered  truly unheld\n",
+			"  verdict  red by limit\n  truly held  none\n",
 		}, false},
 		{"inconsistent", "blue", []string{
-			"1 inconsistencies:",
-			"round 0 red: objective:1,1 is in sight and unheld, but not reported so",
+			"  inconsistencies  1\n    round 0 red: objective:1,1 is in sight and unheld, but not reported so\n",
 		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

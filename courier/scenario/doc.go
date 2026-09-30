@@ -32,10 +32,12 @@
 // before an exercise starts and narrates the exercise as the services play
 // it: the initial conditions, held until the umpire's first resolution
 // tells the objectives (which the factions do not know, and which the
-// narration names objective:x,y), with the seed, one line for each event that
-// changes something, tagged with its round, its service, and its faction,
-// and the final conditions, with the events on the stream by type and the median
-// latency of each hop in the chain.
+// narration names objective:x,y), with the seed; what each event changes,
+// one verb to a line, grouped under a heading of its round, its service,
+// and its faction, with consecutive changes under the same heading sharing
+// it and each group's lines aligned; and the final conditions, with the
+// events on the stream by type and the median latency of each hop in the
+// chain.
 //
 // The theater-check scenario reconciles a run afterward. It joins the same
 // stream under a new durable, which reads it from its beginning, collects

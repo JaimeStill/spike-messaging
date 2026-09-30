@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -300,27 +301,31 @@ func getJSON(ctx context.Context, u string, v any) error {
 
 // checkTheater renders the check of an exercise's assessments against its
 // history: a header, the inconsistencies found, what each faction believes
-// of each objective at the end against the truth, and the verdict. It
-// returns the lines and the number of inconsistencies.
+// of each objective at the end against the truth, and the verdict, with who
+// truly holds each objective. It returns the lines and the number of
+// inconsistencies.
 func checkTheater(exercise string, history []umpireRound, verdict *umpireVerdict, all []checkedAssessment, k int) ([]string, int) {
 	history = slices.Clone(history)
 	slices.SortFunc(history, func(a, b umpireRound) int { return cmp.Compare(a.Round, b.Round) })
 	latest := lastAssessments(all)
-	lines := []string{fmt.Sprintf("theater %s: %d rounds, %d assessments (%d revised), contact_rounds %d",
-		exercise, history[len(history)-1].Round+1, len(all), len(all)-len(latest), k)}
+	out := []detail{text("theater  "+exercise).with(
+		row(col("key", "rounds"), apart("value", strconv.Itoa(history[len(history)-1].Round+1))),
+		row(col("key", "assessments"), apart("value", fmt.Sprintf("%d, %d revised", len(all), len(all)-len(latest)))),
+		row(col("key", "contact rounds"), apart("value", strconv.Itoa(k))),
+	)}
 	errs := reconcile(history, latest, k)
 	if len(errs) == 0 {
-		lines = append(lines, "consistent: every assessment matches the umpire's record under the suppression rules")
+		out = append(out, text("consistent  every assessment matches the umpire's record under the suppression rules"))
 	} else {
-		lines = append(lines, fmt.Sprintf("%d inconsistencies:", len(errs)))
+		found := text(fmt.Sprintf("inconsistencies  %d", len(errs)))
 		for _, e := range errs {
-			lines = append(lines, "  "+e)
+			found = found.with(text(e))
 		}
+		out = append(out, found)
 	}
-	lines = append(lines, "", "what each faction believes at the end, against the truth:")
-	lines = append(lines, beliefs(history, latest)...)
-	lines = append(lines, "", verdictLine(history[len(history)-1], verdict))
-	return lines, len(errs)
+	out = append(out, beliefs(history, latest)...)
+	out = append(out, verdictLines(history[len(history)-1], verdict)...)
+	return list(out, "", same), len(errs)
 }
 
 // lastAssessments returns each faction's last assessment of each round,
@@ -487,22 +492,19 @@ func reconcile(history []umpireRound, assessments []checkedAssessment, k int) []
 
 // beliefs renders what each faction's last assessment believes of each
 // objective, against who truly holds it after the last round.
-func beliefs(history []umpireRound, assessments []checkedAssessment) []string {
+func beliefs(history []umpireRound, assessments []checkedAssessment) []detail {
 	final := history[len(history)-1]
 	last := map[string]checkedAssessment{}
 	for _, a := range assessments {
 		last[a.Faction] = a
 	}
-	width := 0
-	for _, f := range final.State.Factions {
-		width = max(width, len(f))
-	}
-	var lines []string
+	var out []detail
 	for _, f := range final.State.Factions {
 		known := map[string]assessedObjective{}
 		for _, o := range last[f].Objectives {
 			known[place(o.At)] = o
 		}
+		block := text("beliefs  " + f)
 		for _, sec := range final.State.Map.Sectors {
 			for _, p := range sec.Objectives {
 				at := location{Sector: sec.ID, point: p}
@@ -512,22 +514,23 @@ func beliefs(history []umpireRound, assessments []checkedAssessment) []string {
 				case ok && o.Known:
 					believed = orUnheld(o.Holder)
 					if o.Age > 0 {
-						believed += fmt.Sprintf(", seen %d rounds ago", o.Age)
+						believed += fmt.Sprintf(" (seen %d ago)", o.Age)
 					}
 				case ok:
 					believed = "unknown"
 				}
-				lines = append(lines, fmt.Sprintf("  %-*s  %-14s believes %s; truly %s",
-					width, f, objectiveName(at), believed, orUnheld(final.State.Holders[place(at)])))
+				block = block.with(row(col("objective", objectiveName(at)), apart("believed", believed),
+					apart("truth", "truly "+orUnheld(final.State.Holders[place(at)]))))
 			}
 		}
+		out = append(out, block)
 	}
-	return lines
+	return out
 }
 
-// verdictLine renders the verdict and who truly holds which objective after
-// the last round.
-func verdictLine(final umpireRound, v *umpireVerdict) string {
+// verdictLines renders the verdict, and who truly holds which objectives
+// after the last round.
+func verdictLines(final umpireRound, v *umpireVerdict) []detail {
 	held := map[string][]string{}
 	for _, sec := range final.State.Map.Sectors {
 		for _, p := range sec.Objectives {
@@ -537,19 +540,22 @@ func verdictLine(final umpireRound, v *umpireVerdict) string {
 			}
 		}
 	}
-	var holds []string
-	for _, h := range slices.Sorted(maps.Keys(held)) {
-		holds = append(holds, fmt.Sprintf("%s %d (%s)", h, len(held[h]), strings.Join(held[h], " ")))
-	}
-	head := "verdict: none"
+	head := "verdict  none"
 	if v != nil {
 		winner := v.Winner
 		if winner == "" {
 			winner = "no winner"
 		}
-		head = fmt.Sprintf("verdict: %s by %s", winner, v.Reason)
+		head = fmt.Sprintf("verdict  %s by %s", winner, v.Reason)
 	}
-	return head + "; truly held: " + orNone(holds, "; ")
+	holds := text("truly held")
+	if len(held) == 0 {
+		holds = text("truly held  none")
+	}
+	for _, h := range slices.Sorted(maps.Keys(held)) {
+		holds = holds.with(row(col("holder", h), apart("objectives", strings.Join(held[h], " "))))
+	}
+	return []detail{text(head), holds}
 }
 
 // elementKeys returns each element's key, sorted.

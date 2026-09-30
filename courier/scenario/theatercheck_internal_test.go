@@ -118,16 +118,20 @@ func TestTheaterCheckAcceptsConsistentAssessments(t *testing.T) {
 	history, raw := fixture(t)
 	lines, errs := check(t, history, raw, 3)
 	want := []string{
-		"theater " + theaterID + ": 3 rounds, 7 assessments (1 revised), contact_rounds 3",
-		"consistent: every assessment matches the umpire's record under the suppression rules",
-		"",
-		"what each faction believes at the end, against the truth:",
-		"  red   objective:1,1  believes blue; truly blue",
-		"  red   objective:4,4  believes undiscovered; truly unheld",
-		"  blue  objective:1,1  believes unheld, seen 2 rounds ago; truly blue",
-		"  blue  objective:4,4  believes unheld; truly unheld",
-		"",
-		"verdict: blue by limit; truly held: blue 1 (objective:1,1)",
+		"theater  " + theaterID,
+		"  rounds          3",
+		"  assessments     7, 1 revised",
+		"  contact rounds  3",
+		"consistent  every assessment matches the umpire's record under the suppression rules",
+		"beliefs  red",
+		"  objective:1,1  blue          truly blue",
+		"  objective:4,4  undiscovered  truly unheld",
+		"beliefs  blue",
+		"  objective:1,1  unheld (seen 2 ago)  truly blue",
+		"  objective:4,4  unheld               truly unheld",
+		"verdict  blue by limit",
+		"truly held",
+		"  blue  objective:1,1",
 	}
 	if errs != 0 || !slices.Equal(lines, want) {
 		t.Errorf("%d inconsistencies; report:\n%s\n\nwant:\n%s", errs, strings.Join(lines, "\n"), strings.Join(want, "\n"))
@@ -191,7 +195,7 @@ func TestTheaterCheckFindsInconsistencies(t *testing.T) {
 			history, raw := fixture(t)
 			lines, errs := check(t, history, tc.change(raw), 3)
 			report := strings.Join(lines, "\n")
-			if errs != 1 || !strings.Contains(report, "1 inconsistencies:\n  "+tc.want+"\n") {
+			if errs != 1 || !strings.Contains(report, "inconsistencies  1\n  "+tc.want+"\n") {
 				t.Errorf("%d inconsistencies, want 1: %q; report:\n%s", errs, tc.want, report)
 			}
 		})

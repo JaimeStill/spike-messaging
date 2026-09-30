@@ -115,7 +115,7 @@ func TestAssessmentsNarratesOneFaction(t *testing.T) {
 }
 
 // A directive is narrated as it arrives: each squad whose directive
-// changed, with what it was doing before, and none whose directive stands.
+// changed, in the theater's verbs, and none whose directive stands.
 // command's secure rule reads as a capture, and a directive without a rule,
 // as courier's stand-in issues, heads for its target.
 func TestAssessmentsNarratesDirectives(t *testing.T) {
@@ -160,9 +160,9 @@ func TestAssessmentsNarratesDirectives(t *testing.T) {
 		}
 		got := out.String()
 		for _, w := range []string{
-			"round 0 red directs: r1 captures a:4,4 · r2 holds",
-			"round 1 red directs: r1 engages b2 at a:5,5 (was capturing a:4,4)\n",
-			"round 0 blue directs: b1 heads for a:0,4",
+			"round 0 red directs: r1 capture -> a:4,4 · r2 hold",
+			"round 1 red directs: r1 engage -> a:5,5 b2\n",
+			"round 0 blue directs: b1 head -> a:0,4",
 		} {
 			if !strings.Contains(got, w) {
 				t.Errorf("narration lacks %q:\n%s", w, got)

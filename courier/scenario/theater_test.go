@@ -53,10 +53,10 @@ func TestTheaterNarratesAnExercise(t *testing.T) {
 		got := out.String()
 		for _, w := range []string{
 			"tiny: 1 rounds at 1s",
-			"  seed        7",
-			"r1   exercise     blue  b1 destroyed",
-			"verdict     red wins by elimination after round 1",
-			"check it against the umpire: mise run demo-theater-check " + exerciseID,
+			"    seed        7",
+			"  1  exercise      blue\n    b1 destroyed\n",
+			"  verdict  red wins by elimination after round 1",
+			"  check  mise run demo-theater-check " + exerciseID,
 		} {
 			if !strings.Contains(got, w) {
 				t.Errorf("narration lacks %q:\n%s", w, got)

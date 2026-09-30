@@ -231,7 +231,12 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		if w.faction != "" && d.Faction != w.faction {
 			return nil
 		}
-		if lines := w.standing.changes(d, nil, place); len(lines) > 0 {
+		var lines []string
+		for _, x := range w.standing.changes(d) {
+			verb, target, contact := act(x, nil, place)
+			lines = append(lines, strings.Join(slices.DeleteFunc([]string{x.Element, verb, target, contact}, func(s string) bool { return s == "" }), " "))
+		}
+		if len(lines) > 0 {
 			w.rep.Note("round %d %s directs: %s", d.Round, d.Faction, strings.Join(lines, " · "))
 		}
 	case concludedType:
