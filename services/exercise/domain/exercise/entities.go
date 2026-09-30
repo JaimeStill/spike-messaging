@@ -136,7 +136,8 @@ func (c CreateExercise) state(seed int64) rules.State {
 // status, the last round resolved, the world as that round left it, the
 // verdict once it is over, and when its next round is due while it runs.
 // Seed is the seed every round's random draws come from, so it replays the
-// exercise. RoundInterval is a Go duration, such as "2s".
+// exercise. RoundInterval is a Go duration, such as "2s". Rules is the
+// rules' constants a client reads the view by.
 type Exercise struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
@@ -147,6 +148,7 @@ type Exercise struct {
 	RoundInterval string         `json:"round_interval"`
 	Factions      [2]string      `json:"factions"`
 	State         rules.State    `json:"state"`
+	Rules         Rules          `json:"rules"`
 	Verdict       *rules.Verdict `json:"verdict"`
 	NextRoundAt   *time.Time     `json:"next_round_at"`
 	CreatedAt     time.Time      `json:"created_at"`
@@ -154,6 +156,27 @@ type Exercise struct {
 
 	// intervalMS is RoundInterval in milliseconds, as the database keeps it.
 	intervalMS int64
+}
+
+// Rules is the constants of the rules that a client needs to read an
+// exercise's state and history, so that it never mirrors them by hand:
+// CaptureRounds is [rules.CaptureRounds], the rounds in a row a faction
+// ends alone on an objective to take it, and Sight is each kind's
+// [rules.Kind.Sight], the distance an element of the kind sees.
+type Rules struct {
+	CaptureRounds int                `json:"capture_rounds"`
+	Sight         map[rules.Kind]int `json:"sight"`
+}
+
+// currentRules returns the rules the package resolves every exercise by.
+func currentRules() Rules {
+	return Rules{
+		CaptureRounds: rules.CaptureRounds,
+		Sight: map[rules.Kind]int{
+			rules.Squad: rules.Squad.Sight(),
+			rules.Scout: rules.Scout.Sight(),
+		},
+	}
 }
 
 // started reports whether the exercise is running or paused: it has
@@ -176,8 +199,8 @@ type Round struct {
 }
 
 // RecordOrders is the command that records one faction's orders for one
-// round of an exercise. A reactor's adapter builds it from the orders an
-// operations service issued; the domain never sees the event.
+// round of an exercise. A reactor decodes it from the data of the orders
+// event an operations service issued; the domain never sees the event.
 type RecordOrders struct {
 	Exercise string        `json:"exercise"`
 	Faction  string        `json:"faction"`
@@ -188,8 +211,8 @@ type RecordOrders struct {
 // Claim is an idempotency claim that a command runs in its transaction
 // before it does anything else. It reports whether this is the first time
 // the command's input was handled; on false the command changes nothing and
-// succeeds. A reactor's adapter binds a Claim over its inbox and the event
-// it handles. A caller without an inbox, such as a test, passes a nil
-// Claim, which claims nothing. It is an alias, so the claim a consumer
-// built by messaging's Consume hands over is one.
+// succeeds. A reactor binds a Claim over its inbox and the event it handles.
+// A caller without an inbox, such as a test, passes a nil Claim, which
+// claims nothing. It is an alias, so the claim a consumer built by
+// messaging's Consume hands over is one.
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)

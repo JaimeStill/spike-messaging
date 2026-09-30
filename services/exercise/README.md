@@ -35,7 +35,7 @@ Mounted under `/api/exercises`:
 | Route | Action |
 |-------|--------|
 | `POST /` | Create an exercise: its name, its two factions, a round interval, a round limit, and optionally a seed, and a map with its elements |
-| `GET /{id}` | The umpire's view: status, seed, round, the whole state, and the verdict |
+| `GET /{id}` | The umpire's view: status, seed, round, the whole state, the verdict, and the rules' constants |
 | `GET /{id}/history` | Every round from the start: its state, both factions' observations, its verdict, and its resolution |
 | `POST /{id}/start` | Start the exercise; round 0 is observed at once |
 | `POST /{id}/pause` · `/resume` | Hold the exercise's rounds, and resume them |
@@ -57,6 +57,11 @@ element moves only on an order of one step marked `"retreat": true`. An order ma
 `"pursue": true` keeps an engaged element in its fight to fire on an enemy that retreats from it,
 and the retreating element fires back; a retreat no one pursues escapes without a shot. Round 0,
 the start, resolves nothing, so its resolution in the history is `null`.
+
+The umpire's view carries the rules' constants a client reads the state by, so that it never
+mirrors them: `"rules": {"capture_rounds": 2, "sight": {"squad": 1, "scout": 2}}`, the rounds in a
+row a faction ends alone on an objective to take it, and the distance, in cells of its own
+sector, that each kind of element sees.
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor.

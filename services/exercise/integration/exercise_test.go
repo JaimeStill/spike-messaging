@@ -32,6 +32,10 @@ type view struct {
 		Winner string `json:"winner"`
 		Reason string `json:"reason"`
 	} `json:"verdict"`
+	Rules struct {
+		CaptureRounds int            `json:"capture_rounds"`
+		Sight         map[string]int `json:"sight"`
+	} `json:"rules"`
 }
 
 type round struct {
@@ -210,6 +214,12 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	if final.Status != "concluded" || final.Round != limit || final.Verdict == nil ||
 		final.Verdict.Winner != "" || final.Verdict.Reason != "limit" {
 		t.Errorf("final view = %+v, want concluded at round %d, a draw by limit", final, limit)
+	}
+	// The view carries the rules' constants, so a client reads the state by
+	// them rather than mirroring them.
+	if final.Rules.CaptureRounds != 2 || len(final.Rules.Sight) != 2 ||
+		final.Rules.Sight["squad"] != 1 || final.Rules.Sight["scout"] != 2 {
+		t.Errorf("final view's rules = %+v, want capture in 2 rounds, sight 1 for a squad and 2 for a scout", final.Rules)
 	}
 	history := webtest.Decode[[]round](t, c.Get(t, "/api/exercises/"+ex.ID+"/history"), http.StatusOK)
 	if len(history) != limit+1 || history[0].Round != 0 || history[limit].Round != limit {

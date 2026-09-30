@@ -11,8 +11,6 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/logging"
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 	"github.com/JaimeStill/spike-messaging/messaging"
-	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise"
-	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
 	"github.com/JaimeStill/spike-messaging/services/exercise/internal/config"
 )
 
@@ -20,6 +18,10 @@ import (
 // due at the database's clock, so the tick only bounds how late past its
 // due time a round resolves.
 const resolveTick = 50 * time.Millisecond
+
+// failureLogEvery is how often a failure that repeats on every tick is
+// logged while it persists.
+const failureLogEvery = 10 * time.Second
 
 // ordersStage places the orders reactor above the domains' verification
 // and below the root, so it receives only once the statements it runs are
@@ -67,7 +69,7 @@ func newReactors(
 ) (*Reactors, error) {
 	shutdown := cfg.ShutdownTimeout.Duration()
 
-	relay := infra.Messaging.Relay(infra.SQL.DB, shutdown)
+	relay := infra.Messaging.Relay(infra.SQL.DB)
 	corelifecycle.Register(lc, "relay", relayStage, relay)
 
 	// Every ends on a handler error, so the resolver logs a pass's failures
@@ -82,7 +84,11 @@ func newReactors(
 	}, reactor.GraceWithin(shutdown))
 	corelifecycle.Register(lc, "resolve", lifecycle.StageRoot, resolve)
 
-	orders, err := infra.Messaging.Consume(ordersSubscription, shutdown, recordOrders(dom.Exercise))
+	// The consumer decodes each event's data into the domain's RecordOrders
+	// command and binds the claim to the event, so the domain never sees the
+	// event and a redelivery changes nothing. A refusal is permanent, and the
+	// runtime logs it.
+	orders, err := infra.Messaging.Consume(ordersSubscription, dom.Exercise.RecordOrders)
 	if err != nil {
 		return nil, err
 	}
@@ -90,28 +96,3 @@ func newReactors(
 
 	return &Reactors{Relay: relay, Resolve: resolve, Orders: orders}, nil
 }
-
-// ordersIssued is the exercise service's own type for an
-// operations.orders.issued event's data, decoded from the event, because
-// the services share no Go types.
-type ordersIssued struct {
-	Exercise string        `json:"exercise"`
-	Faction  string        `json:"faction"`
-	Round    int           `json:"round"`
-	Orders   []rules.Order `json:"orders"`
-}
-
-// recordOrders adapts an operations.orders.issued event's data into the
-// domain's RecordOrders command, with the claim the reactor bound to the
-// event, so the domain never sees the event and a redelivery changes
-// nothing. A refusal is permanent, and the runtime logs it.
-func recordOrders(svc *exercise.Service) func(context.Context, ordersIssued, messaging.Claim) error {
-	return func(ctx context.Context, d ordersIssued, claim messaging.Claim) error {
-		cmd := exercise.RecordOrders{Exercise: d.Exercise, Faction: d.Faction, Round: d.Round, Orders: d.Orders}
-		return svc.RecordOrders(ctx, cmd, claim)
-	}
-}
-
-// failureLogEvery is how often a failure that repeats on every tick is
-// logged while it persists.
-const failureLogEvery = 10 * time.Second

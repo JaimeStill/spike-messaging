@@ -16,6 +16,7 @@ import (
 	pgdialect "github.com/standards-lab/sqlate/postgres"
 	"github.com/standards-lab/sqlate/query"
 
+	corelifecycle "github.com/JaimeStill/spike-messaging/core/lifecycle"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/nats"
 	"github.com/JaimeStill/spike-messaging/messaging/postgres"
@@ -49,15 +50,17 @@ type Infrastructure struct {
 const verifyStage = admin.Stage + 1
 
 // newInfrastructure constructs the infrastructure services in one place, in
-// dependency order, each registering on lc where it is built — as a
-// lifecycle.Service with the stage that places it in the process's startup
-// order — so a service cannot exist without a startup, shutdown, or
-// readiness declaration. The database and the broker register at stage 0,
-// so they start first and drain last, after every reactor. Construction
-// opens nothing: connectivity belongs to a service's Start hook, so a
-// failed cold start leaks no connections. This file is the one place a
-// provider is named: the database's, the broker's, and the messaging
-// engine with its migration set.
+// dependency order, each registering on lc where it is built at the stage
+// that places it in the process's startup order, so a service cannot exist
+// without a startup, shutdown, or readiness declaration. The database and
+// the broker are lifecycle components, which corelifecycle.Register adds
+// whole, and the messaging verification is a Start hook alone, which lc.Add
+// adds as a lifecycle.Service. The database and the broker register at
+// stage 0, so they start first and drain last, after every reactor. Construction
+// opens nothing: connectivity belongs to a service's Start hook, so a failed
+// cold start leaks no connections. This file is the one place a provider is
+// named: the database's, the broker's, and the messaging engine with its
+// migration set.
 func newInfrastructure(
 	w io.Writer,
 	cfg *config.Config,
@@ -69,30 +72,18 @@ func newInfrastructure(
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	lc.Add(lifecycle.Service{
-		Name:     "database",
-		Stage:    0,
-		Start:    db.Start,
-		Shutdown: db.Shutdown,
-		Check:    db,
-	})
+	corelifecycle.Register(lc, "database", 0, db)
 
 	b, err := nats.New(cfg.NATS)
 	if err != nil {
 		return nil, fmt.Errorf("broker: %w", err)
 	}
-	lc.Add(lifecycle.Service{
-		Name:     "broker",
-		Stage:    0,
-		Start:    b.Start,
-		Shutdown: b.Shutdown,
-		Check:    b,
-	})
+	corelifecycle.Register(lc, "broker", 0, b)
 
 	catalog := query.MustCatalog(query.Patterns())
 	session := sqlate.Wrap(db.Conn(), pgdialect.Dialect{})
 
-	msg, err := messaging.New(cfg.Messaging, b, postgres.Outbox(), postgres.Inbox(), logger)
+	msg, err := messaging.New(cfg.Messaging, b, postgres.Outbox(), postgres.Inbox(), cfg.ShutdownTimeout.Duration(), logger)
 	if err != nil {
 		return nil, err
 	}
