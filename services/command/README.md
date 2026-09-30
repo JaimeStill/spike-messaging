@@ -20,7 +20,7 @@ Mounted under `/api/command`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on, and the decision standing for each live element, with its rule, its target, and for a retreat, a pursue, an engage, or a reinforce its contact |
+| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on and that assessment's revision, the sequence of the last directive it issued, and the decision standing for each live element, with its rule, its target, and for a retreat, a pursue, an engage, or a reinforce its contact |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -40,9 +40,12 @@ Every command claims its event through the inbox, so a redelivery changes nothin
 a direction not open yet, as when an assessment is handled before its start, is redelivered after
 250ms rather than refused.
 
-`Decide` skips an assessment of a round earlier than the one it last decided on, and decides
-again on an assessment of that round: intelligence revises one when the faction loses an
-objective.
+Intelligence numbers each faction's assessments in an exercise with a `revision`, from 1 up.
+`Decide` skips an assessment whose revision is no higher than the last one it decided on, so an
+assessment decided out of order, as by another replica or after a redelivery, can't undo a newer
+one. A revision of the round it last decided on is decided on again: intelligence revises a
+round's assessment when the faction loses an objective. A closed direction also skips an
+assessment of a round past the one its exercise concluded after.
 
 `Decide` applies eight rules to each live element, in order, by path distance over open cells and
 gates. An element is engaged when intelligence reports it so and an enemy was seen in its cell this
@@ -51,7 +54,7 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 
 1. **Retreat.** An engaged element steps out of its fight when it is a scout, or when its
    faction's strength in the cell is below two thirds of the enemy's there. It steps to the
-   adjacent open cell free of the enemy that lies farthest from the nearest contact outside the
+   adjacent open cell free of the enemy and of its own faction's elements that lies farthest from the nearest contact outside the
    fight, ties going up, right, down, then left. Only the enemy elements that pursue fire on a
    retreat.
 2. **Pursue or engage in place.** An engaged element that doesn't retreat, or has nowhere to go,
@@ -62,8 +65,9 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 4. **Engage.** A squad heads for the nearest known contact weaker than itself within 3 steps, at
    the cell it was last seen in.
 5. **Secure.** Otherwise the element heads for the nearest reachable discovered objective that its
-   faction isn't known to hold and that no other element is heading for. A scout secures only
-   once no unexplored cell is in its reach. An element keeps the objective it was securing while
+   faction isn't known to hold and that no other element is heading for. An element standing on
+   such an objective takes it before any other element picks, so none sends it away. A scout
+   secures only once no unexplored cell is in its reach. An element keeps the objective it was securing while
    that objective is still one to secure.
 6. **Search.** Otherwise the element heads for the nearest reachable unexplored cell that no other
    element is searching, preferring one more than two cells from every cell already taken, so the
@@ -77,12 +81,14 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 8. **Hold.** Otherwise it stands where it is.
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
-`{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where `rule` is
+`{exercise, faction, round, sequence, directives: [{element, rule, contact, target}]}`, where `rule` is
 `retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a hold's
 target is null. A retreat, a pursue, an engage, and a reinforce have a contact: the enemy the
 element leaves, fights, or heads for, the strongest in the cell when a fight holds several. The
-service emits the event only when a decision changes an element's target or rule. The event lists
-every live element, so it carries the faction's whole target state. The operations service reads
+service emits the event only when a decision changes an element's target or rule. The `sequence`
+numbers the faction's directives in the exercise from 1 up, so a consumer can skip a directive no
+higher than the last it applied. The event lists every live element, so it carries the faction's
+whole target state. The operations service reads
 each directive's element, rule, and target.
 
 The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer

@@ -70,30 +70,35 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 }
 
 // Decide decides on a faction's assessment of a round by [decide.Decide],
-// over the decisions standing, and records the result. It raises
-// [DirectiveIssued] with every live element's decision when any element's
-// target or rule changed, so a hold that becomes a retreat is issued; a
-// destroyed element changes neither. An assessment of the round it last
-// decided on is decided on again, over the decisions it made: intelligence
-// revises a round's assessment when the faction loses an objective, and a
-// repeat that changes nothing raises nothing. It skips an assessment of an
-// earlier round, and one of a closed direction past the round its exercise
-// concluded after. A final round's assessment arrives on a subscription
-// apart from the conclusion, and can be handled after the close; the final
-// round is still decided on.
+// over the decisions standing, and records the result with the
+// assessment's revision. It raises [DirectiveIssued] with every live
+// element's decision when any element's target or rule changed, so a hold
+// that becomes a retreat is issued; a destroyed element changes neither.
+// Each directive it raises takes the direction's next sequence.
+//
+// It skips an assessment whose revision is no higher than the last one it
+// decided on: an assessment decided out of order, as by another replica or
+// after a redelivery, is older than the one decided, and would undo it.
+// Intelligence revises a round's assessment when the faction loses an
+// objective, under a higher revision, so the revision is decided on over
+// the decisions made on the original. It also skips an assessment of a
+// closed direction past the round its exercise concluded after. A final
+// round's assessment arrives on a subscription apart from the conclusion,
+// and can be handled after the close; the final round is still decided on.
 func (s *Service) Decide(ctx context.Context, c Decide, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("decide: %w", err))
 	}
 	return s.claimed(ctx, "decide", claim, func(tx *sqlate.Tx, q *event.Queue) error {
 		d, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
-		if err != nil || c.Round < d.Round || d.Status == StatusClosed && c.Round > d.closedRound {
+		if err != nil || c.Revision <= d.Revision || d.Status == StatusClosed && c.Round > d.closedRound {
 			return err
 		}
 		next := decide.Decide(d.plan, d.Faction, c.Assessment, d.Decisions)
 		changed := redirects(d.Decisions, next)
-		d.Round, d.Decisions = c.Round, next
+		d.Round, d.Revision, d.Decisions = c.Round, c.Revision, next
 		if changed {
+			d.Sequence++
 			raiseDirective(q, d)
 		}
 		return s.store.save(ctx, tx, d)

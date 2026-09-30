@@ -1,0 +1,1 @@
+ALTER TABLE direction DROP COLUMN IF EXISTS sequence, DROP COLUMN IF EXISTS revision

@@ -92,11 +92,11 @@ var explored = func() []decide.Location {
 	return out
 }()
 
-// red is red's assessment of round: its squad r1 at 0,0 and its scout r2
-// at 0,2, the objective as given, the contacts it knows, and the whole
-// sector explored.
-func red(id string, round int, objective decide.Objective, contacts ...decide.Contact) command.Decide {
-	return command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
+// red is red's assessment of round, under revision: its squad r1 at 0,0
+// and its scout r2 at 0,2, the objective as given, the contacts it knows,
+// and the whole sector explored.
+func red(id string, round, revision int, objective decide.Objective, contacts ...decide.Contact) command.Decide {
+	return command.Decide{Exercise: id, Faction: "red", Revision: revision, Assessment: decide.Assessment{
 		Round: round,
 		Own: []decide.Element{
 			squad("r1", loc(0, 0)),
@@ -180,10 +180,10 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 	ctx := t.Context()
 	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, c := range []command.Decide{
-		red(id, 0, unknown),
-		red(id, 1, unknown),
-		red(id, 2, unknown, b1),
-		red(id, 3, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+		red(id, 0, 1, unknown),
+		red(id, 1, 2, unknown),
+		red(id, 2, 3, unknown, b1),
+		red(id, 3, 4, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
 	} {
 		if err := svc.Decide(ctx, c, nil); err != nil {
 			t.Fatal(err)
@@ -202,9 +202,9 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 		t.Fatalf("outbox holds %d directives, want %d: %+v", len(got), len(want), got)
 	}
 	for i, w := range want {
-		if got[i].Round != w.round || got[i].Faction != "red" || summary(got[i]) != w.text {
-			t.Errorf("directive %d is %s's of round %d: %s; want round %d: %s",
-				i, got[i].Faction, got[i].Round, summary(got[i]), w.round, w.text)
+		if got[i].Round != w.round || got[i].Sequence != i+1 || got[i].Faction != "red" || summary(got[i]) != w.text {
+			t.Errorf("directive %d is %s's of round %d, sequence %d: %s; want round %d, sequence %d: %s",
+				i, got[i].Faction, got[i].Round, got[i].Sequence, summary(got[i]), w.round, i+1, w.text)
 		}
 	}
 
@@ -213,7 +213,8 @@ func TestDecideIssuesDirectivesOnChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ds) != 2 || ds[0].Faction != "blue" || ds[0].Round != -1 || len(ds[0].Decisions) != 0 ||
-		ds[1].Faction != "red" || ds[1].Round != 3 || len(ds[1].Decisions) != 2 {
+		ds[1].Faction != "red" || ds[1].Round != 3 || ds[1].Revision != 4 || ds[1].Sequence != 3 ||
+		len(ds[1].Decisions) != 2 {
 		t.Errorf("Find = %+v", ds)
 	}
 }
@@ -233,7 +234,7 @@ func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 		{squad("r1", loc(0, 0))},
 		{squad("r1", loc(0, 0))},
 	} {
-		c := command.Decide{Exercise: id, Faction: "red", Assessment: decide.Assessment{
+		c := command.Decide{Exercise: id, Faction: "red", Revision: round + 1, Assessment: decide.Assessment{
 			Round: round, Own: own, Contacts: []decide.Contact{b1}, Objectives: []decide.Objective{unknown},
 			Explored: explored,
 		}}
@@ -253,18 +254,50 @@ func TestDecideIssuesDirectivesOnARuleChange(t *testing.T) {
 	}
 }
 
-// An assessment of a round before the one the direction last decided on
-// changes nothing, and a repeat of that round decides the same.
+// An assessment of a revision no higher than the one the direction last
+// decided on changes nothing: an earlier round's, and a repeat.
 func TestStaleAssessmentsAreSkipped(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
-	for _, round := range []int{1, 0, 1} {
-		if err := svc.Decide(t.Context(), red(id, round, unknown), nil); err != nil {
+	for _, c := range []command.Decide{
+		red(id, 1, 2, unknown),
+		red(id, 0, 1, unknown),
+		red(id, 1, 2, unknown),
+	} {
+		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := directives(t, db); len(got) != 1 || got[0].Round != 1 {
+	if got := directives(t, db); len(got) != 1 || got[0].Round != 1 || got[0].Sequence != 1 {
 		t.Errorf("outbox holds %+v, want round 1's directive alone", got)
+	}
+}
+
+// A round's original assessment, decided after its revision, as by another
+// replica or after a redelivery, changes nothing and raises nothing: the
+// revision's decisions stand, and the direction keeps its revision.
+func TestALateOriginalDoesNotUndoItsRevision(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	for _, c := range []command.Decide{
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+	} {
+		if err := svc.Decide(t.Context(), c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := directives(t, db)
+	if len(got) != 1 || got[0].Sequence != 1 || summary(got[0]) != "r1 secure a:4,0, r2 rescout a:4,0" {
+		t.Errorf("outbox holds %+v, want the revision's directive alone", got)
+	}
+	ds, err := svc.Find(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := ds[1]; r.Round != 1 || r.Revision != 2 || r.Sequence != 1 || len(r.Decisions) != 2 ||
+		r.Decisions[0].Rule != decide.Secure {
+		t.Errorf("red's direction = %+v, want revision 2's", r)
 	}
 }
 
@@ -279,7 +312,7 @@ func TestInputsBeforeOpenAreRedelivered(t *testing.T) {
 	}
 
 	for _, err := range []error{
-		svc.Decide(t.Context(), red(id, 0, unknown), claim),
+		svc.Decide(t.Context(), red(id, 0, 1, unknown), claim),
 		svc.Close(t.Context(), command.Close{Exercise: id}, nil),
 	} {
 		if !errors.Is(err, command.ErrNotOpen) || event.IsPermanent(err) {
@@ -293,7 +326,7 @@ func TestInputsBeforeOpenAreRedelivered(t *testing.T) {
 	if err := svc.Open(t.Context(), openInput(id), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Decide(t.Context(), red(id, 0, unknown), claim); err != nil {
+	if err := svc.Decide(t.Context(), red(id, 0, 1, unknown), claim); err != nil {
 		t.Fatal(err)
 	}
 	if got := directives(t, db); len(got) != 1 {
@@ -310,12 +343,13 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 		return in.Claim(ctx, tx, "command-assessed", e)
 	}
 	for range 2 {
-		if err := svc.Decide(t.Context(), red(id, 0, unknown), claim); err != nil {
+		if err := svc.Decide(t.Context(), red(id, 0, 1, unknown), claim); err != nil {
 			t.Fatal(err)
 		}
-		// A repeat of a round would change no target anyway; the claim
-		// must stop it first, so reset the direction.
-		if _, err := db.ExecContext(t.Context(), `UPDATE direction SET round = -1, decisions = '[]'`); err != nil {
+		// The revision guard would skip a repeat anyway; the claim must
+		// stop it first, so reset the direction.
+		if _, err := db.ExecContext(t.Context(),
+			`UPDATE direction SET round = -1, revision = 0, sequence = 0, decisions = '[]'`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -324,16 +358,17 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 	}
 }
 
-// A revised assessment of the round last decided on is decided on again:
-// once red learns blue has taken the objective it held, both elements head
-// for it, and a repeat of the revision issues nothing.
+// A revised assessment of the round last decided on, under a higher
+// revision, is decided on again: once red learns blue has taken the
+// objective it held, both elements head for it, and a repeat of the
+// revision issues nothing.
 func TestARevisedAssessmentIsDecidedAgain(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
 	for _, c := range []command.Decide{
-		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
-		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
-		red(id, 1, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+		red(id, 1, 1, decide.Objective{At: loc(4, 0), Holder: "red", Known: true}),
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
+		red(id, 1, 2, decide.Objective{At: loc(4, 0), Holder: "blue", Known: true}),
 	} {
 		if err := svc.Decide(t.Context(), c, nil); err != nil {
 			t.Fatal(err)
@@ -351,7 +386,7 @@ func TestARevisedAssessmentIsDecidedAgain(t *testing.T) {
 func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
-	if err := svc.Decide(t.Context(), red(id, 1, unknown), nil); err != nil {
+	if err := svc.Decide(t.Context(), red(id, 1, 1, unknown), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Close(t.Context(), command.Close{Exercise: id, Round: 2}, nil); err != nil {
@@ -359,7 +394,7 @@ func TestCloseStillDecidesTheConcludedRound(t *testing.T) {
 	}
 	b1 := decide.Contact{ID: "b1", Kind: decide.Scout, Strength: 100, At: loc(2, 0)}
 	for _, round := range []int{2, 3} {
-		if err := svc.Decide(t.Context(), red(id, round, unknown, b1), nil); err != nil {
+		if err := svc.Decide(t.Context(), red(id, round, round, unknown, b1), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -389,7 +424,7 @@ func TestConcurrentAssessmentsIssueOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
 	for range 8 {
-		wg.Go(func() { errs <- svc.Decide(context.Background(), red(id, 0, unknown), nil) })
+		wg.Go(func() { errs <- svc.Decide(context.Background(), red(id, 0, 1, unknown), nil) })
 	}
 	wg.Wait()
 	close(errs)
@@ -416,16 +451,29 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 1); err != nil {
-		t.Fatalf("down: %v", err)
-	}
-	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('direction') IS NOT NULL`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = r.Close() }()
-	var exists bool
-	if !r.Next() || r.Scan(&exists) != nil || exists {
-		t.Error("after down, the direction table remains")
+	// Each down undoes one migration: 0002's drops the revision and the
+	// sequence, and 0001's the table.
+	for _, c := range []struct {
+		query, what string
+	}{
+		{`SELECT count(*) > 0 FROM information_schema.columns
+			WHERE table_name = 'direction' AND column_name IN ('revision', 'sequence')`, "0002's columns"},
+		{`SELECT to_regclass('direction') IS NOT NULL`, "the direction table"},
+	} {
+		if err := m.Down(t.Context(), 1); err != nil {
+			t.Fatalf("down: %v", err)
+		}
+		r, err := db.QueryContext(t.Context(), c.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var exists bool
+		if !r.Next() || r.Scan(&exists) != nil {
+			t.Fatalf("read whether %s remain", c.what)
+		}
+		_ = r.Close()
+		if exists {
+			t.Errorf("after down, %s remain", c.what)
+		}
 	}
 }

@@ -40,14 +40,18 @@ const (
 )
 
 // Direction is one faction's direction in an exercise, as the query shows
-// it: the last round it decided on, -1 before the first, and the decision
-// standing for each of the faction's live elements. A closed direction
-// keeps the round its exercise concluded after.
+// it: the last round it decided on, -1 before the first; the revision of
+// the assessment it decided on, 0 before the first; the sequence of the
+// last directive it issued, 0 before the first; and the decision standing
+// for each of the faction's live elements. A closed direction keeps the
+// round its exercise concluded after.
 type Direction struct {
 	Exercise    string            `json:"exercise"`
 	Faction     string            `json:"faction"`
 	Status      Status            `json:"status"`
 	Round       int               `json:"round"`
+	Revision    int               `json:"revision"`
+	Sequence    int               `json:"sequence"`
 	Decisions   []decide.Decision `json:"decisions"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	plan        decide.Map
@@ -80,16 +84,23 @@ func (c Open) Validate() error {
 
 // Decide is the decide command's input, command's reading of an
 // intelligence.assessment.issued event: a faction's assessment of a round,
-// flattened beside the exercise and the faction.
+// flattened beside the exercise, the faction, and the assessment's
+// revision. Intelligence numbers each assessment it issues for a faction in
+// an exercise from 1 up, so a higher revision is a newer assessment.
 type Decide struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
+	Revision int    `json:"revision"`
 	decide.Assessment
 }
 
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Decide) Validate() error {
-	return invalid([]error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)})
+	var revision error
+	if c.Revision < 1 {
+		revision = fmt.Errorf("revision %d is not positive", c.Revision)
+	}
+	return invalid([]error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), revision})
 }
 
 // Close is the close command's input, command's reading of an

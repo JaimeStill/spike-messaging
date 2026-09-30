@@ -213,6 +213,23 @@ func TestAWeakEngagedSquadRetreats(t *testing.T) {
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 retreat b1 a:2,1")
 }
 
+// A neighbor where one of the faction's own elements stands is no way
+// out either, since operations refuses a retreat onto it: r2 holds the cell
+// r1 would otherwise take.
+func TestARetreatSkipsACellItsFactionHolds(t *testing.T) {
+	fight := loc("a", 2, 2)
+	m := open(5, 5)
+	a := decide.Assessment{
+		Own: []decide.Element{engaged(squad("r1", fight, 60, 40)), scout("r2", loc("a", 1, 2))},
+		Contacts: []decide.Contact{
+			contact("b1", 300, fight),
+			{ID: "b3", Strength: 400, At: loc("a", 4, 2), Age: 1},
+		},
+		Explored: explored(m),
+	}
+	check(t, decide.Decide(m, "red", a, nil), "r1 retreat b1 a:2,1", "r2 hold")
+}
+
 // A scout in a fight always retreats, however weak the enemy there.
 func TestAnEngagedScoutRetreats(t *testing.T) {
 	a := decide.Assessment{
@@ -367,6 +384,19 @@ func TestSecuresEachObjectiveOnce(t *testing.T) {
 	}
 	check(t, decide.Decide(open(5, 5), "red", a, nil),
 		"r1 secure a:2,0", "r2 secure a:4,0", "r3 rescout a:4,0")
+}
+
+// An element standing on an objective to secure claims it before any other
+// element picks, so r1, nearer it in ID order, does not send r2 away to the
+// objective across the map.
+func TestAnElementOnAnObjectiveSecuresIt(t *testing.T) {
+	m := open(7, 7)
+	a := decide.Assessment{
+		Own:        []decide.Element{squad("r1", loc("a", 3, 4)), squad("r2", loc("a", 3, 3))},
+		Objectives: []decide.Objective{unknown(loc("a", 3, 3)), unknown(loc("a", 6, 6))},
+		Explored:   explored(m),
+	}
+	check(t, decide.Decide(m, "red", a, nil), "r1 secure a:6,6", "r2 secure a:3,3")
 }
 
 // An element keeps the objective it was securing, though another is now
@@ -546,6 +576,9 @@ func TestRescoutsTheStalestObjectiveNotHeld(t *testing.T) {
 	check(t, decide.Decide(m, "red", a, nil),
 		"r1 secure a:5,0", "r2 secure a:0,0", "r3 secure a:8,0", "r4 rescout a:0,0")
 
+	// r2 and r4 both stand on 0,0: r2, first in ID order, secures it, and
+	// r4 rescouts elsewhere rather than the objective it stands on.
+	a.Own[1] = squad("r2", loc("a", 0, 0))
 	a.Own[3] = squad("r4", loc("a", 0, 0))
 	check(t, decide.Decide(m, "red", a, nil),
 		"r1 secure a:5,0", "r2 secure a:0,0", "r3 secure a:8,0", "r4 rescout a:8,0")

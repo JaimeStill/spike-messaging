@@ -63,6 +63,8 @@ type directionRow struct {
 	Status      string    `json:"status"`
 	Map         []byte    `json:"map"`
 	Round       int       `json:"round"`
+	Revision    int       `json:"revision"`
+	Sequence    int       `json:"sequence"`
 	Decisions   []byte    `json:"decisions"`
 	ClosedRound *int      `json:"closed_round"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -75,6 +77,8 @@ func (r directionRow) direction() (Direction, error) {
 		Faction:   r.Faction,
 		Status:    Status(r.Status),
 		Round:     r.Round,
+		Revision:  r.Revision,
+		Sequence:  r.Sequence,
 		UpdatedAt: r.UpdatedAt,
 	}
 	if r.ClosedRound != nil {
@@ -140,7 +144,7 @@ func (s *store) all(ctx context.Context, id string) ([]Direction, error) {
 	return out, nil
 }
 
-// save records d's round and decisions.
+// save records d's round, revision, sequence, and decisions.
 func (s *store) save(ctx context.Context, tx *sqlate.Tx, d Direction) error {
 	decisions := d.Decisions
 	if decisions == nil {
@@ -151,7 +155,8 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, d Direction) error {
 		return err
 	}
 	if _, err := s.record.Exec(ctx, tx, query.Args{
-		"exercise_id": d.Exercise, "faction": d.Faction, "round": d.Round, "decisions": enc,
+		"exercise_id": d.Exercise, "faction": d.Faction, "round": d.Round,
+		"revision": d.Revision, "sequence": d.Sequence, "decisions": enc,
 	}); err != nil {
 		return fmt.Errorf("save direction %s/%s: %w", d.Exercise, d.Faction, err)
 	}

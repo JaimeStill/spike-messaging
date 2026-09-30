@@ -15,8 +15,8 @@
 //     scout, or when its faction's strength in its cell, summed over all
 //     its elements there, is below two thirds of the enemy's, summed over
 //     the contacts seen there this round. It steps to the orthogonally
-//     adjacent open cell holding no contact seen this round that lies
-//     farthest, by Chebyshev distance, from the nearest known contact
+//     adjacent open cell holding no contact seen this round and none of
+//     its faction's own elements that lies farthest, by Chebyshev distance, from the nearest known contact
 //     outside the fight, ties going to the first of up, right, down, left.
 //     Its contact is the strongest enemy in the fight;
 //  2. pursue or engage in place: an engaged element that does not retreat,
@@ -32,7 +32,9 @@
 //     itself within [EngageRange] steps, at the cell it was last seen in;
 //  5. secure: otherwise an element heads for the nearest known objective
 //     its faction does not hold that none of its other elements is heading
-//     for. A scout secures only when no unexplored cell is in its reach;
+//     for. An element standing on such an objective secures it before any
+//     other element picks one, so none sends it away. A scout secures only
+//     when no unexplored cell is in its reach;
 //  6. search: otherwise an element heads for the nearest unexplored cell
 //     that none of its other elements is searching, preferring one farther
 //     than [SpreadRange] from every cell they search, so the searchers
@@ -73,7 +75,8 @@
 // it was searching while that cell is still unexplored, so a faction's
 // targets do not trade places as its elements move. Those standing targets
 // are claimed before any element picks a new one under the same rule:
-// standing objectives before any objective, within each kind standing
+// standing objectives, after the objectives elements stand on, before any
+// objective, within each kind standing
 // search cells before any search cell, and standing rescouts before any
 // rescout.
 package decide

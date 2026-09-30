@@ -195,9 +195,12 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 
 	// The strength each side has in a cell: the faction's from all its
 	// elements there, the enemy's from the contacts seen there this round.
+	// A cell one of its elements stands in is occupied.
 	ours, theirs := map[Location]int{}, map[Location]int{}
+	occupied := map[Location]bool{}
 	for _, e := range own {
 		ours[e.At] += e.Strength
+		occupied[e.At] = true
 		explored[e.At] = true
 	}
 	for _, c := range a.Contacts {
@@ -216,7 +219,7 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 			continue
 		}
 		if e.Kind == Scout || 3*ours[e.At] < 2*theirs[e.At] {
-			if to, ok := m.retreat(e.At, a.Contacts); ok {
+			if to, ok := m.retreat(e.At, a.Contacts, occupied); ok {
 				decisions[i] = Decision{Element: e.ID, Rule: Retreat, Contact: enemy.ID, Target: &to}
 				continue
 			}
@@ -248,9 +251,19 @@ func Decide(m Map, faction string, a Assessment, standing []Decision) []Decision
 		}
 	}
 
-	// Standing targets are claimed first, in ID order, so an element that
-	// was securing an objective keeps it.
+	// An element standing on an objective to secure claims it first, so no
+	// element nearer the objective in ID order sends it away. Standing
+	// targets are claimed next, in ID order, so an element that was
+	// securing an objective keeps it.
 	claimed := map[Location]bool{}
+	for i, e := range own {
+		if decisions[i].Rule != "" || searches[i] || !open[e.At] || claimed[e.At] {
+			continue
+		}
+		at := e.At
+		claimed[at] = true
+		decisions[i] = Decision{Element: e.ID, Rule: Secure, Target: &at}
+	}
 	for i, e := range own {
 		d, ok := was[e.ID]
 		if decisions[i].Rule != "" || searches[i] || !ok || d.Rule != Secure || d.Target == nil {
@@ -392,12 +405,12 @@ func strongest(contacts []Contact, at Location) (Contact, bool) {
 }
 
 // retreat returns the cell an element at at retreats to: the orthogonally
-// adjacent open cell of its sector, holding no contact seen this round,
-// farthest by Chebyshev distance from the nearest known contact outside
+// adjacent open cell of its sector, holding no contact seen this round and
+// none of the faction's own elements, which occupied marks, farthest by Chebyshev distance from the nearest known contact outside
 // the fight at at, ties going to the first of up, right, down, left. The
 // fight's own contacts are one step from every neighbor, so they would
 // tie them all. It returns false when no such neighbor is open.
-func (m Map) retreat(at Location, contacts []Contact) (Location, bool) {
+func (m Map) retreat(at Location, contacts []Contact, occupied map[Location]bool) (Location, bool) {
 	s, ok := m.sector(at.Sector)
 	if !ok {
 		return Location{}, false
@@ -410,6 +423,9 @@ func (m Map) retreat(at Location, contacts []Contact) (Location, bool) {
 			continue
 		}
 		to := Location{Sector: s.ID, Point: p}
+		if occupied[to] {
+			continue
+		}
 		gap, held := math.MaxInt, false
 		for _, c := range contacts {
 			if c.At.Sector != s.ID || c.At == at {

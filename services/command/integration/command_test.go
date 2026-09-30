@@ -122,6 +122,7 @@ type directiveData struct {
 	Exercise   string      `json:"exercise"`
 	Faction    string      `json:"faction"`
 	Round      int         `json:"round"`
+	Sequence   int         `json:"sequence"`
 	Directives []directive `json:"directives"`
 }
 
@@ -162,7 +163,7 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 		"health": []int{100, 100, 100, 100}, "status": "ready", "at": at(0, 0)}
 	assess := func(round int, contacts []any) {
 		w.publish(t, "/intelligence", "intelligence.assessment.issued", id, map[string]any{
-			"exercise": id, "faction": "red", "round": round,
+			"exercise": id, "faction": "red", "revision": round + 1, "round": round,
 			"own":        []any{r1},
 			"contacts":   contacts,
 			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "known": true, "seen": 0, "age": 0}},
@@ -190,7 +191,7 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	}
 	for i, r := range []int{0, 2} {
 		d := got[i]
-		if d.Exercise != id || d.Faction != "red" || d.Round != r || len(d.Directives) != 1 ||
+		if d.Exercise != id || d.Faction != "red" || d.Round != r || d.Sequence != i+1 || len(d.Directives) != 1 ||
 			d.Directives[0].Element != want[i].Element || d.Directives[0].Rule != want[i].Rule ||
 			d.Directives[0].Contact != want[i].Contact || *d.Directives[0].Target != *want[i].Target {
 			t.Errorf("directive %d = %+v, want round %d: %+v", i, d, r, want[i])
