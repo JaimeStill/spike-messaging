@@ -5,7 +5,7 @@
 -- due. It returns no row when another replica holds the exercise, an order
 -- is being recorded for it, or it paused, stopped, or was resolved since
 -- the resolver found it due.
-SELECT id, name, status, round_interval_ms, round_limit, round, state, verdict,
+SELECT id, name, seed, status, round_interval_ms, round_limit, round, state, verdict,
        next_round_at, created_at, updated_at
 FROM exercise
 WHERE id = {{id:uuid}} AND status = 'running' AND next_round_at <= CURRENT_TIMESTAMP

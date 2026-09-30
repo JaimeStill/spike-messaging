@@ -7,8 +7,8 @@ import (
 )
 
 func TestJudge(t *testing.T) {
-	red := force("r1", "red", 2, loc("a", 0, 0))
-	blue := force("b1", "blue", 2, loc("b", 0, 5))
+	red := squad("r1", "red", loc("a", 0, 0))
+	blue := squad("b1", "blue", loc("b", 0, 5))
 	tests := []struct {
 		name     string
 		elements []rules.Element
@@ -84,11 +84,15 @@ func TestJudge(t *testing.T) {
 
 func TestResolveJudgesAfterCapture(t *testing.T) {
 	s := state(
-		force("r1", "red", 2, loc("a", 3, 1)),
-		force("b1", "blue", 2, loc("a", 0, 5)),
+		squad("r1", "red", loc("a", 3, 1)),
+		squad("b1", "blue", loc("a", 0, 5)),
 	)
 	s.Holders["b:5,5"] = "red"
-	_, _, v, _ := rules.Resolve(s, 1, 10, []rules.Order{order("r1", loc("a", 3, 0))})
+	s, _, v, _ := rules.Resolve(s, seed, 1, 10, []rules.Order{order("r1", loc("a", 3, 0))})
+	if v.Over {
+		t.Fatalf("round 1: %+v, want not over before the capture", v)
+	}
+	_, _, v, _ = rules.Resolve(s, seed, 2, 10, nil)
 	if want := (rules.Verdict{Over: true, Winner: "red", Reason: "objectives"}); v != want {
 		t.Errorf("verdict = %+v, want %+v", v, want)
 	}

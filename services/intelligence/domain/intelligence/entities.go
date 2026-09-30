@@ -47,6 +47,9 @@ type Assessment struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
 	Status   Status `json:"status"`
+	// Revision counts the assessments issued from this row, 0 before the
+	// first.
+	Revision int `json:"revision"`
 	fusion.Picture
 	UpdatedAt   time.Time `json:"updated_at"`
 	closedRound int
@@ -88,6 +91,29 @@ type Observe struct {
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Observe) Validate() error {
 	return invalid([]error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)})
+}
+
+// Alert is the alert command's input, intelligence's reading of an
+// exercise.objective.lost event: the faction lost the objective at At in
+// the round, and Holder took it.
+type Alert struct {
+	Exercise string          `json:"exercise"`
+	Faction  string          `json:"faction"`
+	Round    int             `json:"round"`
+	At       fusion.Location `json:"at"`
+	Holder   string          `json:"holder"`
+}
+
+// Validate reports every way c is unusable, wrapping [ErrValidation].
+func (c Alert) Validate() error {
+	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)}
+	if c.At.Sector == "" {
+		errs = append(errs, errors.New("the objective's sector is empty"))
+	}
+	if c.Holder == "" {
+		errs = append(errs, errors.New("the holder is empty"))
+	}
+	return invalid(errs)
 }
 
 // Close is the close command's input, intelligence's reading of an

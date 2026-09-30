@@ -57,20 +57,14 @@ type (
 		ID string   `json:"id"`
 		At location `json:"at"`
 	}
-	startedData struct {
-		Exercise string `json:"exercise"`
-		Map      struct {
-			Sectors []struct {
-				ID         string  `json:"id"`
-				Objectives []point `json:"objectives"`
-			} `json:"sectors"`
-		} `json:"map"`
-	}
 	observedData struct {
-		Exercise string    `json:"exercise"`
-		Faction  string    `json:"faction"`
-		Round    int       `json:"round"`
-		Own      []element `json:"own"`
+		Exercise   string    `json:"exercise"`
+		Faction    string    `json:"faction"`
+		Round      int       `json:"round"`
+		Own        []element `json:"own"`
+		Objectives []struct {
+			At location `json:"at"`
+		} `json:"objectives"`
 	}
 	concludedData struct {
 		Exercise string `json:"exercise"`
@@ -93,9 +87,10 @@ type (
 )
 
 // directivesScenario stands in for the command service: it joins the
-// exercise services' stream, reads the map and a faction's first
-// observation, issues a directive that sends each of the faction's
-// elements to secure an objective, and waits for the exercise to conclude.
+// exercise services' stream, reads a faction's first observation, issues a
+// directive that sends each of the faction's elements to an objective the
+// observation reports (or holds it, when the faction knows none), and waits
+// for the exercise to conclude.
 // The operations service turns the directive into orders, and the exercise
 // service resolves them.
 func directivesScenario(joins Joins, needs func() []Need) Scenario {
@@ -104,7 +99,7 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 	wait := 2 * time.Minute
 	return Scenario{
 		Name:    "directives",
-		Summary: "Stand in for command: direct a faction's elements to the objectives and watch the exercise conclude",
+		Summary: "Stand in for command: direct a faction's elements to the objectives it knows and watch the exercise conclude",
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to direct (required)")
@@ -145,7 +140,7 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 						}
 						sub := messaging.Subscription{
 							Name:  DirectivesDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
-							Types: []string{startedType, observedType, concludedType},
+							Types: []string{observedType, concludedType},
 						}
 						src, err := b.Subscribe(sub)
 						if err != nil {
@@ -159,12 +154,12 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 							return err
 						}
 						obs := w.first()
-						rep.Note("round %d: %s has %d elements; the map has %d objectives", obs.Round, faction, len(obs.Own), len(w.objectives()))
+						rep.Note("round %d: %s has %d elements and reports %d objectives", obs.Round, faction, len(obs.Own), len(obs.Objectives))
 						return nil
 					},
 				},
 				{
-					Intent: fmt.Sprintf("Direct each of %s's elements to the nearest objective no other is heading for", faction),
+					Intent: fmt.Sprintf("Direct each of %s's elements to the nearest known objective no other is heading for", faction),
 					Action: func(ctx context.Context, rep *Reporter) error {
 						d := w.directives()
 						for _, dir := range d.Directives {
@@ -212,21 +207,19 @@ func directivesScenario(joins Joins, needs func() []Need) Scenario {
 	}
 }
 
-// watch collects what the directives scenario reads of one exercise: its
-// map's objectives, the faction's first observation, and the verdict.
+// watch collects what the directives scenario reads of one exercise: the
+// faction's first observation, with the objectives it reports, and the
+// verdict.
 type watch struct {
 	exercise, faction   string
 	observed, concluded *signal
 
-	mu      sync.Mutex
-	started *startedData
-	obs     *observedData
-	end     concludedData
+	mu  sync.Mutex
+	obs *observedData
+	end concludedData
 }
 
 // handle reads one event of the stream, ignoring every other exercise's.
-// The stream delivers the start before the observations it precedes, so
-// the map is known by the first observation.
 func (w *watch) handle(_ context.Context, e event.Event) error {
 	var head struct {
 		Exercise string `json:"exercise"`
@@ -237,18 +230,12 @@ func (w *watch) handle(_ context.Context, e event.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	switch e.Type {
-	case startedType:
-		var d startedData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return event.Permanent(err)
-		}
-		w.started = &d
 	case observedType:
 		var d observedData
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			return event.Permanent(err)
 		}
-		if d.Faction == w.faction && w.obs == nil && w.started != nil {
+		if d.Faction == w.faction && w.obs == nil {
 			w.obs = &d
 			w.observed.fire()
 		}
@@ -273,26 +260,17 @@ func (w *watch) verdict() concludedData {
 	return w.end
 }
 
-// objectives returns the map's objectives, sector by sector.
-func (w *watch) objectives() []location {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	var out []location
-	for _, s := range w.started.Map.Sectors {
-		for _, p := range s.Objectives {
-			out = append(out, location{Sector: s.ID, point: p})
-		}
-	}
-	return out
-}
-
 // directives assigns each element of the first observation, in ID order,
-// the nearest objective no earlier element was assigned, or the nearest of
-// all once every objective is taken: an objective in the element's own
-// sector by Manhattan distance first, then one in another sector.
+// the nearest objective the observation reports that no earlier element was
+// assigned, or the nearest of all once every one is taken: an objective in
+// the element's own sector by Manhattan distance first, then one in another
+// sector. An element holds when the observation reports no objective.
 func (w *watch) directives() directiveData {
 	obs := w.first()
-	objectives := w.objectives()
+	var objectives []location
+	for _, o := range obs.Objectives {
+		objectives = append(objectives, o.At)
+	}
 	own := slices.Clone(obs.Own)
 	slices.SortFunc(own, func(a, b element) int { return cmp.Compare(a.ID, b.ID) })
 	taken := map[location]bool{}

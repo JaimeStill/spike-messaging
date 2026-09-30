@@ -116,14 +116,19 @@ type contact struct {
 	Age  int    `json:"age"`
 }
 
+type objective struct {
+	At     location `json:"at"`
+	Holder string   `json:"holder"`
+	Seen   int      `json:"seen"`
+}
+
 type assessmentData struct {
-	Exercise   string    `json:"exercise"`
-	Faction    string    `json:"faction"`
-	Round      int       `json:"round"`
-	Contacts   []contact `json:"contacts"`
-	Objectives []struct {
-		Known bool `json:"known"`
-	} `json:"objectives"`
+	Exercise   string      `json:"exercise"`
+	Faction    string      `json:"faction"`
+	Round      int         `json:"round"`
+	Contacts   []contact   `json:"contacts"`
+	Objectives []objective `json:"objectives"`
+	Explored   []location  `json:"explored"`
 }
 
 type assessment struct {
@@ -161,17 +166,17 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 	observe := func(round int, contacts []any) {
 		w.publish(t, "/exercise", "exercise.round.observed", id, map[string]any{
 			"exercise": id, "faction": "red", "round": round,
-			"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 1, "at": at(0, 0)}},
+			"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 100, "health": []int{100}, "status": "ready", "at": at(0, 0)}},
 			"contacts": contacts, "objectives": []any{},
 		})
 	}
-	seen := []any{map[string]any{"id": "b1", "faction": "blue", "kind": "force", "strength": 1, "at": at(10, 10)}}
+	seen := []any{map[string]any{"id": "b1", "faction": "blue", "kind": "squad", "strength": 100, "health": []int{100}, "status": "ready", "at": at(10, 10)}}
 
 	observe(0, seen)
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12, "objectives": []any{map[string]any{"x": 11, "y": 11}}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 13, "height": 13, "objectives": []any{}}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
 	})
 	await(t, "round 0's assessment", 10*time.Second, func() bool { return len(w.assessments(t)) >= 1 })
@@ -182,7 +187,7 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 
 	got := w.assessments(t)
 	for r, a := range got[:5] {
-		if a.Exercise != id || a.Faction != "red" || a.Round != r || len(a.Objectives) != 1 || a.Objectives[0].Known {
+		if a.Exercise != id || a.Faction != "red" || a.Round != r || len(a.Objectives) != 0 || len(a.Explored) != 9 {
 			t.Errorf("assessment %d = %+v", r, a)
 		}
 		switch {
@@ -204,4 +209,38 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 		return as[0].Status == "closed" && as[1].Status == "closed"
 	})
 	webtest.Decode[map[string]any](t, c.Get(t, "/api/intelligence/"+uuid.NewV7().String()), http.StatusNotFound)
+}
+
+// On the running binary, an objective-lost alert handled before the start
+// that opens the assessment is redelivered, and once the assessment has
+// covered its round it issues a fresh assessment with the objective's new
+// holder.
+func TestIntelligence_AlertsBecomeAssessments(t *testing.T) {
+	s := integration.Start(t, integration.Options{})
+	w := watch(t, s)
+	id := uuid.NewV7().String()
+	at := location{Sector: "a", X: 4, Y: 4}
+
+	w.publish(t, "/exercise", "exercise.objective.lost", id, map[string]any{
+		"exercise": id, "faction": "red", "round": 0, "at": at, "holder": "blue",
+	})
+	time.Sleep(100 * time.Millisecond)
+	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
+		"exercise": id, "name": "alert",
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 13, "height": 13}}},
+		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
+	})
+	w.publish(t, "/exercise", "exercise.round.observed", id, map[string]any{
+		"exercise": id, "faction": "red", "round": 0,
+		"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 100, "health": []int{100}, "status": "ready", "at": location{Sector: "a"}}},
+		"contacts": []any{}, "objectives": []any{},
+	})
+	await(t, "an assessment carrying the alert", 10*time.Second, func() bool {
+		for _, a := range w.assessments(t) {
+			if len(a.Objectives) == 1 && a.Objectives[0].At == at && a.Objectives[0].Holder == "blue" {
+				return true
+			}
+		}
+		return false
+	})
 }

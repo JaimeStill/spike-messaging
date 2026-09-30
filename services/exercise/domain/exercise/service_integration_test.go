@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -187,7 +188,15 @@ func TestMigrationsUpAndDown(t *testing.T) {
 		t.Fatalf("up: %v", err)
 	}
 	if err := m.Down(t.Context(), 1); err != nil {
-		t.Fatalf("down: %v", err)
+		t.Fatalf("down 0002: %v", err)
+	}
+	for _, col := range [][2]string{{"exercise", "seed"}, {"exercise_round", "resolution"}} {
+		if scalar[bool](t, db, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2)`, col[0], col[1]) {
+			t.Errorf("after 0002's down, %s.%s remains", col[0], col[1])
+		}
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down 0001: %v", err)
 	}
 	for _, table := range []string{"exercise", "exercise_round", "exercise_orders"} {
 		if scalar[bool](t, db, `SELECT to_regclass($1) IS NOT NULL`, table) {
@@ -206,7 +215,9 @@ func TestVerifyNeedsTheMigratedSchema(t *testing.T) {
 
 // With no orders, two factions apart stand still until the round limit,
 // and the exercise concludes in a draw. Each round's observations and the
-// conclusion reach the outbox in the order they were raised.
+// conclusion reach the outbox in the order they were raised, and the
+// history records each resolved round with the resolution its event
+// reported.
 func TestIdleExerciseRunsToADraw(t *testing.T) {
 	svc, db := setup(t)
 	ex := started(t, svc, nil)
@@ -237,6 +248,9 @@ func TestIdleExerciseRunsToADraw(t *testing.T) {
 	}
 	if !history[3].Verdict.Over || history[2].Verdict.Over || history[0].Observations[1].Faction != "blue" {
 		t.Errorf("history = %+v", history)
+	}
+	if history[0].Resolution != nil {
+		t.Errorf("round 0 has a resolution: %+v", history[0].Resolution)
 	}
 
 	es := outboxRows(t, db)
@@ -271,8 +285,12 @@ func TestIdleExerciseRunsToADraw(t *testing.T) {
 			if err := json.Unmarshal(e.Data, &d); err != nil {
 				t.Fatal(err)
 			}
-			if d.Exercise != ex.ID || d.Round != resolved || d.Engagements == nil || d.Captures == nil || d.Losses == nil {
+			if d.Exercise != ex.ID || d.Round != resolved || d.Retreats == nil || d.Engagements == nil ||
+				d.Losses == nil || d.Captures == nil || d.Progress == nil {
 				t.Errorf("resolved %d = %+v, want round %d with empty lists", resolved, d, resolved)
+			}
+			if got := history[resolved].Resolution; got == nil || !reflect.DeepEqual(*got, d.Resolution) {
+				t.Errorf("history of round %d has resolution %+v, want the event's %+v", resolved, got, d.Resolution)
 			}
 		}
 	}
@@ -546,5 +564,39 @@ func TestCreateAndFind(t *testing.T) {
 		if _, err := svc.History(t.Context(), id); !errors.Is(err, exercise.ErrNotFound) {
 			t.Errorf("history %s = %v, want ErrNotFound", id, err)
 		}
+	}
+}
+
+// An exercise created without a seed stores one Create drew, and one
+// created with a seed keeps it. Without a map and elements, the exercise
+// starts from the skirmish its seed lays out.
+func TestCreateStoresTheSeed(t *testing.T) {
+	svc, db := setup(t)
+	seed := func(id string) int64 {
+		return scalar[int64](t, db, `SELECT seed FROM exercise WHERE id = $1`, id)
+	}
+	drawn, err := svc.Create(t.Context(), fixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drawn.Seed < 0 || drawn.Seed >= 1<<31 || seed(drawn.ID) != drawn.Seed {
+		t.Errorf("drawn seed = %d, stored %d; want one in [0, 2^31), stored", drawn.Seed, seed(drawn.ID))
+	}
+
+	c := fixture()
+	c.Seed = new(int64(42))
+	c.Map, c.Elements = nil, nil
+	given, err := svc.Create(t.Context(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if given.Seed != 42 || seed(given.ID) != 42 {
+		t.Errorf("given seed = %d, stored %d; want 42", given.Seed, seed(given.ID))
+	}
+	if want := rules.Skirmish(42, c.Factions); !reflect.DeepEqual(given.State, want) {
+		t.Errorf("state = %+v, want the skirmish of seed 42 %+v", given.State, want)
+	}
+	if found := find(t, svc, given.ID); found.Seed != 42 {
+		t.Errorf("found seed = %d, want 42", found.Seed)
 	}
 }

@@ -57,11 +57,11 @@ func loc(x, y int) fusion.Location {
 	return fusion.Location{Sector: "a", Point: fusion.Point{X: x, Y: y}}
 }
 
-// openInput is the start of an exercise over one sector "a" with its
-// objective at 4,0.
+// openInput is the start of an exercise over one sector "a", 13 by 13,
+// whose map carries no objectives.
 func openInput(id string) intelligence.Open {
 	var m fusion.Map
-	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","objectives":[{"x":4,"y":0}]}]}`), &m); err != nil {
+	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","width":13,"height":13,"objectives":[]}]}`), &m); err != nil {
 		panic(err)
 	}
 	return intelligence.Open{Exercise: id, Map: m, Factions: [2]string{"red", "blue"}}
@@ -76,18 +76,18 @@ func open(t *testing.T, svc *intelligence.Service) string {
 	return id
 }
 
-// red is red's observation of round: its force r1 at r1, and the enemy
+// red is red's observation of round: its squad r1 at r1, and the enemy
 // contacts it sees.
 func red(id string, round int, r1 fusion.Location, contacts ...fusion.Element) intelligence.Observe {
 	return intelligence.Observe{Exercise: id, Faction: "red", Observation: fusion.Observation{
 		Round:    round,
-		Own:      []fusion.Element{{ID: "r1", Faction: "red", Kind: "force", Strength: 2, At: r1}},
+		Own:      []fusion.Element{{ID: "r1", Faction: "red", Kind: "squad", Strength: 2, Health: []int{2}, Status: "ready", At: r1}},
 		Contacts: contacts,
 	}}
 }
 
 func blue(id string, at fusion.Location) fusion.Element {
-	return fusion.Element{ID: id, Faction: "blue", Kind: "force", Strength: 3, At: at}
+	return fusion.Element{ID: id, Faction: "blue", Kind: "squad", Strength: 3, Health: []int{3}, Status: "ready", At: at}
 }
 
 // assessments returns the assessments the outbox holds, in the order they
@@ -168,8 +168,13 @@ func TestObserveIssuesAssessments(t *testing.T) {
 		if len(ages) != len(wantAges[i]) || (len(ages) == 1 && ages[0] != wantAges[i][0]) {
 			t.Errorf("round %d: contact ages %v, want %v", i, ages, wantAges[i])
 		}
-		if len(a.Objectives) != 1 || a.Objectives[0].Known {
-			t.Errorf("round %d: objectives %+v, want the one objective unknown", i, a.Objectives)
+		if len(a.Objectives) != 0 {
+			t.Errorf("round %d: objectives %+v, want none seen", i, a.Objectives)
+		}
+		// r1's squad sees the cells around it, clipped at the sector's edge, and
+		// each round's are added to the last's.
+		if want := []int{4, 10, 12, 14}[i]; len(a.Explored) != want {
+			t.Errorf("round %d: %d cells explored, want %d cumulative", i, len(a.Explored), want)
 		}
 	}
 
@@ -252,6 +257,126 @@ func TestAClaimedRepeatChangesNothing(t *testing.T) {
 	}
 }
 
+// lost is the alert that red lost the objective at 3,3 to blue in round.
+func lost(id string, round int) intelligence.Alert {
+	return intelligence.Alert{Exercise: id, Faction: "red", Round: round, At: loc(3, 3), Holder: "blue"}
+}
+
+// An alert on a picture that covers its round issues a fresh assessment
+// carrying the new holder, once; on a picture that lags it, it issues none,
+// and the round's observation issues the assessment that carries it.
+func TestAlertIssuesOnACurrentPicture(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	e := event.Event{ID: uuid.NewV7().String(), Source: "/exercise", Type: "exercise.objective.lost"}
+	claim := func(ctx context.Context, tx *sqlate.Tx) (bool, error) {
+		return in.Claim(ctx, tx, "intelligence-alerts", e)
+	}
+	if err := svc.Observe(t.Context(), red(id, 0, loc(0, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := svc.Alert(t.Context(), lost(id, 0), claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := assessments(t, db)
+	if len(got) != 2 || got[1].Round != 0 || len(got[1].Objectives) != 1 {
+		t.Fatalf("outbox holds %+v, want round 0's observed and alerted assessments", got)
+	}
+	if o := got[1].Objectives[0]; o.At != loc(3, 3) || o.Holder != "blue" || o.Seen != 0 || o.Age != 0 {
+		t.Errorf("objective = %+v, want blue's at 3,3 seen in 0", o)
+	}
+}
+
+// Revisions count the faction's issued assessments across Observe and Alert,
+// from 1, so the observation's and an alert's of one round order; an alert
+// that changes nothing raises nothing and leaves the revision as it was.
+func TestRevisionsIncreaseAndAnUnchangedAlertRaisesNothing(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	steps := []func() error{
+		func() error { return svc.Observe(t.Context(), red(id, 0, loc(0, 0)), nil) },
+		func() error { return svc.Alert(t.Context(), lost(id, 0), nil) },
+		func() error { return svc.Alert(t.Context(), lost(id, 0), nil) },
+		func() error { return svc.Observe(t.Context(), red(id, 1, loc(0, 0)), nil) },
+	}
+	for _, step := range steps {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := assessments(t, db)
+	if len(got) != 3 {
+		t.Fatalf("outbox holds %d assessments, want 3: the repeated alert raises none", len(got))
+	}
+	for i, d := range got {
+		if d.Revision != i+1 {
+			t.Errorf("assessment %d has revision %d, want %d", i, d.Revision, i+1)
+		}
+	}
+	as, err := svc.Find(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if as[1].Faction != "red" || as[1].Revision != 3 || as[0].Revision != 0 {
+		t.Errorf("revisions = blue %d, red %d, want 0 and 3", as[0].Revision, as[1].Revision)
+	}
+}
+
+func TestAlertOnALaggingPictureWaitsForTheObservation(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	if err := svc.Alert(t.Context(), lost(id, 1), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := assessments(t, db); len(got) != 0 {
+		t.Fatalf("outbox holds %+v, want none from the alert", got)
+	}
+	if err := svc.Observe(t.Context(), red(id, 1, loc(0, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	got := assessments(t, db)
+	if len(got) != 1 || got[0].Round != 1 || len(got[0].Objectives) != 1 {
+		t.Fatalf("outbox holds %+v, want round 1's assessment", got)
+	}
+	if o := got[0].Objectives[0]; o.Holder != "blue" || o.Seen != 1 || o.Age != 0 {
+		t.Errorf("objective = %+v, want blue's seen in 1", o)
+	}
+}
+
+// An alert for an assessment not open yet fails, not permanently, and rolls
+// its claim back; one past a closed assessment's last round changes nothing.
+func TestAlertBeforeOpenAndAfterClose(t *testing.T) {
+	svc, db := setup(t)
+	id := uuid.NewV7().String()
+	if err := svc.Alert(t.Context(), lost(id, 0), nil); !errors.Is(err, intelligence.ErrNotOpen) || event.IsPermanent(err) {
+		t.Errorf("err = %v, want ErrNotOpen, not permanent", err)
+	}
+	if err := svc.Alert(t.Context(), intelligence.Alert{}, nil); !event.IsPermanent(err) {
+		t.Errorf("err = %v, want a permanent validation failure", err)
+	}
+	if err := svc.Open(t.Context(), openInput(id), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(t.Context(), intelligence.Close{Exercise: id, Round: 1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Alert(t.Context(), lost(id, 2), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := assessments(t, db); len(got) != 0 {
+		t.Errorf("outbox holds %+v, want none", got)
+	}
+	as, err := svc.Find(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(as[1].Objectives) != 0 {
+		t.Errorf("objectives = %+v, want none", as[1].Objectives)
+	}
+}
+
 // A conclusion handled before its final round's observation, which exercise
 // raises with it, still lets that round be assessed; a closed assessment
 // takes no observation of a later round.
@@ -322,7 +447,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 2); err != nil {
+	if err := m.Down(t.Context(), 3); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('assessment') IS NOT NULL`)

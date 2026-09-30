@@ -1,10 +1,10 @@
 // Package operations is the operations domain. It maneuvers each faction's
 // elements in an exercise toward the targets its directives set. For each
 // exercise and faction it stores the public map, the elements as the last
-// observation left them, and each element's target, and it turns each
-// observed round into the faction's orders for the next. The pure route
-// package plans the steps; this package persists their inputs and reports
-// the plan as events.
+// observation left them, and each element's target and its directive's
+// rule, and it turns each observed round into the faction's orders for the
+// next. The pure route package plans the steps; this package persists their
+// inputs and reports the plan as events.
 //
 // The package's files divide the work:
 //
@@ -27,7 +27,7 @@
 // a redelivery changes nothing.
 //
 //   - [Service.Open] opens both factions' operations on exercise.started.
-//   - [Service.Assign] sets targets on command.directive.issued.
+//   - [Service.Assign] sets targets and rules on command.directive.issued.
 //   - [Service.Maneuver] records the faction's elements on
 //     exercise.round.observed and raises [OrdersIssued] for the next round.
 //   - [Service.Close] closes the exercise's operations on

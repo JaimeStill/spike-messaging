@@ -30,7 +30,7 @@
 //   - [Service.Open] opens both factions' directions on exercise.started.
 //   - [Service.Decide] decides on a faction's assessment on
 //     intelligence.assessment.issued, and raises [DirectiveIssued] when an
-//     element's target changes.
+//     element's target or rule changes.
 //   - [Service.Close] closes the exercise's directions on
 //     exercise.concluded.
 //
@@ -46,7 +46,7 @@
 // decided on even when its conclusion is handled first.
 //
 // A [DirectiveIssued] event lists every live element, not only those whose
-// target changed. The operations service skips an input from a round
+// target or rule changed. The operations service skips an input from a round
 // earlier than the last it acted on, so a change in a skipped event would
 // otherwise be lost; the next event it takes carries the whole target
 // state.

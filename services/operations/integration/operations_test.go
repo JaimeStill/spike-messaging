@@ -124,6 +124,7 @@ type operation struct {
 	Status    string              `json:"status"`
 	LastRound int                 `json:"last_round"`
 	Targets   map[string]location `json:"targets"`
+	Rules     map[string]string   `json:"rules"`
 }
 
 // await polls until ok holds or the deadline passes.
@@ -152,7 +153,7 @@ func TestOperations_DirectivesBecomeOrders(t *testing.T) {
 
 	w.publish(t, "/exercise", "exercise.round.observed", id, map[string]any{
 		"exercise": id, "faction": "red", "round": 0,
-		"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 1, "at": at(0, 0)}},
+		"own":      []any{map[string]any{"id": "r1", "faction": "red", "kind": "scout", "strength": 100, "health": []int{100}, "status": "ready", "at": at(0, 0)}},
 		"contacts": []any{}, "objectives": []any{},
 	})
 	time.Sleep(100 * time.Millisecond)
@@ -165,8 +166,8 @@ func TestOperations_DirectivesBecomeOrders(t *testing.T) {
 
 	target := at(3, 0)
 	w.publish(t, "/command", "command.directive.issued", id, map[string]any{
-		"exercise": id, "faction": "red", "round": 0,
-		"directives": []any{map[string]any{"element": "r1", "target": target}},
+		"exercise": id, "faction": "red", "round": 0, "sequence": 1,
+		"directives": []any{map[string]any{"element": "r1", "rule": "secure", "contact": nil, "target": target}},
 	})
 	await(t, "round 1's orders again", 10*time.Second, func() bool { return len(w.orders(t)) >= 2 })
 
@@ -179,7 +180,7 @@ func TestOperations_DirectivesBecomeOrders(t *testing.T) {
 	}
 
 	ops := webtest.Decode[[]operation](t, c.Get(t, "/api/operations/"+id), http.StatusOK)
-	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 0 || ops[1].Targets["r1"] != target {
+	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 0 || ops[1].Targets["r1"] != target || ops[1].Rules["r1"] != "secure" {
 		t.Errorf("operations = %+v", ops)
 	}
 

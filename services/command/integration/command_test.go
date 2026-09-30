@@ -122,6 +122,7 @@ type directiveData struct {
 	Exercise   string      `json:"exercise"`
 	Faction    string      `json:"faction"`
 	Round      int         `json:"round"`
+	Sequence   int         `json:"sequence"`
 	Directives []directive `json:"directives"`
 }
 
@@ -148,7 +149,7 @@ func await(t *testing.T, what string, d time.Duration, ok func() bool) {
 // reaches command before the start that opens its direction is redelivered
 // and decided on once the start is; a round that changes no target issues
 // no directive, and one that brings a weak contact within reach sends the
-// force to engage it; the query shows both factions; the conclusion closes
+// squad to engage it; the query shows both factions; the conclusion closes
 // the exercise; and the service's log shows the traffic it received and
 // sent.
 func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
@@ -158,12 +159,15 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	id := uuid.NewV7().String()
 	at := func(x, y int) location { return location{Sector: "a", X: x, Y: y} }
 
+	r1 := map[string]any{"id": "r1", "faction": "red", "kind": "squad", "strength": 400,
+		"health": []int{100, 100, 100, 100}, "status": "ready", "at": at(0, 0)}
 	assess := func(round int, contacts []any) {
 		w.publish(t, "/intelligence", "intelligence.assessment.issued", id, map[string]any{
-			"exercise": id, "faction": "red", "round": round,
-			"own":        []any{map[string]any{"id": "r1", "faction": "red", "kind": "force", "strength": 3, "at": at(0, 0)}},
+			"exercise": id, "faction": "red", "revision": round + 1, "round": round,
+			"own":        []any{r1},
 			"contacts":   contacts,
-			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "known": false, "seen": -1, "age": 0}},
+			"objectives": []any{map[string]any{"at": at(11, 11), "holder": "", "known": true, "seen": 0, "age": 0}},
+			"explored":   []any{at(0, 0), at(1, 0), at(0, 1), at(1, 1)},
 		})
 	}
 
@@ -171,12 +175,13 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12, "objectives": []any{map[string]any{"x": 11, "y": 11}}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 12, "height": 12, "objectives": []any{}}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
 	})
 	await(t, "round 0's directive", 10*time.Second, func() bool { return len(w.directives(t)) >= 1 })
 	assess(1, []any{})
-	assess(2, []any{map[string]any{"id": "b1", "faction": "blue", "kind": "scout", "strength": 1, "at": at(2, 1), "seen": 2, "age": 0}})
+	assess(2, []any{map[string]any{"id": "b1", "faction": "blue", "kind": "scout", "strength": 100,
+		"health": []int{100}, "status": "ready", "at": at(2, 1), "seen": 2, "age": 0}})
 	await(t, "round 2's directive", 10*time.Second, func() bool { return len(w.directives(t)) >= 2 })
 
 	got := w.directives(t)
@@ -186,7 +191,7 @@ func TestCommand_AssessmentsBecomeDirectives(t *testing.T) {
 	}
 	for i, r := range []int{0, 2} {
 		d := got[i]
-		if d.Exercise != id || d.Faction != "red" || d.Round != r || len(d.Directives) != 1 ||
+		if d.Exercise != id || d.Faction != "red" || d.Round != r || d.Sequence != i+1 || len(d.Directives) != 1 ||
 			d.Directives[0].Element != want[i].Element || d.Directives[0].Rule != want[i].Rule ||
 			d.Directives[0].Contact != want[i].Contact || *d.Directives[0].Target != *want[i].Target {
 			t.Errorf("directive %d = %+v, want round %d: %+v", i, d, r, want[i])

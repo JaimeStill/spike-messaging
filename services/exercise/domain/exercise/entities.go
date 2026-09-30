@@ -51,23 +51,31 @@ const (
 const reasonStopped = "stopped"
 
 // CreateExercise is the create command's input: the exercise's name, its
-// public map, its two factions, their elements where they stand at the
-// start, its round interval as a Go duration such as "2s", and its round
-// limit.
+// seed, its public map, its two factions, their elements where they stand
+// at the start, its round interval as a Go duration such as "2s", and its
+// round limit.
+//
+// Seed is optional: Create draws one when it is absent. Map and Elements
+// are optional together: when both are absent, the exercise starts from the
+// skirmish that [rules.Skirmish] lays out from the seed, and when both are
+// given, it starts from them as they are.
 type CreateExercise struct {
 	Name          string          `json:"name"`
-	Map           rules.Map       `json:"map"`
+	Seed          *int64          `json:"seed,omitempty"`
+	Map           *rules.Map      `json:"map,omitempty"`
 	Factions      [2]string       `json:"factions"`
-	Elements      []rules.Element `json:"elements"`
+	Elements      []rules.Element `json:"elements,omitempty"`
 	RoundInterval string          `json:"round_interval"`
 	RoundLimit    int             `json:"round_limit"`
 }
 
 // Validate reports every way c breaks the command's rules, wrapped in
 // [ErrValidation]: the name is non-empty; the interval parses as a Go
-// duration of at least [MinRoundInterval]; the limit is at least 1; and the
-// starting state the map, factions, and elements make is valid under
-// [rules.State.Validate].
+// duration of at least [MinRoundInterval]; the limit is at least 1; the map
+// and the elements are both given or both absent; and the starting state is
+// valid under [rules.State.Validate]. The skirmish's layout is valid for
+// any two distinct, named factions, so for it only the factions are
+// checked.
 func (c CreateExercise) Validate() error {
 	var errs []error
 	if strings.TrimSpace(c.Name) == "" {
@@ -79,8 +87,16 @@ func (c CreateExercise) Validate() error {
 	if c.RoundLimit < 1 {
 		errs = append(errs, fmt.Errorf("round_limit: %d, want at least 1", c.RoundLimit))
 	}
-	if err := c.state().Validate(); err != nil {
-		errs = append(errs, err)
+	if (c.Map == nil) != (c.Elements == nil) {
+		errs = append(errs, errors.New("map and elements: give both, or neither for the skirmish"))
+	} else {
+		s := c.state(0)
+		if c.Map == nil {
+			s.Elements = nil
+		}
+		if err := s.Validate(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%w: %w", ErrValidation, errors.Join(errs...))
@@ -100,18 +116,31 @@ func (c CreateExercise) interval() (time.Duration, error) {
 	return d, nil
 }
 
-// state is the exercise's starting state: no objective is held.
-func (c CreateExercise) state() rules.State {
-	return rules.State{Map: c.Map, Factions: c.Factions, Elements: c.Elements, Holders: map[string]string{}}
+// state is the exercise's starting state for seed: the skirmish the seed
+// lays out when the command gives no map, or else the command's map and
+// elements. No objective is held.
+func (c CreateExercise) state(seed int64) rules.State {
+	if c.Map == nil {
+		return rules.Skirmish(seed, c.Factions)
+	}
+	return rules.State{
+		Map:      *c.Map,
+		Factions: c.Factions,
+		Elements: c.Elements,
+		Holders:  map[string]string{},
+		Progress: map[string]rules.Progress{},
+	}
 }
 
 // Exercise is the umpire's full view of an exercise: its settings, its
 // status, the last round resolved, the world as that round left it, the
 // verdict once it is over, and when its next round is due while it runs.
-// RoundInterval is a Go duration, such as "2s".
+// Seed is the seed every round's random draws come from, so it replays the
+// exercise. RoundInterval is a Go duration, such as "2s".
 type Exercise struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
+	Seed          int64          `json:"seed"`
 	Status        Status         `json:"status"`
 	Round         int            `json:"round"`
 	RoundLimit    int            `json:"round_limit"`
@@ -135,12 +164,14 @@ func (e Exercise) started() bool {
 
 // Round is one entry of an exercise's history: the state after the round,
 // each faction's observation of it, indexed like the exercise's factions,
-// and the verdict. Round 0 is the start.
+// the verdict, and the round's resolution. Round 0 is the start, which
+// resolves nothing, so its Resolution is nil.
 type Round struct {
 	Round        int                  `json:"round"`
 	State        rules.State          `json:"state"`
 	Observations [2]rules.Observation `json:"observations"`
 	Verdict      rules.Verdict        `json:"verdict"`
+	Resolution   *rules.Resolution    `json:"resolution"`
 	ResolvedAt   time.Time            `json:"resolved_at"`
 }
 

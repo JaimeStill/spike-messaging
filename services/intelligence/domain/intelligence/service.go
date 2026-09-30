@@ -57,14 +57,14 @@ func (s *Service) Find(ctx context.Context, exercise string) ([]Assessment, erro
 	return as, nil
 }
 
-// Open opens both factions' assessments in an exercise, each knowing the
-// map's objectives and none of their holders. An assessment already open is
-// left as it is. It raises nothing.
+// Open opens both factions' assessments in an exercise, each knowing no
+// objective and having explored nothing. An assessment already open is left
+// as it is. It raises nothing.
 func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("open: %w", err))
 	}
-	p := fusion.Open(c.Map.Objectives())
+	p := fusion.Open(c.Map)
 	return s.claimed(ctx, "open", claim, func(tx *sqlate.Tx, _ *event.Queue) error {
 		for _, f := range c.Factions {
 			if err := s.store.insert(ctx, tx, c.Exercise, f, p); err != nil {
@@ -92,7 +92,37 @@ func (s *Service) Observe(ctx context.Context, c Observe, claim Claim) error {
 			return err
 		}
 		a.Picture = fusion.Fuse(a.Picture, c.Observation, s.contactRounds)
-		raiseAssessment(q, a.Exercise, a.Faction, a.Picture)
+		raiseAssessment(q, &a)
+		return s.store.save(ctx, tx, a)
+	})
+}
+
+// Alert records that a faction lost an objective to its holder, in the
+// faction's assessment. exercise raises the alert after the round's
+// resolution and before its observation, on another subscription, so either
+// may be handled first. When the assessment already covers the round, the
+// alert issues a fresh [AssessmentIssued] for the round the picture is of;
+// otherwise it only saves, and the round's observation carries the change.
+// An alert that changes nothing neither saves nor raises nothing.
+// It skips an alert past the round a closed assessment concluded after, as
+// Observe does.
+func (s *Service) Alert(ctx context.Context, c Alert, claim Claim) error {
+	if err := c.Validate(); err != nil {
+		return event.Permanent(fmt.Errorf("alert: %w", err))
+	}
+	return s.claimed(ctx, "alert", claim, func(tx *sqlate.Tx, q *event.Queue) error {
+		a, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
+		if err != nil || a.Status == StatusClosed && c.Round > a.closedRound {
+			return err
+		}
+		p, changed := fusion.Alert(a.Picture, c.At, c.Holder, c.Round)
+		if !changed {
+			return nil
+		}
+		a.Picture = p
+		if a.Round >= c.Round {
+			raiseAssessment(q, &a)
+		}
 		return s.store.save(ctx, tx, a)
 	})
 }

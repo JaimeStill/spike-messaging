@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise"
-	"github.com/JaimeStill/spike-messaging/services/exercise/domain/exercise/rules"
 )
 
 func TestCreateExerciseValidate(t *testing.T) {
@@ -26,6 +25,15 @@ func TestCreateExerciseValidate(t *testing.T) {
 		{"no objective", func(c *exercise.CreateExercise) { c.Map.Sectors[0].Objectives = nil }, "no objective"},
 		{"element off the grid", func(c *exercise.CreateExercise) { c.Elements[0].At = loc(9, 9) }, "outside the grid"},
 		{"element of no faction", func(c *exercise.CreateExercise) { c.Elements[1].Faction = "green" }, `faction "green"`},
+		{"element at the wrong strength", func(c *exercise.CreateExercise) { c.Elements[0].Strength = 1 }, "the sum of its health"},
+		{"the skirmish", skirmish, ""},
+		{"the skirmish with a seed", func(c *exercise.CreateExercise) { skirmish(c); c.Seed = new(int64(7)) }, ""},
+		{"the skirmish with one faction twice", func(c *exercise.CreateExercise) {
+			skirmish(c)
+			c.Factions = [2]string{"red", "red"}
+		}, "the factions are the same"},
+		{"a map without elements", func(c *exercise.CreateExercise) { c.Elements = nil }, "give both"},
+		{"elements without a map", func(c *exercise.CreateExercise) { c.Map = nil }, "give both"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,11 +61,17 @@ func TestCreateExerciseValidateJoinsFailures(t *testing.T) {
 	c := fixture()
 	c.Name = ""
 	c.RoundLimit = 0
-	c.Elements = append(c.Elements, rules.Element{ID: "r1", Faction: "red", Kind: rules.Scout, Strength: 1, At: loc(1, 1)})
+	c.Elements = append(c.Elements, squad("r1", "red", loc(1, 1)))
 	err := c.Validate()
 	for _, want := range []string{"name: empty", "round_limit", "a duplicate ID"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Validate = %v, want it to mention %q", err, want)
 		}
 	}
+}
+
+// skirmish drops the command's map and elements, so it starts from the
+// skirmish its seed lays out.
+func skirmish(c *exercise.CreateExercise) {
+	c.Map, c.Elements = nil, nil
 }

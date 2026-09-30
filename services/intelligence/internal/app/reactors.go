@@ -39,6 +39,9 @@ var (
 	observedSubscription = messaging.Subscription{
 		Name: "intelligence-observed", Types: []string{"exercise.round.observed"}, RetryDelay: retryDelay,
 	}
+	alertsSubscription = messaging.Subscription{
+		Name: "intelligence-alerts", Types: []string{"exercise.objective.lost"}, RetryDelay: retryDelay,
+	}
 	concludedSubscription = messaging.Subscription{
 		Name: "intelligence-concluded", Types: []string{"exercise.concluded"}, RetryDelay: retryDelay,
 	}
@@ -48,11 +51,12 @@ var (
 // that watch a source of occurrences and dispatch each one to a call, the
 // inbound counterpart to a route. Relay publishes the outbox's committed
 // events to the broker. Started, Observed, and Concluded invoke the
-// domain's Open, Observe, and Close.
+// domain's Open, Observe, and Close, and Alerts its Alert.
 type Reactors struct {
 	Relay     *reactor.Reactor[event.Event]
 	Started   *reactor.Reactor[event.Event]
 	Observed  *reactor.Reactor[event.Event]
+	Alerts    *reactor.Reactor[event.Event]
 	Concluded *reactor.Reactor[event.Event]
 }
 
@@ -79,11 +83,15 @@ func newReactors(
 	if rs.Observed, err = infra.Messaging.Consume(observedSubscription, shutdown, svc.Observe); err != nil {
 		return nil, err
 	}
+	if rs.Alerts, err = infra.Messaging.Consume(alertsSubscription, shutdown, svc.Alert); err != nil {
+		return nil, err
+	}
 	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, shutdown, svc.Close); err != nil {
 		return nil, err
 	}
 	corelifecycle.Register(lc, "started", consumeStage, rs.Started)
 	corelifecycle.Register(lc, "observed", consumeStage, rs.Observed)
+	corelifecycle.Register(lc, "alerts", consumeStage, rs.Alerts)
 	corelifecycle.Register(lc, "concluded", consumeStage, rs.Concluded)
 	return rs, nil
 }

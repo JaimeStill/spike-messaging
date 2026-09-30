@@ -16,10 +16,13 @@ var testState = rules.State{
 	}}},
 	Factions: [2]string{"red", "blue"},
 	Elements: []rules.Element{
-		{ID: "r1", Faction: "red", Kind: rules.Scout, Strength: 1, At: rules.Location{Sector: "a", Point: rules.Point{X: 1, Y: 0}}},
-		{ID: "b1", Faction: "blue", Kind: rules.Force, Strength: 2, At: rules.Location{Sector: "a", Point: rules.Point{X: 5, Y: 5}}},
+		{ID: "r1", Faction: "red", Kind: rules.Scout, Strength: 100, Health: []int{100}, Status: rules.StatusReady,
+			At: rules.Location{Sector: "a", Point: rules.Point{X: 1, Y: 0}}},
+		{ID: "b1", Faction: "blue", Kind: rules.Squad, Strength: 150, Health: []int{100, 50}, Status: rules.StatusReady,
+			At: rules.Location{Sector: "a", Point: rules.Point{X: 5, Y: 5}}},
 	},
-	Holders: map[string]string{},
+	Holders:  map[string]string{},
+	Progress: map[string]rules.Progress{},
 }
 
 // decode returns the data of e as a T.
@@ -56,16 +59,17 @@ func TestRaiseObserved(t *testing.T) {
 			t.Errorf("event %d data = %+v, want %+v", i, got, want)
 		}
 	}
-	// The red scout sees four cells: the objective, but not the blue force.
+	// The red scout sees two cells: the objective, but not the blue squad.
 	red := decode[ObservedData](t, es[0])
 	if red.Faction != "red" || len(red.Own) != 1 || len(red.Contacts) != 0 || len(red.Objectives) != 1 {
 		t.Errorf("red's observation = %+v", red)
 	}
 }
 
-// The started event carries the public settings and no element.
+// The started event carries the public settings, the terrain without its
+// objectives, no element, and no seed.
 func TestRaiseStarted(t *testing.T) {
-	ex := Exercise{ID: "ex-1", Name: "n", RoundLimit: 5, Factions: testState.Factions, State: testState, intervalMS: 2000}
+	ex := Exercise{ID: "ex-1", Name: "n", Seed: 42, RoundLimit: 5, Factions: testState.Factions, State: testState, intervalMS: 2000}
 	q := &event.Queue{}
 	raiseStarted(q, ex)
 	es := q.Events()
@@ -73,14 +77,16 @@ func TestRaiseStarted(t *testing.T) {
 		t.Fatalf("raised %+v", es)
 	}
 	got := decode[StartedData](t, es[0])
-	want := StartedData{Exercise: "ex-1", Name: "n", Map: testState.Map, Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
+	want := StartedData{Exercise: "ex-1", Name: "n", Map: testState.Map.Terrain(), Factions: testState.Factions, RoundIntervalMS: 2000, RoundLimit: 5}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("data = %+v, want %+v", got, want)
 	}
 	var raw map[string]any
 	_ = json.Unmarshal(es[0].Data, &raw)
-	if _, ok := raw["elements"]; ok {
-		t.Errorf("started carries elements: %s", es[0].Data)
+	for _, hidden := range []string{"elements", "seed"} {
+		if _, ok := raw[hidden]; ok {
+			t.Errorf("started carries %s: %s", hidden, es[0].Data)
+		}
 	}
 }
 
@@ -116,11 +122,17 @@ func TestOwnOrders(t *testing.T) {
 func TestRaiseResolved(t *testing.T) {
 	at := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
 	res := rules.Resolution{
+		Retreats: []rules.Retreat{{
+			ID: "b2", Faction: "blue", From: at, To: rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 1}},
+			Before: 100, After: 60, Fallen: 0,
+			Pursuers: []rules.Engaged{{ID: "r1", Faction: "red", Before: 400, After: 400}},
+		}},
 		Engagements: []rules.Engagement{{At: at, Elements: []rules.Engaged{
-			{ID: "b1", Faction: "blue", Before: 2, After: 0}, {ID: "r1", Faction: "red", Before: 4, After: 3},
+			{ID: "b1", Faction: "blue", Before: 40, After: 0, Fallen: 1}, {ID: "r1", Faction: "red", Before: 400, After: 370},
 		}}},
-		Captures: []rules.Capture{{At: at, Faction: "red", From: "blue"}},
-		Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
+		Losses:     []rules.Loss{{ID: "b1", Faction: "blue"}},
+		Captures:   []rules.Capture{},
+		Progress: []rules.Advance{{At: at, Faction: "red", Rounds: 1}},
 	}
 	q := &event.Queue{}
 	raiseResolved(q, "ex-1", 7, res)
@@ -128,11 +140,31 @@ func TestRaiseResolved(t *testing.T) {
 	if len(es) != 1 || es[0].Type != "exercise.round.resolved" || es[0].Subject != "ex-1" {
 		t.Fatalf("raised %+v", es)
 	}
-	want := `{"exercise":"ex-1","round":7,"engagements":[{"at":{"sector":"a","x":3,"y":0},"elements":[` +
-		`{"id":"b1","faction":"blue","before":2,"after":0},{"id":"r1","faction":"red","before":4,"after":3}]}],` +
-		`"captures":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","from":"blue"}],` +
-		`"losses":[{"id":"b1","faction":"blue"}]}`
+	want := `{"exercise":"ex-1","round":7,` +
+		`"retreats":[{"id":"b2","faction":"blue","from":{"sector":"a","x":3,"y":0},"to":{"sector":"a","x":3,"y":1},` +
+		`"before":100,"after":60,"fallen":0,"pursuers":[{"id":"r1","faction":"red","before":400,"after":400,"fallen":0}]}],` +
+		`"engagements":[{"at":{"sector":"a","x":3,"y":0},"elements":[` +
+		`{"id":"b1","faction":"blue","before":40,"after":0,"fallen":1},{"id":"r1","faction":"red","before":400,"after":370,"fallen":0}]}],` +
+		`"losses":[{"id":"b1","faction":"blue"}],"captures":[],` +
+		`"progress":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","rounds":1}]}`
 	if string(es[0].Data) != want {
 		t.Errorf("data = %s\nwant   %s", es[0].Data, want)
+	}
+}
+
+// Each capture that takes an objective from its holder alerts the loser;
+// a capture of an unheld objective alerts no one.
+func TestRaiseLost(t *testing.T) {
+	a := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
+	b := rules.Location{Sector: "b", Point: rules.Point{X: 5, Y: 5}}
+	q := &event.Queue{}
+	raiseLost(q, "ex-1", 4, []rules.Capture{{At: a, Faction: "red"}, {At: b, Faction: "blue", From: "red"}})
+	es := q.Events()
+	if len(es) != 1 || es[0].Type != "exercise.objective.lost" || es[0].Subject != "ex-1" {
+		t.Fatalf("raised %+v", es)
+	}
+	want := LostData{Exercise: "ex-1", Faction: "red", Round: 4, At: b, Holder: "blue"}
+	if got := decode[LostData](t, es[0]); got != want {
+		t.Errorf("data = %+v, want %+v", got, want)
 	}
 }

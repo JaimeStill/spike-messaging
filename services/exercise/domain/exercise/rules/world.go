@@ -6,16 +6,17 @@ import (
 	"strconv"
 )
 
-// Kind is the kind of an element, which fixes how far it moves and sees.
+// Kind is the kind of an element, which fixes how far it moves and sees,
+// and how many operators it fields.
 type Kind string
 
 // The kinds of element.
 const (
-	// Force is a fighting element. The exercise sets its strength; it
-	// makes one move per round and sees two cells.
-	Force Kind = "force"
-	// Scout is a reconnaissance element of strength 1. It makes two moves
-	// per round and sees four cells.
+	// Squad is a fighting element of up to four operators. It makes one
+	// move per round and sees one cell.
+	Squad Kind = "squad"
+	// Scout is a reconnaissance element of one operator. It makes two moves
+	// per round and sees two cells.
 	Scout Kind = "scout"
 )
 
@@ -23,7 +24,7 @@ const (
 // round, or 0 for a kind the package does not know.
 func (k Kind) Moves() int {
 	switch k {
-	case Force:
+	case Squad:
 		return 1
 	case Scout:
 		return 2
@@ -35,10 +36,22 @@ func (k Kind) Moves() int {
 // sector, or 0 for a kind the package does not know.
 func (k Kind) Sight() int {
 	switch k {
-	case Force:
-		return 2
+	case Squad:
+		return 1
 	case Scout:
+		return 2
+	}
+	return 0
+}
+
+// Operators returns the number of operators an element of kind k fields at
+// full strength, or 0 for a kind the package does not know.
+func (k Kind) Operators() int {
+	switch k {
+	case Squad:
 		return 4
+	case Scout:
+		return 1
 	}
 	return 0
 }
@@ -81,8 +94,8 @@ type Sector struct {
 	Gates      []Gate  `json:"gates"`
 }
 
-// Map is the exercise's sectors and their features. The map is public:
-// every faction knows it.
+// Map is the exercise's sectors and their features. Its [Map.Terrain] is
+// public; its objectives are found by sight.
 type Map struct {
 	Sectors []Sector `json:"sectors"`
 }
@@ -184,6 +197,17 @@ func (m Map) objectives() []Location {
 		for _, p := range s.Objectives {
 			out = append(out, Location{Sector: s.ID, Point: p})
 		}
+	}
+	return out
+}
+
+// Terrain returns m without its objectives: the part of the map every
+// faction knows from the start. A faction finds an objective only by
+// seeing it.
+func (m Map) Terrain() Map {
+	out := m.clone()
+	for i := range out.Sectors {
+		out.Sectors[i].Objectives = []Point{}
 	}
 	return out
 }

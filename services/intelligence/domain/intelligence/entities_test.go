@@ -42,7 +42,7 @@ func TestValidate(t *testing.T) {
 func TestObserveDecodesTheObservedEvent(t *testing.T) {
 	var c intelligence.Observe
 	err := json.Unmarshal([]byte(`{"exercise":"`+exerciseID+`","faction":"red","round":2,
-		"own":[{"id":"r1","faction":"red","kind":"force","strength":2,"at":{"sector":"a","x":0,"y":0}}],
+		"own":[{"id":"r1","faction":"red","kind":"squad","strength":2,"health":[100,100],"status":"ready","at":{"sector":"a","x":0,"y":0}}],
 		"contacts":[],"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":""}]}`), &c)
 	if err != nil {
 		t.Fatal(err)
@@ -52,15 +52,15 @@ func TestObserveDecodesTheObservedEvent(t *testing.T) {
 	}
 }
 
-// The assessment's payload flattens the picture beside the exercise and
-// the faction.
+// The assessment's payload flattens the picture beside the exercise, the
+// faction, and the revision.
 func TestAssessmentDataShape(t *testing.T) {
-	d := intelligence.AssessmentData{Exercise: exerciseID, Faction: "red", Picture: fusion.Open(nil)}
+	d := intelligence.AssessmentData{Exercise: exerciseID, Faction: "red", Revision: 2, Picture: fusion.Open(fusion.Map{})}
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"exercise":"` + exerciseID + `","faction":"red","round":-1,"own":[],"contacts":[],"objectives":[]}`
+	want := `{"exercise":"` + exerciseID + `","faction":"red","revision":2,"round":-1,"own":[],"contacts":[],"objectives":[],"explored":[]}`
 	if string(b) != want {
 		t.Errorf("payload = %s, want %s", b, want)
 	}

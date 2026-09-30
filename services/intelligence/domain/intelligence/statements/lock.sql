@@ -4,7 +4,7 @@
 -- Returns one faction's assessment in an exercise, locked for the rest of
 -- the transaction, or no row. The SELECT list is in the order the store's
 -- row type scans.
-SELECT exercise_id, faction, status, closed_round, picture, updated_at
+SELECT exercise_id, faction, status, closed_round, revision, picture, updated_at
 FROM assessment
 WHERE exercise_id = {{exercise_id:uuid}} AND faction = {{faction}}
 FOR UPDATE

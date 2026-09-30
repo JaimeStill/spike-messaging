@@ -70,27 +70,35 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 }
 
 // Decide decides on a faction's assessment of a round by [decide.Decide],
-// over the decisions standing, and records the result. It raises
-// [DirectiveIssued] with every live element's decision when any element's
-// target changed; a changed rule alone, or a destroyed element, changes no
-// target. It skips an assessment of a round the direction already decided
-// on, and one of a closed direction past the round its exercise concluded
-// after. A final round's assessment arrives on a subscription apart from
-// the conclusion, and can be handled after the close; the final round is
-// still decided on.
+// over the decisions standing, and records the result with the
+// assessment's revision. It raises [DirectiveIssued] with every live
+// element's decision when any element's target or rule changed, so a hold
+// that becomes a retreat is issued; a destroyed element changes neither.
+// Each directive it raises takes the direction's next sequence.
+//
+// It skips an assessment whose revision is no higher than the last one it
+// decided on: an assessment decided out of order, as by another replica or
+// after a redelivery, is older than the one decided, and would undo it.
+// Intelligence revises a round's assessment when the faction loses an
+// objective, under a higher revision, so the revision is decided on over
+// the decisions made on the original. It also skips an assessment of a
+// closed direction past the round its exercise concluded after. A final
+// round's assessment arrives on a subscription apart from the conclusion,
+// and can be handled after the close; the final round is still decided on.
 func (s *Service) Decide(ctx context.Context, c Decide, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("decide: %w", err))
 	}
 	return s.claimed(ctx, "decide", claim, func(tx *sqlate.Tx, q *event.Queue) error {
 		d, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
-		if err != nil || c.Round <= d.Round || d.Status == StatusClosed && c.Round > d.closedRound {
+		if err != nil || c.Revision <= d.Revision || d.Status == StatusClosed && c.Round > d.closedRound {
 			return err
 		}
 		next := decide.Decide(d.plan, d.Faction, c.Assessment, d.Decisions)
-		changed := retargets(d.Decisions, next)
-		d.Round, d.Decisions = c.Round, next
+		changed := redirects(d.Decisions, next)
+		d.Round, d.Revision, d.Decisions = c.Round, c.Revision, next
 		if changed {
+			d.Sequence++
 			raiseDirective(q, d)
 		}
 		return s.store.save(ctx, tx, d)
@@ -113,17 +121,21 @@ func (s *Service) Close(ctx context.Context, c Close, claim Claim) error {
 	})
 }
 
-// retargets reports whether next sends any element somewhere prev did not:
-// a different target, or a target where it held. An element with no
-// decision in prev held.
-func retargets(prev, next []decide.Decision) bool {
-	was := make(map[string]*decide.Location, len(prev))
+// redirects reports whether next directs any element otherwise than prev
+// did: by another rule, to a different target, or to a target where it
+// held. An element with no decision in prev held.
+func redirects(prev, next []decide.Decision) bool {
+	was := make(map[string]decide.Decision, len(prev))
 	for _, d := range prev {
-		was[d.Element] = d.Target
+		was[d.Element] = d
 	}
 	for _, d := range next {
-		before := was[d.Element]
-		if (before == nil) != (d.Target == nil) || before != nil && *before != *d.Target {
+		before, ok := was[d.Element]
+		if !ok {
+			before = decide.Decision{Rule: decide.Hold}
+		}
+		if before.Rule != d.Rule || (before.Target == nil) != (d.Target == nil) ||
+			before.Target != nil && *before.Target != *d.Target {
 			return true
 		}
 	}

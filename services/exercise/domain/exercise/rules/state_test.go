@@ -37,13 +37,31 @@ func TestStateValidate(t *testing.T) {
 		}, []string{`element "r1": faction "green" is not in the exercise`}},
 		{"an element of an unknown kind", func(s *rules.State) {
 			s.Elements[0].Kind = "tank"
-		}, []string{`element "r1": kind "tank" is neither force nor scout`}},
-		{"a scout stronger than 1", func(s *rules.State) {
-			s.Elements[2].Strength = 2
-		}, []string{`element "r2": a scout of strength 2, want 1`}},
-		{"a force of strength 0", func(s *rules.State) {
-			s.Elements[0].Strength = 0
-		}, []string{`element "r1": a force of strength 0, want at least 1`}},
+		}, []string{`element "r1": kind "tank" is neither squad nor scout`}},
+		{"a scout of two operators", func(s *rules.State) {
+			s.Elements[2] = hurt(s.Elements[2], 100, 100)
+		}, []string{`element "r2": 2 operators, want 1 to 1`}},
+		{"a squad of five operators", func(s *rules.State) {
+			s.Elements[0] = hurt(s.Elements[0], 100, 100, 100, 100, 100)
+		}, []string{`element "r1": 5 operators, want 1 to 4`}},
+		{"a squad of no operators", func(s *rules.State) {
+			s.Elements[0] = hurt(s.Elements[0])
+		}, []string{`element "r1": 0 operators, want 1 to 4`}},
+		{"a wounded squad", func(s *rules.State) {
+			s.Elements[0] = hurt(s.Elements[0], 100, 12, 1)
+		}, nil},
+		{"an operator at health 0", func(s *rules.State) {
+			s.Elements[0] = hurt(s.Elements[0], 100, 0)
+		}, []string{`element "r1": an operator at health 0, want 1 to 100`}},
+		{"an operator above 100", func(s *rules.State) {
+			s.Elements[0] = hurt(s.Elements[0], 101)
+		}, []string{`element "r1": an operator at health 101, want 1 to 100`}},
+		{"a strength that is not the health's sum", func(s *rules.State) {
+			s.Elements[0].Strength = 300
+		}, []string{`element "r1": strength 300, want 400, the sum of its health`}},
+		{"an unknown status", func(s *rules.State) {
+			s.Elements[0].Status = "asleep"
+		}, []string{`element "r1": status "asleep" is not ready, engaged, or recovering`}},
 		{"an element in a missing sector", func(s *rules.State) {
 			s.Elements[0].At = loc("z", 0, 0)
 		}, []string{`element "r1": at z:0,0, in a sector that does not exist`}},
@@ -55,7 +73,7 @@ func TestStateValidate(t *testing.T) {
 		}, []string{`element "r1": at a:2,2, on an obstacle`}},
 		{"two elements of one faction on one cell", func(s *rules.State) {
 			s.Elements[2].At = s.Elements[0].At
-		}, []string{`element "r2": at a:0,0, a cell element "r1" of its faction holds`}},
+		}, nil},
 		{"elements of both factions on one cell", func(s *rules.State) {
 			s.Elements[1].At = s.Elements[0].At
 		}, nil},
@@ -65,17 +83,26 @@ func TestStateValidate(t *testing.T) {
 		{"a holder outside the exercise", func(s *rules.State) {
 			s.Holders["a:3,0"] = "green"
 		}, []string{`holder of a:3,0: faction "green" is not in the exercise`}},
+		{"progress on a cell that is not an objective", func(s *rules.State) {
+			s.Progress["a:1,1"] = rules.Progress{Faction: "red", Rounds: 1}
+		}, []string{"progress on a:1,1: not an objective"}},
+		{"progress by a faction outside the exercise", func(s *rules.State) {
+			s.Progress["b:5,5"] = rules.Progress{Faction: "green", Rounds: 1}
+		}, []string{`progress on b:5,5: faction "green" is not in the exercise`}},
+		{"progress that should have captured", func(s *rules.State) {
+			s.Progress["b:5,5"] = rules.Progress{Faction: "blue", Rounds: 2}
+		}, []string{"progress on b:5,5: 2 rounds, want 1 to 1"}},
 		{"every failure is reported", func(s *rules.State) {
 			s.Elements[0].Strength = 0
 			s.Elements[1].Kind = "tank"
 			s.Holders["b:5,5"] = ""
-		}, []string{"a force of strength 0", `kind "tank"`, `holder of b:5,5: faction ""`}},
+		}, []string{"strength 0, want 400", `kind "tank"`, `holder of b:5,5: faction ""`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := state(
-				force("r1", "red", 3, loc("a", 0, 0)),
-				force("b1", "blue", 3, loc("b", 5, 4)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("b1", "blue", loc("b", 5, 4)),
 				scout("r2", "red", loc("a", 1, 0)),
 			)
 			s.Holders["a:3,0"] = "red"

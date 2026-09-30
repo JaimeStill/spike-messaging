@@ -1,10 +1,10 @@
 # The exercise
 
 The spike's final demonstration: four small services that play a two-faction exercise of sector
-dominance. All four are built. Each round of the exercise runs as a chain of events and commands across all
-four, so the demonstration exercises fan-out, chains, ordering, redelivery, delivery groups, drain,
-and outages under a steady load. The rules are deliberately simple. Scale, meaning the elements and
-the sector layout, is what changes to make an exercise show the layer well.
+dominance. All four are built. Each round of the exercise runs as a chain of events and commands
+across all four, so the demonstration exercises fan-out, chains, ordering, redelivery, delivery
+groups, drain, and outages under a steady load. The rules are as simple as the flow allows;
+exercise's `rules/doc.go` states them in full.
 
 ## Guidelines
 
@@ -22,143 +22,100 @@ the sector layout, is what changes to make an exercise show the layer well.
    reactor registration, usually by calling one of its own commands.
 5. **One event can set off a chain** of events across the services.
 6. **No service's availability or internal function depends on another's.**
-7. **It stays a spike.** The ruleset is simplified and never grows into game design.
+7. **The ruleset grows only for the flow.** The demonstration needs decisions that flow between
+   the services, so the rules grow as far as that takes and no further: each rule exists because
+   a service must learn, decide, or act on something another service reports.
 
 ## The world
 
-- An **exercise** has one or more sectors, exactly two factions, a round interval, and a round
-  limit.
-- A **sector** holds one **level**, a W×H grid. A cell is open, or carries one feature:
-  - an **obstacle**, which is impassable
-  - an **objective**, held by the last faction to end a round alone on it
-  - a **gate**, linked to a gate in another sector; from a gate's cell, one step traverses the
-    link to the linked gate's cell
-- The map, meaning the grids and their features, is public. The elements are not.
-- Time runs in **rounds**. The exercise service resolves one round per interval, and every order
-  for that round applies at once. An order for a round already resolved is dropped, so a late or
-  absent faction stands still. Latency costs a faction tempo, never correctness.
+- **The skirmish** is the demonstration: one 13×13 sector with no obstacles or gates, three to
+  five objectives on rows 3–9, and three squads and two scouts a side on opposite baselines, all
+  mirrored through the center. `rules.Skirmish(seed, factions)` lays it out from the exercise's
+  seed. A create may still give a map and elements of its own, which the tests use.
+- **The seed** is drawn when a create gives none, stored, and read only from exercise's API: the
+  layout and every fight follow from it, so no faction's event carries it. A seed replays a run
+  together with the orders the run recorded; the services' orders depend on timing, so a seed
+  alone replays one only as far as they arrive alike. Checkpoint A saw seed 7 replay identically.
+- **Objectives are hidden.** `exercise.started` carries the terrain alone (`Map.Terrain()`), and a
+  faction learns an objective only when its observation reports it in sight.
+- **Time** runs in rounds of 1s, 30 of them in the fixture. An order for a round already resolved
+  is dropped, so latency costs a faction tempo, never correctness.
 
 ## Elements and resolution
 
-| Kind | Strength | Moves per round | Sight |
-|------|----------|-----------------|-------|
-| force | set per element by the exercise | 1 | 2 |
-| scout | 1 | 2 | 4 |
+A squad fields four operators, moves one cell, and sees one; a scout is one operator, moves two,
+and sees two. Each operator has health from 1 to 100, `strength` is its element's total, and an
+element is `ready`, `engaged` in a fight, or `recovering` from a retreat. A round resolves in one
+transaction, in this order (exercise's `rules/doc.go` is the full statement):
 
-A round resolves in one transaction, in this order:
-
-1. **Move.** Every order applies at once. A step enters an orthogonally adjacent cell, or
-   traverses a gate, and entering a gate and traversing it are separate steps. An order that
-   leaves the grid or enters an obstacle is refused whole, and the element stays; so is one that
-   ends where another element of the same faction ends. Elements that pass through each other do
-   not meet. An element that starts the round in a cell holding the other faction's elements is
-   pinned in the fight there: its order is refused.
-2. **Engage.** In each cell holding both factions' elements, each faction loses half the other's
-   total strength there, rounded up, both at once, weakest element first. A fight is attrition:
-   it lasts as long as both sides stay in the cell.
-3. **Capture.** An objective with only one faction's elements on it becomes that faction's.
-4. **Observe.** Each faction observes its own elements, and every enemy element within sight of
-   any of them, measured as Chebyshev distance within the same sector. An observation carries each
-   element's kind and strength.
-5. **Judge.** A faction with no elements loses, which outranks holding every objective; otherwise
-   a faction that holds every objective wins. At the round limit, the faction holding more
-   objectives wins, or the exercise is a draw.
+1. **Move.** Orders apply at once. An engaged element moves only by a one-step `retreat`, and a
+   recovering element not at all. Own elements may end on one cell only where a fight stood at
+   the round's start, which is reinforcement.
+2. **Pursuit.** An enemy that stood in the cell a retreat left, not recovering, and stays with a
+   `pursue` order fires once at the retreating element, which fires back. An unpursued retreat
+   escapes without a shot, and the retreating element sits out the next round.
+3. **Fight.** In each contested cell every living operator fires once, all at once, at 50% for
+   20–60 damage on a random living enemy operator. The draws come from a PCG over the seed and the
+   round, in sorted order, so a retry or a replica resolves the round alike.
+4. **Capture.** An objective changes hands once one faction ends two rounds in a row alone on it;
+   a contested or empty round resets the count.
+5. **Observe** each faction's own elements and what they see, and **judge**: elimination, then
+   holding every objective, then the most objectives at the limit.
 
 ## The services
 
 Every service keys its rows by exercise and faction, serves both factions from one process, and
 claims every event it consumes through its inbox, in the transaction of the command that handles
-it.
+it. Each README states its API, stages, and events.
 
-| Service | Commands: API · reactor · interval | Emits | Reacts to |
-|---|---|---|---|
-| **exercise**, the world | `Create`, `Start`, `Pause`, `Resume`, `Stop` · `RecordOrders` · `ResolveRound` | `exercise.started`, `exercise.round.resolved` (per round), `exercise.round.observed` (per faction per round), `exercise.concluded` | `operations.orders.issued` |
-| **intelligence**, what a faction knows | `Open`, `Observe`, `Close` | `intelligence.assessment.issued` (per observed round) | `exercise.started`, `exercise.round.observed`, `exercise.concluded` |
-| **command**, deciding | `Open`, `Decide`, `Close` | `command.directive.issued` (only when an element's target changes) | `exercise.started`, `intelligence.assessment.issued`, `exercise.concluded` |
-| **operations**, maneuvering | `Open`, `Assign`, `Maneuver`, `Close` | `operations.orders.issued` (per faction per round) | `exercise.started`, `command.directive.issued`, `exercise.round.observed`, `exercise.concluded` |
+| Service | Emits | Reacts to |
+|---|---|---|
+| **exercise**, the world | `exercise.started`, `exercise.round.resolved`, `exercise.objective.lost`, `exercise.round.observed`, `exercise.concluded` | `operations.orders.issued` |
+| **intelligence**, what a faction knows | `intelligence.assessment.issued` | `exercise.started`, `exercise.round.observed`, `exercise.objective.lost`, `exercise.concluded` |
+| **command**, deciding | `command.directive.issued` | `exercise.started`, `intelligence.assessment.issued`, `exercise.concluded` |
+| **operations**, maneuvering | `operations.orders.issued` | `exercise.started`, `command.directive.issued`, `exercise.round.observed`, `exercise.concluded` |
 
-- **exercise** is the source of truth for conditions, and is built: `services/exercise`. Its
-  README states its API, stages, and events, and `domain/exercise/events.go` its event entities,
-  the payloads the other services decode into types of their own. It reads orders from
-  `operations.orders.issued` in the shape `ordersIssued` in its `internal/app/reactors.go`
-  states, which operations confirms or reshapes. `RecordOrders` refuses an order for a resolved
-  round or past the round limit with `event.Permanent`, so it is never redelivered.
-  - `exercise.round.resolved` is the umpire's record of a round, raised before its observations:
-    its engagements with every element's strength before and after, the objectives that changed
-    hands, and the elements destroyed. It shows both factions, so no faction's service consumes
-    it; courier's theater narration does. It is not kept in the round history.
-- **intelligence** fuses its faction's observations into an assessment: its own elements, the
-  contacts it knows of with their age, and the status of each objective. It is built:
-  `services/intelligence`, whose README states its API, stages, and events.
-  - Five suppression rules limit what it can know. exercise's observation already enforces
-    sight radius by kind and sight stopping at the sector's edge. `domain/intelligence/fusion`
-    enforces the other three:
-    - A contact is kept at its last-seen cell, and dropped after K rounds unseen, or as soon as
-      a friendly element sees that cell empty.
-    - Nothing a round did not reveal is reported: an objective no element has seen is
-      `known: false`.
-    - The chain's own lag: ages count in rounds.
-  - K is the service's `contact_rounds` setting, 3 by default.
-  - Its payload is
-    `{exercise, faction, round, own, contacts: [{…element, seen, age}], objectives: [{at, holder, known, seen, age}]}`.
-  - exercise raises a round's final observations with its conclusion, and intelligence consumes
-    them on separate subscriptions. So `Close` records the concluded round, and a closed
-    assessment still takes an observation up to it.
-- **command** decides, and is built: `services/command`, whose README states its API, stages,
-  and events. For each live element on each assessment, `domain/command/decide` applies:
-  1. **Engage** a strictly weaker known contact within 3 steps, at its last-seen cell. Forces
-     only.
-  2. Otherwise, **secure** the nearest objective that its faction is not known to hold and that
-     none of its other elements is already heading for. An element keeps its standing target
-     while that target is still one to secure, and standing targets are claimed first.
-  3. Otherwise, **hold**.
-  - Distance is path distance, a breadth-first search over open cells and gates, so a wall puts
-    a near contact out of reach, and an unreachable target is never chosen.
-  - It tests `known` before `holder`, so an objective never seen is unheld. A held belief stays
-    stale until an element sees the objective again, and a destroyed contact lingers until
-    intelligence drops it.
-  - It issues `command.directive.issued` only when an element's target changes, and each
-    directive lists every live element: `{exercise, faction, round, directives: [{element, rule,
-    contact, target}]}`, where a hold's target is null. operations reads the element and the
-    target; the rule and the contact are for the narration.
-  - Its `Close` records the concluded round, and `Decide` still takes an assessment up to it, as
-    intelligence's `Close` does.
-- **operations** steps each element toward its directive's target, and is built:
-  `services/operations`. Its README states its API, stages, and events.
-  - It plans along a shortest path found by breadth-first search over open cells and gates, up
-    to the element's moves per round (`domain/operations/route`). It keeps a faction's elements
-    off one another's final cells by exercise's own rule, so one can follow another into the
-    cell it leaves, and two can swap.
-  - It confirms exercise's `ordersIssued` as its payload:
-    `{exercise, faction, round, orders: [{element, steps: [{sector, x, y}]}]}`.
-  - A directive is `{exercise, faction, round, directives: [{element, target}]}`, one event per
-    faction per decision, where a null target holds the element.
-  - operations applies the newest directive whenever it arrives, and skips only one older than
-    the last it applied (`directive_round`). Because command sends nothing more while its
-    decisions stand, skipping a late directive, as after an outage, would lose its change for
-    good; the branch review found it. A directive on the round operations last acted on re-issues
-    that round's orders when it changes the plan, and exercise keeps the last orders it records,
-    so the directive takes effect in the round it arrives. A directive on another round only sets
-    targets, which the next observation plans with.
-  - Its four inputs arrive on four subscriptions, so an observation can be handled before the
-    start that opens its operation: it fails with `ErrNotOpen`, which is not permanent, and is
-    redelivered after 250ms.
-  - courier's `directives` scenario still stands in for command, to run operations without it.
-- **courier's `theater` scenario** narrates an exercise as the demonstration: the initial
-  conditions, one line for each event that changes something, tagged with its round, service,
-  and faction, and the final conditions with the events by type and each hop's median latency. It
-  narrates a round's orders when the round resolves, as the ones in effect, judged by the
-  stream's order, so it can be wrong when exercise's own orders consumer lags. It calls elements
-  squads and command's secure rule a capture.
+- **exercise** is the umpire. `exercise.round.resolved` is its record of a round, both factions'
+  elements included, so no faction's service consumes it and each round's history keeps it.
+  `exercise.objective.lost` alerts a faction that lost an objective it held, though none of its
+  elements sees it.
+- **intelligence** fuses observations into an assessment: own elements, contacts with their age
+  (dropped after `contact_rounds` unseen, 3, or once the cell is seen empty), the objectives
+  discovered, and `explored`, every cell its elements have had in sight. A loss alert sets the
+  objective's holder and, when the assessment already covers the round, issues a revised one.
+  Each assessment carries a monotonic `revision`.
+- **command** decides for each live element, in this order (`decide/doc.go`): **retreat** a scout,
+  or a squad below two thirds of the enemy's strength in its cell, to the open neighbor farthest
+  from other contacts; **pursue** in a fight its faction at least matches, or **engage** in place;
+  **reinforce** a held fight within 4 steps; **engage** a weaker contact within 3; **secure** the
+  nearest known objective not held, an element standing on one claiming it first; **search** the
+  nearest unexplored cell, scouts first, spread apart; **rescout** the known objective not held
+  and seen longest ago; **hold**. It skips an assessment at or below the last revision it
+  decided, issues a directive only when some element's rule or target changes, and gives each
+  directive a monotonic `sequence`.
+- **operations** plans each element's steps toward its target by breadth-first search, orders a
+  one-step flagged retreat or a stepless `pursue`, leaves engaged and recovering elements in
+  place, and keeps a faction's elements apart except in its fights. It skips a directive at or
+  below the last sequence it applied. `directive_round` no longer guards anything.
+- **The rule names** (`retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`,
+  `hold`) are a string contract between command, operations, and courier, with no shared type.
+- **courier's `theater`** narrates an exercise as one block per round once the round is complete:
+  the observer's record (fights, retreats, each faction's captures and losses), then each
+  faction's `knows`, `decides`, and `orders`. The observer's view, the seed and the objectives,
+  comes from exercise's API, never from the factions' events. **`theater-check`** reads a run's
+  assessments from the stream and the truth from exercise's history API, compares each with the
+  observer's own observations, and fails on any inconsistency; `demo-theater-check` runs it.
 
 ## One round
 
-1. `exercise.round.resolved(r)`, then `exercise.round.observed(r)`, which fans out to
-   intelligence and to operations.
-2. intelligence issues `intelligence.assessment.issued(r)`.
-3. command issues `command.directive.issued` for every element whose target changed.
-4. operations issues `operations.orders.issued(r+1)`.
-5. exercise records the orders, and `ResolveRound(r+1)` emits `exercise.round.observed(r+1)`.
+1. `exercise.round.resolved(r)`, any `exercise.objective.lost(r)`, then
+   `exercise.round.observed(r)`, which fans out to intelligence and to operations.
+2. intelligence issues `intelligence.assessment.issued(r)`, and a revision of it when a loss
+   alert arrives after the observation.
+3. command issues `command.directive.issued` when some element's rule or target changes.
+4. operations issues `operations.orders.issued(r+1)`, and re-issues it when a directive changes
+   the plan for the round it last acted on.
+5. exercise records the orders, and `ResolveRound(r+1)` resolves the next round.
 
 `exercise.concluded` ends the chain, and every service closes its elements.
 
@@ -206,7 +163,8 @@ it.
   and the service's own at startup.
 - **Tasks.** The mise tasks are named `<category>-<action>`, such as `exercise-serve`,
   `demo-theater`, and `demo-theater-check`. `demo-theater` plays `fixtures/skirmish.json`, or the
-  fixture `FIXTURE` names, and narrates it through courier's `theater` scenario.
+  fixture `FIXTURE` names, with the seed `SEED` gives, and narrates it through courier's `theater`
+  scenario.
 - **Pacing.** Each service's `config.local.json` polls the outbox every 50ms, so a round's four
   relay hops fit in the skirmish's 1s round. `config.json` keeps the 250ms default.
 - **Wiring.** Each composition root builds its broker with `nats.New` and its messaging with
@@ -223,31 +181,7 @@ it.
 - Rows keyed by exercise and faction isolate concurrent exercises well enough without a process
   for each one.
 
-## The skirmish, next
+## Deferred
 
-The architect settled a redesign for the demonstration. It is the next step, and each part is
-planned only as far as this:
-
-- **The map** is one 13×13 grid, one sector with no gates. North's home baseline is row 0 and
-  south's is row 12. Three to five objectives are drawn on rows 3–9, and starting positions on
-  the baselines, from the exercise's seed, mirrored across the center so neither side is favored.
-- **The forces** are three squads of four operators and two scouts a side. Squads see 1 cell and
-  move 1; scouts see 2 and move 2. No objective is visible at the start, so squads depend on what
-  the scouts report.
-- **Fights** are between operators with percentage health: each living operator fires with a hit
-  chance, and a hit does random damage to a random enemy operator. A squad's `strength` is its
-  operators' total health, so the readings downstream keep working. The randomness is drawn from
-  a seed the exercise stores and the round, so a replica or a retried transaction resolves the
-  same round alike, and a seed replays a run.
-- **Retreat and reinforce** are command's to decide. A retreat is a new directive rule and order
-  that may leave a fight; it draws a free volley and costs the squad its next round.
-  Reinforcements may join their own squads in a fight's cell.
-- **Capture** takes two uncontested rounds: an objective changes hands once one faction ends two
-  rounds in a row alone on it, and a fight or an empty round resets the count.
-- **The narration** titles its steps "Narrate events until exercise completion" and "Skirmish
-  complete, results", and narrates the new mechanics.
-- Keep the `Resolution` in exercise's round history, and revise guideline 7: the ruleset grows
-  because the demonstration needs decisions that flow between the services.
-- **Deferred:** operations reporting to intelligence, which would close the chain into a cycle;
-  drones that intelligence tasks; real time instead of rounds. The outage beat belongs to the
-  final validation.
+Ideas the skirmish's design set aside: operations reporting to intelligence, which would close
+the chain into a cycle; drones that intelligence tasks; real time instead of rounds.

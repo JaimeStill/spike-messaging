@@ -99,7 +99,7 @@ echo "split-check: courier/scenario reaches neither nats.go nor the nats provide
 '''
 
 [tasks."demo-theater"]
-description = "Play an exercise on the running services and narrate it: the skirmish, or the fixture FIXTURE names (theater for the larger map)"
+description = "Play a skirmish on the running services and narrate it: SEED replays a seed, and FIXTURE names another fixture"
 run = '''
 set -eu
 fixture="services/exercise/fixtures/${FIXTURE:-skirmish}.json"
@@ -109,7 +109,9 @@ for port in 8081 8082 8083 8084; do
 done
 out=$(mktemp -d)
 go build -o "$out/courier" ./courier/cmd/courier
-id=$(curl -sf -XPOST localhost:8081/api/exercises -d @"$fixture" | jq -r .id)
+# SEED replays a skirmish; without it, exercise draws a seed, and the narration shows it.
+body=$(jq -c --argjson seed "${SEED:-null}" 'if $seed == null then . else . + {seed: $seed} end' "$fixture")
+id=$(curl -sf -XPOST localhost:8081/api/exercises -d "$body" | jq -r .id)
 # The narration joins the stream before the start, so it reads from round 0.
 "$out/courier" --broker nats scenario theater --exercise "$id" --wait 5m &
 narration=$!
@@ -120,4 +122,13 @@ wait "$narration"
 
 [tasks."demo-theater-check"]
 description = "Reconcile a theater run's assessments against the umpire's record: the latest run, or the exercise ID given"
-run = "python3 scripts/theater_check.py"
+usage = 'arg "[id]" help="the exercise to check (default: the latest)"'
+run = '''
+set -eu
+# exercise's API lists no exercises, so the latest is read from its database.
+id=${usage_id:-$(docker compose exec -T postgres psql -U app -d exercise -Atc "select id from exercise order by created_at desc limit 1")}
+[ -n "$id" ] || { echo "no exercise found; run mise run demo-theater first"; exit 1; }
+out=$(mktemp -d)
+go build -o "$out/courier" ./courier/cmd/courier
+"$out/courier" --broker nats scenario theater-check --exercise "$id"
+'''

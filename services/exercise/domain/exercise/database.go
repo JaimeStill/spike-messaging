@@ -83,6 +83,7 @@ func (s *store) Verify(ctx context.Context) error {
 type exerciseRow struct {
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
+	Seed            int64      `json:"seed"`
 	Status          string     `json:"status"`
 	RoundIntervalMS int64      `json:"round_interval_ms"`
 	RoundLimit      int        `json:"round_limit"`
@@ -99,6 +100,7 @@ func (r exerciseRow) exercise() (Exercise, error) {
 	ex := Exercise{
 		ID:            r.ID,
 		Name:          r.Name,
+		Seed:          r.Seed,
 		Status:        Status(r.Status),
 		Round:         r.Round,
 		RoundLimit:    r.RoundLimit,
@@ -130,12 +132,13 @@ type ordersRow struct {
 }
 
 // roundRow is one round of the history, with its rules values still encoded
-// as JSON.
+// as JSON. Resolution is nil for round 0, the start.
 type roundRow struct {
 	Round        int       `json:"round"`
 	State        []byte    `json:"state"`
 	Observations []byte    `json:"observations"`
 	Verdict      []byte    `json:"verdict"`
+	Resolution   []byte    `json:"resolution"`
 	ResolvedAt   time.Time `json:"resolved_at"`
 }
 
@@ -168,15 +171,16 @@ func one(id string, r exerciseRow, err error) (Exercise, error) {
 	return r.exercise()
 }
 
-// insert creates an exercise, not yet started, from a validated command and
-// returns its id.
-func (s *store) insert(ctx context.Context, tx *sqlate.Tx, c CreateExercise, interval time.Duration) (string, error) {
-	state, err := encode(c.state())
+// insert creates an exercise, not yet started, from a validated command
+// and its seed, and returns its id.
+func (s *store) insert(ctx context.Context, tx *sqlate.Tx, c CreateExercise, seed int64, interval time.Duration) (string, error) {
+	state, err := encode(c.state(seed))
 	if err != nil {
 		return "", fmt.Errorf("encode state: %w", err)
 	}
 	id, err := s.create.One(ctx, tx, query.Args{
 		"name":              c.Name,
+		"seed":              seed,
 		"round_interval_ms": interval.Milliseconds(),
 		"round_limit":       c.RoundLimit,
 		"state":             state,
@@ -303,7 +307,8 @@ func (s *store) markConcluded(ctx context.Context, tx *sqlate.Tx, id string, fro
 	})
 }
 
-// addRound records one round in the exercise's history.
+// addRound records one round in the exercise's history. A round without a
+// resolution, the start, records a null one.
 func (s *store) addRound(ctx context.Context, tx *sqlate.Tx, id string, r Round) error {
 	state, err := encode(r.State)
 	if err != nil {
@@ -317,8 +322,17 @@ func (s *store) addRound(ctx context.Context, tx *sqlate.Tx, id string, r Round)
 	if err != nil {
 		return fmt.Errorf("encode verdict: %w", err)
 	}
+	var res *string
+	if r.Resolution != nil {
+		enc, err := encode(r.Resolution)
+		if err != nil {
+			return fmt.Errorf("encode resolution: %w", err)
+		}
+		res = &enc
+	}
 	if _, err := s.recordRound.Exec(ctx, tx, query.Args{
 		"exercise_id": id, "round": r.Round, "state": state, "observations": obs, "verdict": verdict,
+		"resolution": res,
 	}); err != nil {
 		return fmt.Errorf("record round %d of exercise %s: %w", r.Round, id, err)
 	}
@@ -371,10 +385,15 @@ func (s *store) rounds(ctx context.Context, id string) ([]Round, error) {
 	out := make([]Round, len(rows))
 	for i, r := range rows {
 		out[i] = Round{Round: r.Round, ResolvedAt: r.ResolvedAt}
+		res := r.Resolution
+		if res == nil {
+			res = []byte("null")
+		}
 		if err := errors.Join(
 			json.Unmarshal(r.State, &out[i].State),
 			json.Unmarshal(r.Observations, &out[i].Observations),
 			json.Unmarshal(r.Verdict, &out[i].Verdict),
+			json.Unmarshal(res, &out[i].Resolution),
 		); err != nil {
 			return nil, fmt.Errorf("decode round %d of exercise %s: %w", r.Round, id, err)
 		}

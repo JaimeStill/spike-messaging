@@ -70,12 +70,13 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 	})
 }
 
-// Assign sets the targets a faction's directives name: an element's target,
-// or none, which holds it. Each directive carries its faction's whole
-// target state, so Assign applies the newest whenever it arrives, even one
-// decided on a round before the last the operation acted on, as after an
-// outage; it skips only a directive older than the last it applied, and
-// any for a closed operation.
+// Assign sets the targets a faction's directives name, each with its rule:
+// an element's target, or none, which holds it. Each directive carries its
+// faction's whole target state, so Assign applies the newest whenever it
+// arrives, even one decided on a round before the last the operation acted
+// on, as after an outage; it skips only a directive whose sequence is no
+// higher than the last it applied, which a redelivery or a late arrival
+// behind a newer one is, and any for a closed operation.
 //
 // A directive decided on the round the operation last acted on, which
 // changes its plan, raises [OrdersIssued] again for the round those orders
@@ -88,20 +89,26 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 	}
 	return s.claimed(ctx, "assign", claim, func(tx *sqlate.Tx, q *event.Queue) error {
 		op, err := s.store.lock(ctx, tx, c.Exercise, c.Faction)
-		if err != nil || op.Status == StatusClosed || c.Round < op.DirectiveRound {
+		if err != nil || op.Status == StatusClosed || c.Sequence <= op.DirectiveSeq {
 			return err
 		}
-		op.DirectiveRound = c.Round
+		op.DirectiveRound, op.DirectiveSeq = c.Round, c.Sequence
 		before := op.orders()
 		op.Targets = maps.Clone(op.Targets)
 		if op.Targets == nil {
 			op.Targets = map[string]route.Location{}
 		}
+		op.Rules = maps.Clone(op.Rules)
+		if op.Rules == nil {
+			op.Rules = map[string]string{}
+		}
 		for _, d := range c.Directives {
 			if d.Target == nil {
 				delete(op.Targets, d.Element)
+				delete(op.Rules, d.Element)
 			} else {
 				op.Targets[d.Element] = *d.Target
+				op.Rules[d.Element] = d.Rule
 			}
 		}
 		// Only a directive on the round the operation last acted on can
@@ -116,10 +123,10 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 }
 
 // Maneuver takes a faction's observation of a round: it records the
-// faction's live elements, drops the targets of those destroyed, and raises
-// [OrdersIssued] for the next round, the steps that carry each element
-// toward its target. It raises the event even when no element moves, and
-// raises none for a round past the exercise's round limit. It skips an
+// faction's live elements, drops the targets and rules of those destroyed,
+// and raises [OrdersIssued] for the next round, the steps that carry each
+// element toward its target. It raises the event even when no element moves,
+// and raises none for a round past the exercise's round limit. It skips an
 // observation of a round the operation has already acted on, and any for a
 // closed operation.
 func (s *Service) Maneuver(ctx context.Context, c Maneuver, claim Claim) error {
@@ -132,10 +139,13 @@ func (s *Service) Maneuver(ctx context.Context, c Maneuver, claim Claim) error {
 			return err
 		}
 		op.Elements = c.Own
+		live := func(id string) bool {
+			return slices.ContainsFunc(op.Elements, func(e route.Element) bool { return e.ID == id })
+		}
 		op.Targets = maps.Clone(op.Targets)
-		maps.DeleteFunc(op.Targets, func(id string, _ route.Location) bool {
-			return !slices.ContainsFunc(op.Elements, func(e route.Element) bool { return e.ID == id })
-		})
+		maps.DeleteFunc(op.Targets, func(id string, _ route.Location) bool { return !live(id) })
+		op.Rules = maps.Clone(op.Rules)
+		maps.DeleteFunc(op.Rules, func(id string, _ string) bool { return !live(id) })
 		op.LastRound = c.Round
 		op.raise(q, op.orders())
 		return s.store.save(ctx, tx, op)
@@ -182,7 +192,7 @@ func (s *Service) claimed(ctx context.Context, name string, claim Claim, fn func
 
 // orders plans the operation's orders for the round after its last.
 func (op Operation) orders() []route.Order {
-	return route.Plan(op.plan, op.Elements, op.Targets)
+	return route.Plan(op.plan, op.Elements, op.Targets, op.Rules)
 }
 
 // raise raises the operation's orders for the round after its last, unless
@@ -193,9 +203,10 @@ func (op Operation) raise(q *event.Queue, orders []route.Order) {
 	}
 }
 
-// sameOrders reports whether a and b order the same steps.
+// sameOrders reports whether a and b order the same steps, each a retreat
+// or a pursuit, or neither, alike.
 func sameOrders(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
-		return x.Element == y.Element && slices.Equal(x.Steps, y.Steps)
+		return x.Element == y.Element && x.Retreat == y.Retreat && x.Pursue == y.Pursue && slices.Equal(x.Steps, y.Steps)
 	})
 }

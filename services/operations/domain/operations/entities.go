@@ -41,17 +41,19 @@ const (
 
 // Operation is one faction's operation in an exercise, as the query shows
 // it: the faction's elements as its last observation left them, the target
-// each one's directive set, the last observed round it issued orders
-// from, and the round of the last directive it applied, each -1 before the
-// first.
+// and the rule each one's directive set, the last observed round it issued
+// orders from, the round of the last directive it applied, each -1
+// before the first, and that directive's sequence, 0 before the first.
 type Operation struct {
 	Exercise       string                    `json:"exercise"`
 	Faction        string                    `json:"faction"`
 	Status         Status                    `json:"status"`
 	LastRound      int                       `json:"last_round"`
 	DirectiveRound int                       `json:"directive_round"`
+	DirectiveSeq   int                       `json:"directive_sequence"`
 	Elements       []route.Element           `json:"elements"`
 	Targets        map[string]route.Location `json:"targets"`
+	Rules          map[string]string         `json:"rules"`
 	UpdatedAt      time.Time                 `json:"updated_at"`
 	plan           route.Map
 	limit          int
@@ -85,26 +87,31 @@ func (c Open) Validate() error {
 	return invalid(errs)
 }
 
-// Directive is one element's directive: the target it heads for, or no
-// target, which holds it where it stands.
+// Directive is one element's directive: the rule command decided it by,
+// such as secure or retreat, and the target it heads for, or no target,
+// which holds it where it stands.
 type Directive struct {
 	Element string          `json:"element"`
+	Rule    string          `json:"rule"`
 	Target  *route.Location `json:"target"`
 }
 
 // Assign is the assign command's input, operations' reading of a
 // command.directive.issued event: a faction's directives, decided on the
-// assessment of an observed round.
+// assessment of an observed round. Sequence numbers a faction's directives
+// in an exercise in the order command decided them, from 1, so a higher one
+// is newer whatever round it names.
 type Assign struct {
 	Exercise   string      `json:"exercise"`
 	Faction    string      `json:"faction"`
 	Round      int         `json:"round"`
+	Sequence   int         `json:"sequence"`
 	Directives []Directive `json:"directives"`
 }
 
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Assign) Validate() error {
-	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round)}
+	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), checkSequence(c.Sequence)}
 	for i, d := range c.Directives {
 		if d.Element == "" {
 			errs = append(errs, fmt.Errorf("directive %d: the element is empty", i))
@@ -164,6 +171,13 @@ func checkFaction(f string) error {
 func checkRound(r int) error {
 	if r < 0 {
 		return fmt.Errorf("round %d is negative", r)
+	}
+	return nil
+}
+
+func checkSequence(n int) error {
+	if n < 1 {
+		return fmt.Errorf("sequence %d is below 1", n)
 	}
 	return nil
 }

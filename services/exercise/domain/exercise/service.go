@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 
 	"github.com/standards-lab/sqlate"
@@ -53,15 +54,21 @@ func (s *Service) History(ctx context.Context, id string) ([]Round, error) {
 }
 
 // Create creates an exercise from c that has not started: its round is 0,
-// its state is the starting state c describes, and no objective is held. It
-// raises nothing, because no event reports an exercise before it starts.
+// its seed is c's, or one drawn from [0, 2^31) when c gives none, its state
+// is the starting state c describes for that seed, and no objective is
+// held. It raises nothing, because no event reports an exercise before it
+// starts.
 func (s *Service) Create(ctx context.Context, c CreateExercise) (Exercise, error) {
 	if err := c.Validate(); err != nil {
 		return Exercise{}, err
 	}
 	interval, _ := c.interval()
+	seed := rand.Int64N(1 << 31)
+	if c.Seed != nil {
+		seed = *c.Seed
+	}
 	return s.command(ctx, func(tx *sqlate.Tx, _ *event.Queue) (Exercise, error) {
-		id, err := s.store.insert(ctx, tx, c, interval)
+		id, err := s.store.insert(ctx, tx, c, seed, interval)
 		if err != nil {
 			return Exercise{}, err
 		}
@@ -250,9 +257,11 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 // for it, ignoring an order for an element of the other faction. The
 // exercise then advances to the round, with its next round due one interval
 // from the database's clock, or concludes when the round's verdict is over.
-// Its history records the round. ResolveDue raises [RoundResolved] with the
-// round's resolution, then [RoundObserved] for each faction's observation of
-// the round, then [Concluded] if the exercise concluded.
+// Its history records the round with its resolution. ResolveDue raises
+// [RoundResolved] with the round's resolution, then [ObjectiveLost] for
+// each objective taken from its holder, then [RoundObserved] for each
+// faction's observation of the round, then [Concluded] if the exercise
+// concluded.
 func (s *Service) ResolveDue(ctx context.Context) (int, error) {
 	ids, err := s.store.due(ctx)
 	if err != nil {
@@ -290,7 +299,7 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		next, obs, v, res := rules.Resolve(ex.State, round, ex.RoundLimit, ownOrders(ex.State, recorded))
+		next, obs, v, res := rules.Resolve(ex.State, ex.Seed, round, ex.RoundLimit, ownOrders(ex.State, recorded))
 		if v.Over {
 			ok, err = s.store.markConcluded(ctx, tx, id, StatusRunning, round, next, v)
 		} else {
@@ -302,10 +311,11 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 		if !ok {
 			return false, moved("resolve", id)
 		}
-		if err := s.store.addRound(ctx, tx, id, Round{Round: round, State: next, Observations: obs, Verdict: v}); err != nil {
+		if err := s.store.addRound(ctx, tx, id, Round{Round: round, State: next, Observations: obs, Verdict: v, Resolution: &res}); err != nil {
 			return false, err
 		}
 		raiseResolved(q, id, round, res)
+		raiseLost(q, id, round, res.Captures)
 		raiseObserved(q, id, obs)
 		if v.Over {
 			raiseConcluded(q, id, round, v)

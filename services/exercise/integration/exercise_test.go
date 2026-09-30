@@ -35,7 +35,8 @@ type view struct {
 }
 
 type round struct {
-	Round int `json:"round"`
+	Round      int             `json:"round"`
+	Resolution json.RawMessage `json:"resolution"`
 }
 
 // positions is the view's state as far as where each element stands.
@@ -57,10 +58,13 @@ type positions struct {
 func idle(limit int, interval string) map[string]any {
 	at := func(x, y int) map[string]any { return map[string]any{"sector": "a", "x": x, "y": y} }
 	return map[string]any{
-		"name":           "idle",
-		"map":            map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 6, "height": 6, "objectives": []any{map[string]any{"x": 3, "y": 0}}}}},
-		"factions":       []string{"red", "blue"},
-		"elements":       []any{map[string]any{"id": "r1", "faction": "red", "kind": "force", "strength": 3, "at": at(0, 0)}, map[string]any{"id": "b1", "faction": "blue", "kind": "force", "strength": 3, "at": at(5, 5)}},
+		"name":     "idle",
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 6, "height": 6, "objectives": []any{map[string]any{"x": 3, "y": 0}}}}},
+		"factions": []string{"red", "blue"},
+		"elements": []any{
+			map[string]any{"id": "r1", "faction": "red", "kind": "squad", "strength": 300, "health": []int{100, 100, 100}, "status": "ready", "at": at(0, 0)},
+			map[string]any{"id": "b1", "faction": "blue", "kind": "squad", "strength": 300, "health": []int{100, 100, 100}, "status": "ready", "at": at(5, 5)},
+		},
 		"round_interval": interval,
 		"round_limit":    limit,
 	}
@@ -209,7 +213,14 @@ func TestExercise_IdleRunsToItsLimitAsADraw(t *testing.T) {
 	}
 	history := webtest.Decode[[]round](t, c.Get(t, "/api/exercises/"+ex.ID+"/history"), http.StatusOK)
 	if len(history) != limit+1 || history[0].Round != 0 || history[limit].Round != limit {
-		t.Errorf("history has %d rounds, want rounds 0 to %d", len(history), limit)
+		t.Fatalf("history has %d rounds, want rounds 0 to %d", len(history), limit)
+	}
+	// Round 0, the start, resolves nothing; every later round carries its
+	// resolution.
+	for _, r := range history {
+		if isNull := string(r.Resolution) == "null"; isNull != (r.Round == 0) {
+			t.Errorf("round %d's resolution = %s", r.Round, r.Resolution)
+		}
 	}
 }
 

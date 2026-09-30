@@ -14,7 +14,7 @@ const exerciseID = "01999f4e-6a3b-7c2d-8e1f-0a1b2c3d4e5f"
 func TestValidate(t *testing.T) {
 	valid := []interface{ Validate() error }{
 		command.Open{Exercise: exerciseID, Factions: [2]string{"red", "blue"}},
-		command.Decide{Exercise: exerciseID, Faction: "red"},
+		command.Decide{Exercise: exerciseID, Faction: "red", Revision: 1},
 		command.Close{Exercise: exerciseID},
 	}
 	for _, c := range valid {
@@ -26,8 +26,9 @@ func TestValidate(t *testing.T) {
 		"open, no uuid":          command.Open{Exercise: "x", Factions: [2]string{"red", "blue"}},
 		"open, same factions":    command.Open{Exercise: exerciseID, Factions: [2]string{"red", "red"}},
 		"open, empty faction":    command.Open{Exercise: exerciseID, Factions: [2]string{"red", ""}},
-		"decide, no faction":     command.Decide{Exercise: exerciseID},
-		"decide, negative round": command.Decide{Exercise: exerciseID, Faction: "red", Assessment: decide.Assessment{Round: -1}},
+		"decide, no faction":     command.Decide{Exercise: exerciseID, Revision: 1},
+		"decide, negative round": command.Decide{Exercise: exerciseID, Faction: "red", Revision: 1, Assessment: decide.Assessment{Round: -1}},
+		"decide, no revision":    command.Decide{Exercise: exerciseID, Faction: "red"},
 		"close, no uuid":         command.Close{Exercise: "x"},
 	}
 	for name, c := range invalid {
@@ -38,26 +39,30 @@ func TestValidate(t *testing.T) {
 }
 
 // Decide decodes intelligence's assessment event whole, the assessment
-// flattened beside the exercise and the faction.
+// flattened beside the exercise, the faction, and the revision.
 func TestDecideDecodesTheAssessmentEvent(t *testing.T) {
 	var c command.Decide
-	err := json.Unmarshal([]byte(`{"exercise":"`+exerciseID+`","faction":"red","round":2,
-		"own":[{"id":"r1","faction":"red","kind":"force","strength":2,"at":{"sector":"a","x":0,"y":0}}],
-		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":1,"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
-		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":false,"seen":-1,"age":0}]}`), &c)
+	err := json.Unmarshal([]byte(`{"exercise":"`+exerciseID+`","faction":"red","revision":5,"round":2,
+		"own":[{"id":"r1","faction":"red","kind":"squad","strength":287,"health":[100,100,87],"status":"ready",
+			"at":{"sector":"a","x":0,"y":0}}],
+		"contacts":[{"id":"b1","faction":"blue","kind":"scout","strength":100,"health":[100],"status":"ready",
+			"at":{"sector":"a","x":1,"y":0},"seen":1,"age":1}],
+		"objectives":[{"at":{"sector":"a","x":1,"y":0},"holder":"","known":true,"seen":2,"age":0}],
+		"explored":[{"sector":"a","x":0,"y":0},{"sector":"a","x":1,"y":0}]}`), &c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Exercise != exerciseID || c.Faction != "red" || c.Round != 2 || len(c.Own) != 1 || len(c.Contacts) != 1 || len(c.Objectives) != 1 {
+	if c.Exercise != exerciseID || c.Faction != "red" || c.Revision != 5 || c.Round != 2 || len(c.Own) != 1 || len(c.Contacts) != 1 || len(c.Objectives) != 1 ||
+		len(c.Explored) != 2 {
 		t.Errorf("Decide = %+v", c)
 	}
 }
 
 // The directive's payload is the shape operations reads, each directive
-// with its rule, and an engage with its contact.
+// with its rule, and an engage with its contact, under its sequence.
 func TestDirectiveDataShape(t *testing.T) {
 	at := decide.Location{Sector: "a", Point: decide.Point{X: 1, Y: 0}}
-	d := command.DirectiveData{Exercise: exerciseID, Faction: "red", Round: 3, Directives: []decide.Decision{
+	d := command.DirectiveData{Exercise: exerciseID, Faction: "red", Round: 3, Sequence: 2, Directives: []decide.Decision{
 		{Element: "r1", Rule: decide.Engage, Contact: "b1", Target: &at},
 		{Element: "r2", Rule: decide.Secure, Target: &at},
 		{Element: "r3", Rule: decide.Hold},
@@ -66,7 +71,7 @@ func TestDirectiveDataShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"exercise":"` + exerciseID + `","faction":"red","round":3,"directives":[` +
+	want := `{"exercise":"` + exerciseID + `","faction":"red","round":3,"sequence":2,"directives":[` +
 		`{"element":"r1","rule":"engage","contact":"b1","target":{"sector":"a","x":1,"y":0}},` +
 		`{"element":"r2","rule":"secure","target":{"sector":"a","x":1,"y":0}},` +
 		`{"element":"r3","rule":"hold","target":null}]}`

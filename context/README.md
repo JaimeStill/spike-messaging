@@ -44,22 +44,23 @@ and go-core, and `courier/scenario` to no NATS package.
 - **courier** (`courier/cmd/courier`, its own module): the spike's CLI, in the Elemental CLI
   layout. Its narrated scenarios each show one capability on a broker, `--broker memory` or
   `--broker nats`. Each step's checkpoint adds its scenarios. On the exercise services' stream,
-  `directives` stands in for command, `assessments` narrates assessments and directives, and
-  `theater` narrates an exercise as the demonstration.
+  `directives` stands in for command, `assessments` narrates assessments and directives,
+  `theater` narrates an exercise as the demonstration, one block per round by side, and
+  `theater-check` reconciles a run's assessments against exercise's record.
 - **The exercise** (`exercise.md`): four services, `exercise`, `intelligence`, `command`, and
-  `operations`, that play a two-faction exercise of sector dominance, all built. Each round runs as
-  a chain of events and commands across all four. `mise run demo-theater` plays the skirmish
-  across the running services, narrated by courier's `theater`, and `mise run
-  demo-theater-check` reconciles its assessments against exercise's record.
+  `operations`, that play the skirmish, a seeded two-faction exercise over hidden objectives, all
+  built. Each round runs as a chain of events and commands across all four, with loss alerts and
+  revised assessments ordered by producer counters. `SEED=7 mise run demo-theater` plays and
+  narrates it across the running services, and `mise run demo-theater-check` runs courier's
+  `theater-check` against it.
 
 ## Path
 
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **the skirmish**: the demonstration's redesign (`exercise.md`, "The skirmish, next"): one
-   13×13 grid, squads of operators with health, seeded fights, retreat and reinforcement, and
-   two-round capture.
+1. **the cleanup** (`cleanup.md`): a holistic architecture review of the whole spike, starting
+   with courier's `theater` and `theater-check`, and the refactor it settles.
 2. **the final validation**: two replicas, drain, outages, convergence, and the import check.
    Its close states the answer.
 
@@ -68,6 +69,7 @@ after it:
 - `design.md`: the decisions the spike starts from, the outbox-sequencing rule, and the open
   questions it settles.
 - `exercise.md`: the final demonstration, its guidelines, rules, and services.
+- `cleanup.md`: the next step, a holistic architecture review, and the inputs it starts from.
 
 ## The final validation
 

@@ -1,0 +1,2 @@
+ALTER TABLE exercise_round DROP COLUMN IF EXISTS resolution;
+ALTER TABLE exercise DROP COLUMN IF EXISTS seed;

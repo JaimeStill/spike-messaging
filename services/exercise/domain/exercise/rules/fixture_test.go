@@ -27,12 +27,38 @@ func loc(sector string, x, y int) rules.Location {
 	return rules.Location{Sector: sector, Point: rules.Point{X: x, Y: y}}
 }
 
-func force(id, faction string, strength int, at rules.Location) rules.Element {
-	return rules.Element{ID: id, Faction: faction, Kind: rules.Force, Strength: strength, At: at}
+// seed is the seed every test resolves its rounds under.
+const seed = 7
+
+// squad returns a ready squad of four operators at full health.
+func squad(id, faction string, at rules.Location) rules.Element {
+	return rules.Element{
+		ID: id, Faction: faction, Kind: rules.Squad,
+		Strength: 400, Health: []int{100, 100, 100, 100}, Status: rules.StatusReady, At: at,
+	}
 }
 
+// scout returns a ready scout at full health.
 func scout(id, faction string, at rules.Location) rules.Element {
-	return rules.Element{ID: id, Faction: faction, Kind: rules.Scout, Strength: 1, At: at}
+	return rules.Element{
+		ID: id, Faction: faction, Kind: rules.Scout,
+		Strength: 100, Health: []int{100}, Status: rules.StatusReady, At: at,
+	}
+}
+
+// hurt returns e with its operators at health, and its strength their sum.
+func hurt(e rules.Element, health ...int) rules.Element {
+	e.Health, e.Strength = health, 0
+	for _, h := range health {
+		e.Strength += h
+	}
+	return e
+}
+
+// engaged returns e with its status engaged.
+func engaged(e rules.Element) rules.Element {
+	e.Status = rules.StatusEngaged
+	return e
 }
 
 // state returns a state on the fixture map between factions "red" and
@@ -43,11 +69,26 @@ func state(es ...rules.Element) rules.State {
 		Factions: [2]string{"red", "blue"},
 		Elements: es,
 		Holders:  map[string]string{},
+		Progress: map[string]rules.Progress{},
 	}
 }
 
 func order(id string, steps ...rules.Location) rules.Order {
 	return rules.Order{Element: id, Steps: steps}
+}
+
+func pursue(id string) rules.Order {
+	return rules.Order{Element: id, Pursue: true}
+}
+
+func retreat(id string, steps ...rules.Location) rules.Order {
+	return rules.Order{Element: id, Steps: steps, Retreat: true}
+}
+
+// recovering returns e with its status recovering.
+func recovering(e rules.Element) rules.Element {
+	e.Status = rules.StatusRecovering
+	return e
 }
 
 // find returns the element of s with ID id.

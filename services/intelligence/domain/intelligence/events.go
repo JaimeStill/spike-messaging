@@ -12,24 +12,34 @@ import (
 // AssessmentIssued reports a faction's assessment of an observed round:
 // what the faction knows once that round's observation is fused into what
 // it knew. Its subject is the exercise's ID. Observe raises one per faction
-// per observed round.
+// per observed round, and Alert one when it changes a picture that already
+// covers the round it reports.
 var AssessmentIssued = event.Define[AssessmentData]("intelligence.assessment.issued")
 
 // AssessmentData is the event entity of [AssessmentIssued]: the exercise, the
-// faction, and the faction's picture flattened beside them. The picture
+// faction, the assessment's revision, and the faction's picture flattened
+// beside them. The revision counts the assessments issued for the faction,
+// from 1, across Observe and Alert; an observation's assessment and an
+// alert's of one round differ in it, and a consumer decides only an
+// assessment with a higher revision than the last it decided. The picture
 // gives the round assessed, the faction's own elements, its contacts, each
-// with the round it was last seen and its age, and every objective, with
-// its last-seen holder when known.
+// with the round it was last seen and its age, the objectives it has seen,
+// each with its last-seen holder, and the cells its elements have had in
+// sight.
 type AssessmentData struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`
+	Revision int    `json:"revision"`
 	fusion.Picture
 }
 
-// raiseAssessment raises the faction's assessment, its picture p, of
-// exercise id.
-func raiseAssessment(q *event.Queue, id, faction string, p fusion.Picture) {
-	AssessmentIssued.Raise(q, id, AssessmentData{Exercise: id, Faction: faction, Picture: p})
+// raiseAssessment advances a's revision and raises its assessment. The
+// caller saves a, which records the revision.
+func raiseAssessment(q *event.Queue, a *Assessment) {
+	a.Revision++
+	AssessmentIssued.Raise(q, a.Exercise, AssessmentData{
+		Exercise: a.Exercise, Faction: a.Faction, Revision: a.Revision, Picture: a.Picture,
+	})
 }
 
 // command runs fn, a mutating command's body, as one transaction. When fn
