@@ -20,15 +20,13 @@ mise run exercise-serve   # run the service on 127.0.0.1:8081
 databases when the volume is first initialized. The service migrates only its own schema, at
 startup.
 
-`fixtures/skirmish.json` is the demonstration: a 9×5 field that both sides start in, a 5×3 annex
-reached by a gate from the middle of each long edge, three objectives, and three elements a side,
-laid out so neither side is favored, over 20 rounds of 1s. `fixtures/theater.json` is a larger
-exercise: three sectors joined by gates, walls and obstacle fields, five objectives, and six
-elements a side. With all four exercise services running, `mise run demo-theater` creates and starts
-the skirmish, or the theater with `FIXTURE=theater`, and narrates it through courier's `theater`
-scenario, which calls elements squads. `mise run demo-theater-check` then reconciles every
-assessment of the run against this service's history, the umpire's record, under the suppression
-rules, and reports what each faction wrongly believes at the end.
+`fixtures/skirmish.json` is the demonstration: 40 rounds of 1s between red and blue, with no
+map, elements, or seed, so the service lays out the skirmish from a seed it draws. With all four
+exercise services running, `mise run demo-theater` creates and starts it, and narrates it through
+courier's `theater` scenario; `SEED=7 mise run demo-theater` replays seed 7. `mise run
+demo-theater-check` then reconciles every assessment of the run against this service's history,
+the umpire's record, under the suppression rules, and reports what each faction wrongly believes
+at the end.
 
 ## API
 
@@ -36,12 +34,26 @@ Mounted under `/api/exercises`:
 
 | Route | Action |
 |-------|--------|
-| `POST /` | Create an exercise: its map, its two factions, their elements, a round interval, and a round limit |
-| `GET /{id}` | The umpire's view: status, round, the whole state, and the verdict |
-| `GET /{id}/history` | Every resolved round: its state, both factions' observations, and its verdict |
+| `POST /` | Create an exercise: its name, its two factions, a round interval, a round limit, and optionally a seed, and a map with its elements |
+| `GET /{id}` | The umpire's view: status, seed, round, the whole state, and the verdict |
+| `GET /{id}/history` | Every round from the start: its state, both factions' observations, its verdict, and its resolution |
 | `POST /{id}/start` | Start the exercise; round 0 is observed at once |
 | `POST /{id}/pause` · `/resume` | Hold the exercise's rounds, and resume them |
 | `POST /{id}/stop` | End the exercise |
+
+A create that gives no seed gets one drawn from [0, 2^31), and the exercise keeps it: every
+round's random draws come from the seed and the round, so a seed replays an exercise. A create
+gives a map and its elements together or neither. With neither, the exercise starts from the
+skirmish the seed lays out: one 13×13 sector with three to five objectives, and three squads and
+two scouts a side on opposite baselines, mirrored so neither side is favored. With both, the
+exercise starts from them as given.
+
+An element fields operators, each with health from 1 to 100: a squad up to four, a scout one. Its
+strength is the sum of their health, and its status is `ready`, `engaged` in a fight, or
+`recovering` from a retreat. An order names an element and the cells it steps through; an engaged
+element moves only on an order of one step marked `"retreat": true`, which draws a volley from
+the enemy it leaves. Round 0, the start, resolves nothing, so its resolution in the history is
+`null`.
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor.
@@ -51,10 +63,12 @@ service, and each reactor.
 Each event is written in the transaction of the command that makes it true, and its subject is
 the exercise's ID:
 
-- `exercise.started`: the public settings, including the map but not the elements.
+- `exercise.started`: the public settings, including the seed and the map but not the elements.
 - `exercise.round.resolved`: one per resolved round, before its observations: the umpire's record
-  of the round's engagements, with every element's strength before and after, the objectives
-  that changed hands, and the elements destroyed. It shows both factions, so it is for an
+  of the round's retreats and the volleys they drew, its engagements, with every element's
+  strength before and after and the operators it lost, the elements destroyed, the objectives
+  that changed hands, and each faction's progress toward the objectives it is taking. It is the
+  resolution the history records for the round. It shows both factions, so it is for an
   observer of the whole exercise, such as courier's theater narration; no service consumes it.
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.

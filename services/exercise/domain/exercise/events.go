@@ -20,8 +20,8 @@ var (
 	// round raises one per faction, and the start raises them for round 0.
 	RoundObserved = event.Define[ObservedData]("exercise.round.observed")
 	// RoundResolved reports what a round's resolution did, as the umpire
-	// records it: its engagements, the objectives that changed hands, and
-	// the elements destroyed. Each resolved round raises one, before its
+	// records it: its retreats, its engagements, the elements destroyed, the
+	// objectives that changed hands, and the objectives being taken. Each resolved round raises one, before its
 	// observations. It reveals every faction's elements, so it is for an
 	// observer of the whole exercise, not for a faction's services.
 	RoundResolved = event.Define[ResolvedData]("exercise.round.resolved")
@@ -31,11 +31,12 @@ var (
 )
 
 // StartedData is the event entity of [Started]: the exercise's public
-// settings. The map is public and the elements are not, so it carries no
-// element.
+// settings, its seed among them. The map is public and the elements are
+// not, so it carries no element.
 type StartedData struct {
 	Exercise        string    `json:"exercise"`
 	Name            string    `json:"name"`
+	Seed            int64     `json:"seed"`
 	Map             rules.Map `json:"map"`
 	Factions        [2]string `json:"factions"`
 	RoundIntervalMS int64     `json:"round_interval_ms"`
@@ -77,6 +78,7 @@ func startedData(ex Exercise) StartedData {
 	return StartedData{
 		Exercise:        ex.ID,
 		Name:            ex.Name,
+		Seed:            ex.Seed,
 		Map:             ex.State.Map,
 		Factions:        ex.Factions,
 		RoundIntervalMS: ex.intervalMS,
