@@ -23,8 +23,8 @@ import (
 // subscribes under, so the stream's consumers show which are courier's.
 const AssessmentsDurable = "courier-assessments-"
 
-// assessmentType is the event the assessments scenario narrates, beside the
-// directives command decides on each assessment, directiveType.
+// assessmentType is the event the assessments scenario narrates, along with
+// directiveType, the directives command decides on each assessment.
 const assessmentType = "intelligence.assessment.issued"
 
 // The scenario's own reading of intelligence's assessment: the services

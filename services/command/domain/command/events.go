@@ -27,7 +27,7 @@ type DirectiveData struct {
 	Directives []decide.Decision `json:"directives"`
 }
 
-// raiseDirective raises d's faction's directives, its decisions of round.
+// raiseDirective raises [DirectiveIssued] with d's decisions for d's round.
 func raiseDirective(q *event.Queue, d Direction) {
 	DirectiveIssued.Raise(q, d.Exercise, DirectiveData{
 		Exercise: d.Exercise, Faction: d.Faction, Round: d.Round, Directives: d.Decisions,

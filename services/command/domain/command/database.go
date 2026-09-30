@@ -159,7 +159,7 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, d Direction) error {
 }
 
 // closeAll closes every faction's direction in exercise id, which
-// concluded after round, and reports how many it found.
+// concluded after round, and reports how many directions it closed.
 func (s *store) closeAll(ctx context.Context, tx *sqlate.Tx, id string, round int) (int64, error) {
 	n, err := s.close.Exec(ctx, tx, query.Args{"exercise_id": id, "closed_round": round})
 	if err != nil {

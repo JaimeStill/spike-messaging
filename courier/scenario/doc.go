@@ -22,8 +22,9 @@
 // it, and issues one command.directive.issued that sends each of the
 // faction's elements to secure an objective.
 //
-// The assessments scenario joins the same stream and narrates the
-// intelligence.assessment.issued events of one exercise until it concludes,
-// with the command.directive.issued events decided on them, in full or,
-// with --summary, round by round for an exercise with many elements.
+// The assessments scenario joins the same stream and narrates one
+// exercise's intelligence.assessment.issued events and the
+// command.directive.issued events decided on them, until the exercise
+// concludes. It narrates each event in full or, with --summary, round by
+// round for an exercise with many elements.
 package scenario

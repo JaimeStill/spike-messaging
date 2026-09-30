@@ -52,12 +52,12 @@ gates:
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where a hold's
-target is null and only an engage has a contact. It emits one only when a decision changes an
-element's target, and it lists every live element, so each directive carries the faction's whole
-target state. operations reads the element and the target.
+target is null and only an engage has a contact. The service emits the event only when a decision
+changes an element's target. The event lists every live element, so it carries the faction's whole
+target state. The operations service reads the element and the target.
 
-The messaging runtime logs the traffic: each event the relay publishes, and each delivery a
-consumer handles, with its outcome.
+The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer
+logs each delivery with its outcome.
 
 ## Composition
 

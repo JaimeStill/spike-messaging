@@ -39,14 +39,15 @@
 // for a direction not open yet fails with [ErrNotOpen], which is not
 // permanent: the events arrive on separate subscriptions, so a round's
 // assessment can be handled before the start that opens its direction, and
-// the broker redelivers it. Each command locks its faction's row, so
-// replicas act on one faction's assessments one at a time. Decide skips an
-// assessment of a round the direction already decided on, and one of a
-// closed direction past the round its exercise concluded after, so the
-// final round is decided on even when its conclusion is handled first.
+// the broker redelivers it. Decide locks its faction's row, so replicas act
+// on one faction's assessments one at a time. It skips an assessment of a
+// round the direction already decided on, and one of a closed direction
+// past the round its exercise concluded after, so the final round is
+// decided on even when its conclusion is handled first.
 //
-// A directive lists every live element, not only those whose target
-// changed. operations skips an input from a round earlier than the last it
-// acted on, so a directive it skips would otherwise lose its change for
-// good; the next directive it takes carries the whole target state.
+// A [DirectiveIssued] event lists every live element, not only those whose
+// target changed. The operations service skips an input from a round
+// earlier than the last it acted on, so a change in a skipped event would
+// otherwise be lost; the next event it takes carries the whole target
+// state.
 package command
