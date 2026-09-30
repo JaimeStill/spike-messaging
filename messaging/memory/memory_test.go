@@ -77,7 +77,7 @@ func TestBindingComparesMeaning(t *testing.T) {
 		t.Fatal(err)
 	}
 	types[0] = "changed" // the consumer must keep its own copy
-	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: memory.DefaultAckWait}); err != nil {
+	if _, err := b.Subscribe(messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: messaging.DefaultAckWait}); err != nil {
 		t.Errorf("the same types in another order, with the default AckWait spelled out, must bind: %v", err)
 	}
 	if _, err := b.Subscribe(messaging.Subscription{Name: "empty", Types: []string{}}); err != nil {

@@ -46,21 +46,45 @@ func engines(t *testing.T) (outbox.Engine, inbox.Engine) {
 	}, inbox.Engine{Claim: s.Statement("claim")}
 }
 
-func TestNewRequiresTheEngines(t *testing.T) {
-	ob, in := engines(t)
+// config is a finalized configuration with the source /test.
+func config(t *testing.T) messaging.Config {
+	t.Helper()
 	cfg := messaging.Config{Source: "/test"}
-	if _, err := messaging.New(cfg, memory.New(), outbox.Engine{}, in, slog.Default()); err == nil {
-		t.Error("New accepted an empty outbox engine")
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := messaging.New(cfg, memory.New(), ob, inbox.Engine{}, slog.Default()); err == nil {
-		t.Error("New accepted an empty inbox engine")
+	return cfg
+}
+
+// New refuses an engine that is missing a statement, a configuration that
+// is not finalized, and a drain timeout that is not positive.
+func TestNewChecksItsInputs(t *testing.T) {
+	ob, in := engines(t)
+	cfg := config(t)
+	for name, build := range map[string]func() (*messaging.Runtime, error){
+		"an empty outbox engine": func() (*messaging.Runtime, error) {
+			return messaging.New(cfg, memory.New(), outbox.Engine{}, in, time.Second, slog.Default())
+		},
+		"an empty inbox engine": func() (*messaging.Runtime, error) {
+			return messaging.New(cfg, memory.New(), ob, inbox.Engine{}, time.Second, slog.Default())
+		},
+		"a configuration without its poll": func() (*messaging.Runtime, error) {
+			return messaging.New(messaging.Config{Source: "/test"}, memory.New(), ob, in, time.Second, slog.Default())
+		},
+		"a zero drain timeout": func() (*messaging.Runtime, error) {
+			return messaging.New(cfg, memory.New(), ob, in, 0, slog.Default())
+		},
+	} {
+		if _, err := build(); err == nil {
+			t.Errorf("New accepted %s", name)
+		}
 	}
-	rt, err := messaging.New(cfg, memory.New(), ob, in, slog.Default())
+	rt, err := messaging.New(cfg, memory.New(), ob, in, time.Second, slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Outbox == nil || rt.Inbox == nil || rt.Recorder == nil || rt.Broker == nil {
-		t.Errorf("New left a field unset: %+v", rt)
+	if rt.Recorder == nil {
+		t.Error("New left the recorder unset")
 	}
 }
 
@@ -78,7 +102,7 @@ func TestConsume(t *testing.T) {
 	ob, in := engines(t)
 	b := memory.New()
 	var log syncBuffer
-	rt, err := messaging.New(messaging.Config{Source: "/test"}, b, ob, in, slog.New(slog.NewTextHandler(&log, nil)))
+	rt, err := messaging.New(config(t), b, ob, in, time.Second, slog.New(slog.NewTextHandler(&log, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +113,7 @@ func TestConsume(t *testing.T) {
 	calls := make(chan got, 4)
 	var failed sync.Once
 	sub := messaging.Subscription{Name: "consumer", Types: []string{"t"}, RetryDelay: 10 * time.Millisecond}
-	r, err := rt.Consume(sub, time.Second, func(_ context.Context, d payload, claim messaging.Claim) error {
+	r, err := rt.Consume(sub, func(_ context.Context, d payload, claim messaging.Claim) error {
 		if d.N == 9 {
 			return event.Permanent(errors.New("nine is refused"))
 		}
@@ -169,7 +193,7 @@ func TestConsume(t *testing.T) {
 		}
 	}
 
-	if _, err := rt.Consume(messaging.Subscription{Name: "a.b"}, time.Second, func(context.Context, payload, messaging.Claim) error { return nil }); err == nil {
+	if _, err := rt.Consume(messaging.Subscription{Name: "a.b"}, func(context.Context, payload, messaging.Claim) error { return nil }); err == nil {
 		t.Error("Consume accepted an invalid subscription")
 	}
 }

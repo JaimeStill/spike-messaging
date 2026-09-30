@@ -1,6 +1,7 @@
 package messaging_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -58,5 +59,18 @@ func TestMatches(t *testing.T) {
 	some := messaging.Subscription{Name: "a", Types: []string{"x", "y"}}
 	if !some.Matches("y") || some.Matches("z") {
 		t.Error("the filter must match exactly its types")
+	}
+}
+
+// Normalize defaults AckWait and puts Types in one order without repeats,
+// so subscriptions that mean the same thing compare equal.
+func TestNormalize(t *testing.T) {
+	a := messaging.Subscription{Name: "n", Types: []string{"b", "a", "a"}}.Normalize()
+	b := messaging.Subscription{Name: "n", Types: []string{"a", "b"}, AckWait: messaging.DefaultAckWait}.Normalize()
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("Normalize = %+v and %+v, want them equal", a, b)
+	}
+	if got := (messaging.Subscription{Name: "n", Types: []string{}}).Normalize().Types; got != nil {
+		t.Errorf("empty Types normalized to %#v, want nil", got)
 	}
 }

@@ -13,16 +13,23 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/reactor"
 )
 
+const (
+	// DefaultAckWait is the AckWait of a subscription that sets none.
+	DefaultAckWait = 30 * time.Second
+	// DefaultDuplicates is a broker's deduplication window when it sets
+	// none: JetStream's own default.
+	DefaultDuplicates = 2 * time.Minute
+)
+
 // Publisher publishes an event. Publish returns once the broker holds the
 // event, so a delivery can outlive the publisher.
 //
-// Publish rejects an event that fails [event.Event.Validate] or whose type
-// breaks [CheckType]. The broker deduplicates on the event's source and id,
-// which together identify a CloudEvents event: an event whose source and id
-// the broker has seen within its deduplication window is accepted and
-// dropped, so a publisher that retries, such as the outbox's relay, delivers
-// the event once, while another source's event that reuses the id still
-// delivers.
+// Publish rejects an event that [Encode] rejects. The broker deduplicates on
+// the event's source and id, which together identify a CloudEvents event: an
+// event whose source and id the broker has seen within its deduplication
+// window is accepted and dropped, so a publisher that retries, such as the
+// outbox's relay, delivers the event once, while another source's event that
+// reuses the id still delivers.
 type Publisher interface {
 	Publish(ctx context.Context, e event.Event) error
 }
@@ -63,7 +70,7 @@ type Subscription struct {
 	MaxDeliver int
 	// AckWait is the handler's deadline for each delivery, and so the
 	// deadline on its context. When it passes, the event is redelivered and
-	// the late outcome is ignored. 0 is the provider's default.
+	// the late outcome is ignored. 0 is [DefaultAckWait].
 	AckWait time.Duration
 	// RetryDelay is how long an event whose handler returned an error waits
 	// before it is redelivered; 0 redelivers it at once.
@@ -73,11 +80,8 @@ type Subscription struct {
 // Validate reports every way sub is unusable.
 func (sub Subscription) Validate() error {
 	var errs []error
-	switch {
-	case sub.Name == "":
-		errs = append(errs, errors.New("name is required"))
-	case !IsToken(sub.Name):
-		errs = append(errs, fmt.Errorf("name %q must not contain whitespace, '.', '*', '>', '/', or '\\'", sub.Name))
+	if err := CheckName(sub.Name); err != nil {
+		errs = append(errs, fmt.Errorf("name: %w", err))
 	}
 	for _, t := range sub.Types {
 		if err := CheckType(t); err != nil {
@@ -99,20 +103,58 @@ func (sub Subscription) Validate() error {
 	return nil
 }
 
-// IsToken reports whether s can name a durable consumer or a stream: it is
+// Normalize returns sub in the form a provider configures its consumer from:
+// AckWait defaulted to [DefaultAckWait], and Types copied, sorted, and
+// without repeats, nil when empty. Subscriptions that mean the same thing
+// normalize equal, so they bind the same consumer, and the caller cannot
+// change the filter afterward.
+func (sub Subscription) Normalize() Subscription {
+	if sub.AckWait == 0 {
+		sub.AckWait = DefaultAckWait
+	}
+	if len(sub.Types) == 0 {
+		sub.Types = nil
+	} else {
+		sub.Types = slices.Compact(slices.Sorted(slices.Values(sub.Types)))
+	}
+	return sub
+}
+
+// CheckName reports whether s can name a durable consumer or a stream: it is
 // non-empty, with no whitespace, control character, '.', '*', '>', '/', or
 // '\', the characters a JetStream name may not hold.
-func IsToken(s string) bool {
-	return s != "" && !strings.ContainsFunc(s, func(r rune) bool {
+func CheckName(s string) error {
+	if s == "" {
+		return errors.New("a name is required")
+	}
+	if strings.ContainsFunc(s, func(r rune) bool {
 		return strings.ContainsRune(".*>/\\", r) || unicode.IsSpace(r) || unicode.IsControl(r)
-	})
+	}) {
+		return fmt.Errorf("%q must not contain whitespace, a control character, '.', '*', '>', '/', or '\\'", s)
+	}
+	return nil
 }
 
 // CheckType reports whether t is an event type a broker can route: one or
-// more tokens separated by '.', none of them empty, with no whitespace, '*',
-// or '>'. It is [event.CheckType], the rule a domain's event kinds are
-// declared under, so a type a domain can define is a type a broker routes.
+// more tokens separated by '.', none of them empty, with no whitespace,
+// control character, '*', or '>'. It is [event.CheckType], the rule a
+// domain's event kinds are declared under, so a type a domain can define is
+// a type a broker routes.
 func CheckType(t string) error { return event.CheckType(t) }
+
+// Encode is the check and encoding every provider's Publish makes: e must
+// pass [event.Event.Validate] and its type [CheckType], and it is returned
+// in binary content mode, as [event.Encode] gives it.
+func Encode(e event.Event) (event.Header, []byte, error) {
+	h, body, err := event.Encode(e)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := CheckType(e.Type); err != nil {
+		return nil, nil, err
+	}
+	return h, body, nil
+}
 
 // Matches reports whether sub's type filter admits an event of type t.
 func (sub Subscription) Matches(t string) bool {
