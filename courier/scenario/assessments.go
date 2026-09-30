@@ -54,6 +54,7 @@ type (
 		Exercise   string              `json:"exercise"`
 		Faction    string              `json:"faction"`
 		Round      int                 `json:"round"`
+		Revision   int                 `json:"revision"`
 		Own        []assessedElement   `json:"own"`
 		Contacts   []assessedContact   `json:"contacts"`
 		Objectives []assessedObjective `json:"objectives"`

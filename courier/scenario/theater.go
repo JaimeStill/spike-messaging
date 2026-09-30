@@ -60,7 +60,6 @@ type (
 		Factions        []string `json:"factions"`
 		RoundIntervalMS int64    `json:"round_interval_ms"`
 		RoundLimit      int      `json:"round_limit"`
-		Seed            int64    `json:"seed"`
 	}
 	squad struct {
 		ID       string   `json:"id"`
@@ -116,12 +115,6 @@ type (
 			Faction string   `json:"faction"`
 			Rounds  int      `json:"rounds"`
 		} `json:"progress"`
-		// Objectives is every objective with its holder after the round: the
-		// observer's view, which the factions do not have.
-		Objectives []struct {
-			At     location `json:"at"`
-			Holder string   `json:"holder"`
-		} `json:"objectives"`
 	}
 	lostData struct {
 		Exercise string   `json:"exercise"`
@@ -163,7 +156,7 @@ func swing(e engaged) string {
 // It closes with the final conditions, with a ledger of the stream's
 // traffic and the chain's latency.
 func theaterScenario(joins Joins, needs func() []Need) Scenario {
-	var exercise, stream, prefix string
+	var exercise, exerciseURL, stream, prefix string
 	maxAge := 24 * time.Hour
 	wait := 2 * time.Minute
 	return Scenario{
@@ -172,6 +165,7 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the exercise to narrate, joined before it starts (required)")
+			fs.StringVar(&exerciseURL, "exercise-url", "http://localhost:8081", "the exercise service's base URL, which tells the seed and the objectives")
 			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
 			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
 			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
@@ -182,6 +176,9 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 			if _, err := uuid.Parse(exercise); err != nil {
 				errs = append(errs, errors.New("--exercise must be an exercise's ID"))
 			}
+			if err := validExerciseURL(exerciseURL); err != nil {
+				errs = append(errs, err)
+			}
 			if wait <= 0 {
 				errs = append(errs, errors.New("--wait must be positive"))
 			}
@@ -191,6 +188,7 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 			c := newCoordinator(defaultDrain)
 			var l lease
 			n := newNarrator(exercise)
+			n.read = func(ctx context.Context) (exerciseView, error) { return readExercise(ctx, exerciseURL, exercise) }
 			return []Step{
 				{
 					Intent: fmt.Sprintf("Join the %s stream, and wait for exercise %s to start", stream, exercise),
@@ -214,8 +212,7 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 							return err
 						}
 						n.note = rep.Note
-						handle := func(_ context.Context, e event.Event) error { return n.handle(e) }
-						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, handle, reactor.Grace(defaultGrace)))
+						corelifecycle.Register(c.lc, "watch", 0, reactor.New(src, n.handle, reactor.Grace(defaultGrace)))
 						if err := c.start(ctx, rep); err != nil {
 							return err
 						}
@@ -239,7 +236,9 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 						case <-wctx.Done():
 							return fmt.Errorf("exercise %s did not conclude within %s", exercise, wait)
 						}
-						// The final round's assessments follow the conclusion.
+						// The final round's assessments, and the revisions of those
+						// of a faction that lost an objective in it, follow the
+						// conclusion.
 						select {
 						case <-n.settled.ch:
 						case <-time.After(settle):
@@ -269,8 +268,8 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 }
 
 // narrator follows one exercise's events and narrates them: the initial
-// conditions once the start, round 0's observations, and the first round's
-// resolution (which tells the objectives) are in, then each round as a
+// conditions once the start (when it reads the seed and the objectives from
+// exercise's API) and round 0's observations are in, then each round as a
 // block, and, on demand, the final conditions. It collects what each event
 // changes in the block of the round it belongs to, and narrates a block
 // once an event of a later round arrives, so a block tells a round's story
@@ -281,29 +280,31 @@ func theaterScenario(joins Joins, needs func() []Need) Scenario {
 type narrator struct {
 	exercise                    string
 	note                        func(string, ...any)
+	read                        func(context.Context) (exerciseView, error) // reads the exercise's view from its API
 	started, concluded, settled *signal
 
-	mu       sync.Mutex
-	setup    *theaterStarted
-	initial  map[string][]squad                // each faction's squads in round 0
-	latest   map[string][]squad                // each faction's squads in its latest observation
-	told     bool                              // whether the initial conditions were narrated
-	blocks   map[int]*block                    // the rounds not yet narrated, and late changes
-	seen     int                               // the latest round an event belongs to
-	printed  int                               // the last round narrated, or -1
-	sites    []location                        // the objectives, as the observer's resolutions report them
-	holders  map[string]string                 // each objective's holder, by place
-	learned  bool                              // whether a resolution has reported the objectives
-	regroups map[string]map[string]bool        // each faction's recovering squads already narrated
-	losses   map[string]map[string]lostData    // each faction's objectives lost, by place
-	pictures map[string]assessmentData         // each faction's last assessment
-	standing standing                          // each faction's last directive, by element
-	moving   map[string]string                 // the key of each faction's orders in effect, as narrated
-	orders   map[string]map[int]movement       // each faction's latest orders not yet resolved, by round
-	resolves int                               // the last round resolved
-	counts   map[string]int                    // events by type
-	times    map[string]map[string][]time.Time // event times, by type and "faction/round"
-	end      *concludedData
+	mu        sync.Mutex
+	setup     *theaterStarted
+	view      exerciseView                      // the observer's view, read at the start
+	initial   map[string][]squad                // each faction's squads in round 0
+	latest    map[string][]squad                // each faction's squads in its latest observation
+	told      bool                              // whether the initial conditions were narrated
+	blocks    map[int]*block                    // the rounds not yet narrated, and late changes
+	seen      int                               // the latest round an event belongs to
+	printed   int                               // the last round narrated, or -1
+	sites     []location                        // the objectives, as the observer's view has them
+	holders   map[string]string                 // each objective's holder, by place, as the captures tell it
+	regroups  map[string]map[string]bool        // each faction's recovering squads already narrated
+	losses    map[string]map[string]lostData    // each faction's objectives lost, by place
+	pictures  map[string]assessmentData         // each faction's last assessment
+	standing  standing                          // each faction's last directive, by element
+	moving    map[string]string                 // the key of each faction's orders in effect, as narrated
+	orders    map[string]map[int]movement       // each faction's latest orders not yet resolved, by round
+	resolves  int                               // the last round resolved
+	revisions map[string][2]int                 // the first and highest revision of each faction's assessments, by "faction/round"
+	counts    map[string]int                    // events by type
+	times     map[string]map[string][]time.Time // event times, by type and "faction/round"
+	end       *concludedData
 }
 
 // block is what one round changed, as the narration tells it: the
@@ -324,9 +325,11 @@ var resultVerbs = []string{"captures", "takes", "loses"}
 
 func newNarrator(exercise string) *narrator {
 	return &narrator{
-		exercise: exercise,
-		note:     func(string, ...any) {},
-		started:  newSignal(), concluded: newSignal(), settled: newSignal(),
+		exercise:  exercise,
+		note:      func(string, ...any) {},
+		revisions: map[string][2]int{},
+		read:      func(context.Context) (exerciseView, error) { return exerciseView{}, nil },
+		started:   newSignal(), concluded: newSignal(), settled: newSignal(),
 		initial: map[string][]squad{}, latest: map[string][]squad{},
 		blocks: map[int]*block{}, printed: -1,
 		holders: map[string]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[string]lostData{}, pictures: map[string]assessmentData{},
@@ -338,12 +341,21 @@ func newNarrator(exercise string) *narrator {
 // handle collects one event of the stream in the block of the round it
 // belongs to, ignoring every other exercise's, and narrates the blocks it
 // completes.
-func (n *narrator) handle(e event.Event) error {
+func (n *narrator) handle(ctx context.Context, e event.Event) error {
 	var head struct {
 		Exercise string `json:"exercise"`
 	}
 	if err := json.Unmarshal(e.Data, &head); err != nil || head.Exercise != n.exercise {
 		return nil
+	}
+	// The objectives are read before any later event is handled, so every
+	// cell is named as it is told.
+	var view exerciseView
+	if e.Type == startedType {
+		var err error
+		if view, err = n.read(ctx); err != nil {
+			return fmt.Errorf("read exercise %s: %w", n.exercise, err)
+		}
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -354,6 +366,7 @@ func (n *narrator) handle(e event.Event) error {
 		var d theaterStarted
 		if err = json.Unmarshal(e.Data, &d); err == nil {
 			n.setup = &d
+			n.learn(view)
 			n.started.fire()
 		}
 	case resolvedType:
@@ -370,6 +383,7 @@ func (n *narrator) handle(e event.Event) error {
 				n.losses[d.Faction] = map[string]lostData{}
 			}
 			n.losses[d.Faction][place(d.At)] = d
+			n.holders[place(d.At)] = d.Holder
 			n.result(d.Round, d.Faction, "loses", n.name(d.At)+" to "+d.Holder)
 		}
 	case observedType:
@@ -389,6 +403,12 @@ func (n *narrator) handle(e event.Event) error {
 			n.belongs(d.Round)
 			n.stamp(e, d.Faction, d.Round)
 			n.assessed(d)
+			k := d.Faction + "/" + strconv.Itoa(d.Round)
+			if r, ok := n.revisions[k]; !ok {
+				n.revisions[k] = [2]int{d.Revision, d.Revision}
+			} else {
+				n.revisions[k] = [2]int{r[0], max(r[1], d.Revision)}
+			}
 		}
 	case directiveType:
 		var d directiveData
@@ -511,11 +531,7 @@ func (n *narrator) late() []string {
 		}
 		for _, s := range n.sides(n.blocks[r]) {
 			for _, l := range s.rows {
-				items := make([]string, len(l.items))
-				for i, it := range l.items {
-					items[i] = n.unmark(it)
-				}
-				out = append(out, fmt.Sprintf("%d %s %s %s", r, s.name, l.label, strings.Join(items, " · ")))
+				out = append(out, fmt.Sprintf("%d %s %s %s", r, s.name, l.label, strings.Join(l.items, " · ")))
 			}
 		}
 		delete(n.blocks, r)
@@ -591,7 +607,7 @@ func (n *narrator) sides(b *block) []side {
 		}
 		if len(b.decides[f]) > 0 {
 			decides := slices.SortedFunc(slices.Values(b.decides[f]), func(a, b detail) int { return cmp.Compare(a.cells[0].text, b.cells[0].text) })
-			s.rows = append(s.rows, labeled{label: "decides", items: list(decides, "", n.unmark), each: true})
+			s.rows = append(s.rows, labeled{label: "decides", items: list(decides, "", same), each: true})
 		}
 		if o := b.orders[f]; o != "" {
 			s.rows = append(s.rows, labeled{label: "orders", items: []string{o}})
@@ -646,27 +662,13 @@ func (n *narrator) labelWidth() int {
 
 // rows renders a row at indent, its label padded to the rows' width.
 func (n *narrator) rows(indent string, l labeled) []string {
-	return l.lines(indent, n.labelWidth(), n.unmark)
+	return l.lines(indent, n.labelWidth(), same)
 }
 
 // name renders a cell for the narration: an objective's as objective:x,y,
-// any other as sector:x,y. Until the initial conditions are narrated the
-// objectives may be unknown, so the cell is marked for the narration to
-// name once they are.
+// any other as sector:x,y.
 func (n *narrator) name(l location) string {
-	if !n.told {
-		return mark + place(l) + mark
-	}
-	return n.render(l)
-}
-
-// mark brackets a cell in a held line.
-const mark = "\x00"
-
-// render names a cell as name does once the objectives are known.
-func (n *narrator) render(l location) string { return n.renderPlace(place(l)) }
-
-func (n *narrator) renderPlace(p string) string {
+	p := place(l)
 	if _, ok := n.holders[p]; ok {
 		_, xy, _ := strings.Cut(p, ":")
 		return "objective:" + xy
@@ -674,20 +676,20 @@ func (n *narrator) renderPlace(p string) string {
 	return p
 }
 
-// unmark names the cells marked in a held line.
-func (n *narrator) unmark(l string) string {
-	parts := strings.Split(l, mark)
-	for i := 1; i < len(parts); i += 2 {
-		parts[i] = n.renderPlace(parts[i])
+// learn takes the seed and the objectives from the observer's view, read at
+// the start, when no objective is held.
+func (n *narrator) learn(v exerciseView) {
+	n.view = v
+	n.sites = v.State.objectives()
+	for _, l := range n.sites {
+		n.holders[place(l)] = ""
 	}
-	return strings.Join(parts, "")
 }
 
-// tell narrates the initial conditions once the start, each faction's
-// round-0 observation, and a resolution that tells the objectives are in
-// (or the exercise has concluded without one).
+// tell narrates the initial conditions once the start and each faction's
+// round-0 observation are in.
 func (n *narrator) tell() {
-	if n.told || n.setup == nil || !n.learned && n.end == nil {
+	if n.told || n.setup == nil {
 		return
 	}
 	for _, f := range n.setup.Factions {
@@ -705,16 +707,16 @@ func (n *narrator) tell() {
 		}
 		sizes = append(sizes, size)
 	}
-	objectives := row(col("key", "objectives"), apart("value", "unknown"))
+	objectives := row(col("key", "objectives"), apart("value", "none"))
 	if len(n.sites) > 0 {
 		objectives = row(col("key", "objectives"), apart("value", "hidden from both factions"))
 		for _, l := range n.sites {
-			objectives.sub = append(objectives.sub, text(n.render(l)))
+			objectives.sub = append(objectives.sub, text(n.name(l)))
 		}
 	}
 	conditions := []detail{
 		row(col("key", "map size"), apart("value", strings.Join(sizes, ", "))),
-		row(col("key", "seed"), apart("value", strconv.FormatInt(s.Seed, 10))),
+		row(col("key", "seed"), apart("value", strconv.FormatInt(n.view.Seed, 10))),
 		objectives,
 	}
 	for _, f := range s.Factions {
@@ -727,8 +729,11 @@ func (n *narrator) tell() {
 	n.note("")
 }
 
-// settle fires settled once the exercise has concluded and each faction's
-// assessment of the concluded round is in.
+// settle fires settled once the exercise has concluded, each faction's
+// assessment of the concluded round is in, and a revision of it is in for
+// each faction alerted to an objective lost in that round: intelligence
+// revises an assessment when an alert follows it, with a higher revision
+// than the first it issued, which a redelivery does not raise.
 func (n *narrator) settle() {
 	if n.end == nil || n.setup == nil {
 		return
@@ -737,8 +742,21 @@ func (n *narrator) settle() {
 		if p, ok := n.pictures[f]; !ok || p.Round < n.end.Round {
 			return
 		}
+		if r := n.revisions[f+"/"+strconv.Itoa(n.end.Round)]; n.lostAt(f, n.end.Round) && r[1] <= r[0] {
+			return
+		}
 	}
 	n.settled.fire()
+}
+
+// lostAt reports whether a faction was alerted to an objective lost in round.
+func (n *narrator) lostAt(faction string, round int) bool {
+	for _, l := range n.losses[faction] {
+		if l.Round == round {
+			return true
+		}
+	}
+	return false
 }
 
 // resolved collects the observer's record of a round: the orders each
@@ -747,12 +765,8 @@ func (n *narrator) settle() {
 // each objective a faction is taking, and each that changed hands.
 func (n *narrator) resolved(d resolvedData) {
 	n.resolves = d.Round
-	n.learned = true
-	for _, o := range d.Objectives {
-		if _, ok := n.holders[place(o.At)]; !ok {
-			n.sites = append(n.sites, o.At)
-		}
-		n.holders[place(o.At)] = o.Holder
+	for _, c := range d.Captures {
+		n.holders[place(c.At)] = c.Faction
 	}
 	if n.setup != nil {
 		for _, f := range n.setup.Factions {
@@ -984,7 +998,7 @@ func (n *narrator) final() []string {
 			objectives = text("objectives  none")
 		}
 		for _, l := range n.sites {
-			objectives = objectives.with(row(col("objective", n.render(l)), apart("holder", orUnheld(n.holders[place(l)]))))
+			objectives = objectives.with(row(col("objective", n.name(l)), apart("holder", orUnheld(n.holders[place(l)]))))
 		}
 		out = append(out, objectives)
 		for _, f := range n.setup.Factions {

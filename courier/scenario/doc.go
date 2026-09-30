@@ -30,9 +30,9 @@
 //
 // The theater scenario is the demonstration. It joins the same stream
 // before an exercise starts and narrates the exercise as the services play
-// it: the initial conditions, held until the observer's first resolution
-// tells the objectives (which the factions do not know, and which the
-// narration names objective:x,y), with the seed; each round as a block,
+// it: the initial conditions, with the seed and the objectives (which the
+// factions do not know, and which the narration names objective:x,y), both
+// read from exercise's API at the start; each round as a block,
 // told once an event of a later round arrives, by side: what the observer
 // (exercise, the umpire) recorded of the round, then what each faction
 // knows, decides, and orders in it, with a change that arrives after its

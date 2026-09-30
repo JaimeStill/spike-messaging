@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,17 +58,8 @@ type (
 	// each faction's observation of it, indexed like the factions, and its
 	// resolution, nil for round 0.
 	observerRound struct {
-		Round int `json:"round"`
-		State struct {
-			Map struct {
-				Sectors []struct {
-					ID         string  `json:"id"`
-					Objectives []point `json:"objectives"`
-				} `json:"sectors"`
-			} `json:"map"`
-			Factions []string          `json:"factions"`
-			Holders  map[string]string `json:"holders"`
-		} `json:"state"`
+		Round        int                   `json:"round"`
+		State        exerciseState         `json:"state"`
 		Observations []observerObservation `json:"observations"`
 		Resolution   *struct {
 			Captures []struct {
@@ -127,8 +117,8 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 			if _, err := uuid.Parse(exercise); err != nil {
 				errs = append(errs, errors.New("--exercise must be an exercise's ID"))
 			}
-			if u, err := url.Parse(exerciseURL); err != nil || u.Scheme == "" || u.Host == "" {
-				errs = append(errs, errors.New("--exercise-url must be an absolute URL"))
+			if err := validExerciseURL(exerciseURL); err != nil {
+				errs = append(errs, err)
 			}
 			if contactRounds < 0 {
 				errs = append(errs, errors.New("--contact-rounds must not be negative"))
@@ -193,14 +183,11 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 				{
 					Intent: fmt.Sprintf("Read the observer's record of exercise %s from %s", exercise, exerciseURL),
 					Action: func(ctx context.Context, rep *Reporter) error {
-						base := strings.TrimSuffix(exerciseURL, "/") + "/api/exercises/" + exercise
-						if err := getJSON(ctx, base+"/history", &history); err != nil {
+						if err := getJSON(ctx, exerciseEndpoint(exerciseURL, exercise)+"/history", &history); err != nil {
 							return err
 						}
-						var view struct {
-							Verdict *observerVerdict `json:"verdict"`
-						}
-						if err := getJSON(ctx, base, &view); err != nil {
+						view, err := readExercise(ctx, exerciseURL, exercise)
+						if err != nil {
 							return err
 						}
 						if len(history) == 0 {
@@ -405,13 +392,17 @@ func reconcile(history []observerRound, assessments []checkedAssessment, k int) 
 	}
 
 	var errs []string
-	issued := map[string]bool{}
+	type roundFaction struct {
+		round   int
+		faction string
+	}
+	issued := map[roundFaction]bool{}
 	for _, a := range assessments {
-		issued[fmt.Sprint(a.Round, a.Faction)] = true
+		issued[roundFaction{a.Round, a.Faction}] = true
 	}
 	for _, h := range history {
 		for _, f := range factions {
-			if !issued[fmt.Sprint(h.Round, f)] {
+			if !issued[roundFaction{h.Round, f}] {
 				errs = append(errs, fmt.Sprintf("round %d %s: no assessment was issued", h.Round, f))
 			}
 		}
@@ -507,23 +498,20 @@ func beliefs(history []observerRound, assessments []checkedAssessment) []string 
 			known[place(o.At)] = o
 		}
 		var rows []detail
-		for _, sec := range final.State.Map.Sectors {
-			for _, p := range sec.Objectives {
-				at := location{Sector: sec.ID, point: p}
-				believed := "undiscovered"
-				o, ok := known[place(at)]
-				switch {
-				case ok && o.Known:
-					believed = orUnheld(o.Holder)
-					if o.Age > 0 {
-						believed += fmt.Sprintf(" (seen %d ago)", o.Age)
-					}
-				case ok:
-					believed = "unknown"
+		for _, at := range final.State.objectives() {
+			believed := "undiscovered"
+			o, ok := known[place(at)]
+			switch {
+			case ok && o.Known:
+				believed = orUnheld(o.Holder)
+				if o.Age > 0 {
+					believed += fmt.Sprintf(" (seen %d ago)", o.Age)
 				}
-				rows = append(rows, row(col("objective", objectiveName(at)), apart("believed", believed),
-					apart("truth", "truly "+orUnheld(final.State.Holders[place(at)]))))
+			case ok:
+				believed = "unknown"
 			}
+			rows = append(rows, row(col("objective", objectiveName(at)), apart("believed", believed),
+				apart("truth", "truly "+orUnheld(final.State.Holders[place(at)]))))
 		}
 		out = append(out, f)
 		out = append(out, labeled{label: "believes", items: list(rows, "", same), each: true}.lines("  ", len("believes"), same)...)
@@ -535,12 +523,9 @@ func beliefs(history []observerRound, assessments []checkedAssessment) []string 
 // which objectives after the last round.
 func truth(final observerRound, v *observerVerdict) []string {
 	held := map[string][]string{}
-	for _, sec := range final.State.Map.Sectors {
-		for _, p := range sec.Objectives {
-			at := location{Sector: sec.ID, point: p}
-			if h := final.State.Holders[place(at)]; h != "" {
-				held[h] = append(held[h], objectiveName(at))
-			}
+	for _, at := range final.State.objectives() {
+		if h := final.State.Holders[place(at)]; h != "" {
+			held[h] = append(held[h], objectiveName(at))
 		}
 	}
 	verdict := "none"

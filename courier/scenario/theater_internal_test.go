@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -23,6 +24,18 @@ type script struct {
 
 func newScript(t *testing.T) *script {
 	s := &script{t: t, n: newNarrator(theaterID), t0: time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)}
+	// The observer's view, as exercise's API tells it at the start: the seed,
+	// and the objectives in a:4,4 and b:1,1.
+	s.n.read = func(context.Context) (exerciseView, error) {
+		var v exerciseView
+		v.Seed = 42
+		err := json.Unmarshal([]byte(`{"seed": 42, "state": {"map": {"sectors": [
+			{"id": "a", "objectives": [{"x": 4, "y": 4}]}, {"id": "b", "objectives": [{"x": 1, "y": 1}]}]}}}`), &v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v, nil
+	}
 	s.n.note = func(format string, args ...any) { s.lines = append(s.lines, fmt.Sprintf(format, args...)) }
 	return s
 }
@@ -36,7 +49,7 @@ func (s *script) at(ms int, typ string, data map[string]any) {
 		s.t.Fatal(err)
 	}
 	e := eventOf(typ, body, s.t0.Add(time.Duration(ms)*time.Millisecond))
-	if err := s.n.handle(e); err != nil {
+	if err := s.n.handle(s.t.Context(), e); err != nil {
 		s.t.Fatal(err)
 	}
 }
@@ -58,10 +71,9 @@ func sq(id, kind string, at map[string]any, health ...int) map[string]any {
 	return map[string]any{"id": id, "kind": kind, "strength": strength, "health": health, "status": "ready", "at": at}
 }
 
-// The narrator tells the initial conditions once the start, both round-0
-// observations, and the first resolution, which tells the objectives, are
-// in, and names an objective's cell objective:x,y, in the rounds it held as
-// in the others. It then tells each round as a block once an event of a
+// The narrator reads the seed and the objectives from exercise's API at the
+// start, tells the initial conditions once both round-0 observations are in,
+// and names an objective's cell objective:x,y throughout. It then tells each round as a block once an event of a
 // later round arrives: what the observer recorded (fights, with operators
 // down or squads destroyed, retreats pursued or not, and each faction's
 // captures, from a holder or not, objectives being taken, objectives lost,
@@ -78,14 +90,13 @@ func sq(id, kind string, at map[string]any, health ...int) map[string]any {
 func TestNarratorTellsWhatChanges(t *testing.T) {
 	s := newScript(t)
 	s.at(0, startedType, map[string]any{
-		"name": "skirmish", "factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 12, "seed": 42,
+		"name": "skirmish", "factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 12,
 		"map": map[string]any{"sectors": []any{
 			map[string]any{"id": "a", "width": 5, "height": 5, "objectives": []any{}},
 			map[string]any{"id": "b", "width": 3, "height": 3, "objectives": []any{}},
 		}},
 	})
-	// An assessment arriving before the initial conditions waits for them,
-	// and is named for the objectives they tell.
+	// An assessment arriving before the initial conditions waits for them.
 	s.at(1, assessmentType, map[string]any{"faction": "blue", "round": 0,
 		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "", "known": true}}})
 	s.at(2, observedType, map[string]any{"faction": "red", "round": 0, "own": []any{
@@ -99,13 +110,12 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r2", "rule": "hold", "target": nil}}})
 	s.at(30, ordersType, map[string]any{"faction": "red", "round": 1, "orders": []any{
 		map[string]any{"element": "r1", "steps": []any{cell("a", 1, 0)}}}})
-	// Round 0's observations are in, but the objectives are not yet told.
-	if len(s.lines) != 0 {
-		t.Fatalf("narrated before the first resolution: %v", s.lines)
+	// Round 0's observations are in: the initial conditions are told.
+	if len(s.lines) == 0 {
+		t.Fatal("narrated nothing once round 0's observations were in")
 	}
 
-	s.at(1000, resolvedType, map[string]any{"round": 1, "retreats": []any{}, "engagements": []any{}, "captures": []any{}, "losses": []any{}, "progress": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": ""}}})
+	s.at(1000, resolvedType, map[string]any{"round": 1, "retreats": []any{}, "engagements": []any{}, "captures": []any{}, "losses": []any{}, "progress": []any{}})
 	s.at(1001, observedType, map[string]any{"faction": "red", "round": 1, "own": []any{
 		sq("r1", "squad", cell("a", 1, 0), 100, 100, 100, 100), sq("r2", "scout", cell("a", 0, 1), 100)}})
 	s.at(1002, observedType, map[string]any{"faction": "blue", "round": 1, "own": []any{
@@ -126,7 +136,6 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r2", "steps": []any{cell("a", 0, 2)}}}})
 
 	s.at(2000, resolvedType, map[string]any{"round": 2, "captures": []any{}, "losses": []any{}, "progress": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": ""}},
 		// r2 falls back without a shot fired on it.
 		"retreats": []any{map[string]any{"id": "r2", "faction": "red", "from": cell("a", 0, 1), "to": cell("a", 0, 0),
 			"before": 100, "after": 100, "fallen": 0, "pursuers": []any{}}},
@@ -162,7 +171,6 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
 		map[string]any{"element": "r2", "rule": "reinforce", "contact": "b1", "target": cell("a", 3, 0)}}})
 	s.at(3000, resolvedType, map[string]any{"round": 3, "engagements": []any{}, "losses": []any{}, "captures": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": ""}, map[string]any{"at": cell("b", 1, 1), "holder": "blue"}},
 		"retreats": []any{map[string]any{"id": "b1", "faction": "blue", "from": cell("a", 3, 0), "to": cell("a", 4, 4),
 			"before": 190, "after": 100, "fallen": 1, "pursuers": []any{
 				map[string]any{"id": "r1", "faction": "red", "before": 400, "after": 340, "fallen": 0},
@@ -181,7 +189,6 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 	s.at(3001, directiveType, map[string]any{"faction": "blue", "round": 2, "directives": []any{
 		map[string]any{"element": "b1", "rule": "hold", "target": nil}}})
 	s.at(4000, resolvedType, map[string]any{"round": 4, "retreats": []any{}, "progress": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": "red"}},
 		"engagements": []any{map[string]any{"at": cell("a", 4, 4), "elements": []any{
 			map[string]any{"id": "b1", "faction": "blue", "before": 100, "after": 0, "fallen": 1},
 			map[string]any{"id": "r2", "faction": "red", "before": 100, "after": 60, "fallen": 0}}}},
@@ -207,8 +214,7 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		map[string]any{"element": "r1", "rule": "pursue", "contact": "b1", "target": cell("a", 3, 0)},
 		map[string]any{"element": "r2", "rule": "rescout", "target": cell("b", 1, 1)}}})
 	// Round 5 changes nothing.
-	s.at(5000, resolvedType, map[string]any{"round": 5, "retreats": []any{}, "engagements": []any{}, "losses": []any{}, "captures": []any{}, "progress": []any{},
-		"objectives": []any{map[string]any{"at": cell("a", 4, 4), "holder": "red"}, map[string]any{"at": cell("b", 1, 1), "holder": "red"}}})
+	s.at(5000, resolvedType, map[string]any{"round": 5, "retreats": []any{}, "engagements": []any{}, "losses": []any{}, "captures": []any{}, "progress": []any{}})
 	s.at(5001, observedType, map[string]any{"faction": "red", "round": 5, "own": []any{
 		sq("r1", "squad", cell("a", 3, 0), 100, 100, 100, 10), sq("r2", "scout", cell("a", 4, 4), 100)}})
 	s.at(5002, observedType, map[string]any{"faction": "blue", "round": 5, "own": []any{}})
@@ -337,10 +343,31 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 func TestNarratorIgnoresOtherExercises(t *testing.T) {
 	s := newScript(t)
 	body, _ := json.Marshal(map[string]any{"exercise": "another", "round": 1})
-	if err := s.n.handle(eventOf(resolvedType, body, s.t0)); err != nil {
+	if err := s.n.handle(t.Context(), eventOf(resolvedType, body, s.t0)); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.lines) != 0 || s.n.counts[resolvedType] != 0 {
 		t.Errorf("narrated %v, counted %v", s.lines, s.n.counts)
+	}
+}
+
+// The narrator settles once the concluded round's assessments are in, and,
+// for a faction alerted to an objective lost in that round, a revision of
+// its assessment, which intelligence issues after the alert.
+func TestNarratorSettlesOnTheFinalRevision(t *testing.T) {
+	s := newScript(t)
+	s.at(0, startedType, map[string]any{"name": "skirmish", "factions": []string{"red", "blue"}, "round_limit": 1})
+	s.at(1, concludedType, map[string]any{"round": 1, "winner": "red", "reason": "limit"})
+	s.at(2, lostType, map[string]any{"faction": "blue", "round": 1, "at": cell("b", 1, 1), "holder": "red"})
+	s.at(3, assessmentType, map[string]any{"faction": "red", "round": 1, "revision": 1})
+	s.at(4, assessmentType, map[string]any{"faction": "blue", "round": 1, "revision": 1})
+	// A redelivery of the same assessment is no revision.
+	s.at(5, assessmentType, map[string]any{"faction": "blue", "round": 1, "revision": 1})
+	if s.n.settled.isFired() {
+		t.Fatal("settled before blue's assessment was revised for the alert")
+	}
+	s.at(6, assessmentType, map[string]any{"faction": "blue", "round": 1, "revision": 2})
+	if !s.n.settled.isFired() {
+		t.Fatal("not settled once blue's final assessment was revised")
 	}
 }
