@@ -13,9 +13,14 @@ import (
 	"github.com/JaimeStill/spike-messaging/messaging/memory"
 )
 
-// observer stands in for exercise's API: one round, round 0, in which red's
-// squad sees the objective at a:1,1 and blue's squad sees nothing.
-func observer(t *testing.T) *httptest.Server {
+// rules is the rules block of exercise's view: a capture takes two rounds,
+// and a squad sees one cell, a scout two.
+var rules = map[string]any{"capture_rounds": 2, "sight": map[string]int{"squad": 1, "scout": 2}}
+
+// observer stands in for exercise's API, giving the rules: one round, round
+// 0, in which red's squad sees the objective at a:1,1 and blue's squad sees
+// nothing.
+func observer(t *testing.T, rules map[string]any) *httptest.Server {
 	at := func(x, y int) map[string]any { return map[string]any{"sector": "a", "x": x, "y": y} }
 	history := []any{map[string]any{
 		"round": 0,
@@ -39,7 +44,7 @@ func observer(t *testing.T) *httptest.Server {
 		})
 	}
 	serve("/api/exercises/"+exerciseID+"/history", history)
-	serve("/api/exercises/"+exerciseID, map[string]any{"verdict": map[string]any{"winner": "red", "reason": "limit"}})
+	serve("/api/exercises/"+exerciseID, map[string]any{"rules": rules, "verdict": map[string]any{"winner": "red", "reason": "limit"}})
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -93,7 +98,7 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 				}
 				rep, out := reporter()
 				cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
-				cmd.SetArgs([]string{"--exercise", exerciseID, "--exercise-url", observer(t).URL, "--wait", "5s", "--idle", "50ms"})
+				cmd.SetArgs([]string{"--exercise", exerciseID, "--exercise-url", observer(t, rules).URL, "--wait", "5s", "--idle", "50ms"})
 				err := cmd.ExecuteContext(t.Context())
 				if tc.fails != (err != nil) {
 					t.Fatalf("err = %v, want failure %v\n%s", err, tc.fails, out)
@@ -112,5 +117,25 @@ func TestTheaterCheckReconcilesAnExercise(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The theater-check scenario refuses a view of exercise's that gives no
+// rules, rather than reconcile the assessments under a sight it lacks.
+func TestTheaterCheckRefusesAViewWithoutRules(t *testing.T) {
+	b := memory.New()
+	publishJSON(t, b, "c", "exercise.concluded", map[string]any{"exercise": exerciseID, "round": 0, "winner": "red", "reason": "limit"})
+	joins := func(string, string, time.Duration) (messaging.Broker, func() error, error) { return b, nil, nil }
+	for _, s := range scenario.Scenarios(scenario.Dependencies{Joins: joins}) {
+		if s.Name != "theater-check" {
+			continue
+		}
+		rep, out := reporter()
+		cmd := scenario.Command(s, func() *scenario.Reporter { return rep })
+		cmd.SetArgs([]string{"--exercise", exerciseID, "--exercise-url", observer(t, nil).URL, "--wait", "5s", "--idle", "50ms"})
+		err := cmd.ExecuteContext(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "the rules give no capture_rounds") || !strings.Contains(err.Error(), "the rules give no sight") {
+			t.Fatalf("err = %v, want the rules refused\n%s", err, out)
+		}
 	}
 }

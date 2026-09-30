@@ -106,7 +106,8 @@ func check(t *testing.T, history []observerRound, raw []map[string]any, k int) (
 	for i, a := range raw {
 		all[i] = viaJSON[assessment](t, a)
 	}
-	return checkTheater(theaterID, history, &verdict{Winner: "blue", Reason: "limit"}, all, k)
+	rules := viaJSON[ruleset](t, rulesBlock())
+	return checkTheater(theaterID, history, &verdict{Winner: "blue", Reason: "limit"}, all, k, rules.Sight)
 }
 
 // Assessments that follow the suppression rules are consistent, the last

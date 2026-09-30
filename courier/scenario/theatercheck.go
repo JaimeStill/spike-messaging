@@ -28,12 +28,6 @@ import (
 // its beginning.
 const TheaterCheckDurable = "courier-theater-check-"
 
-// sight is the Chebyshev distance an element of each kind sees within its
-// own sector. It mirrors exercise's rule (rules.Kind.Sight); the check
-// needs it only to find a remembered contact in a cell in sight, since the
-// observer's observations already list what each faction sees.
-var sight = map[string]int{"squad": 1, "scout": 2}
-
 // observerRound is one round of exercise's history: the state after it,
 // each faction's observation of it, indexed like the factions, and its
 // resolution, nil for round 0.
@@ -50,6 +44,8 @@ type observerRound struct {
 // fails on any assessment the suppression rules do not explain.
 func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, exerciseURL, stream, prefix string
+	// contactRounds is intelligence's contact_rounds config, which no
+	// service's API tells, so courier takes it as a flag.
 	contactRounds := 3
 	maxAge := 24 * time.Hour
 	wait := time.Minute
@@ -61,7 +57,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the exercise to check (required)")
 			fs.StringVar(&exerciseURL, "exercise-url", "http://localhost:8081", "the exercise service's base URL")
-			fs.IntVar(&contactRounds, "contact-rounds", contactRounds, "the rounds intelligence remembers a contact, as it is configured")
+			fs.IntVar(&contactRounds, "contact-rounds", contactRounds, "the rounds intelligence remembers a contact: intelligence's contact_rounds config, which courier cannot read")
 			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
 			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
 			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
@@ -90,6 +86,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 			g := &assessmentLog{exercise: exercise, concluded: newSignal()}
 			var history []observerRound
 			var end *verdict
+			var rules ruleset
 			return []Step{
 				{
 					Intent: fmt.Sprintf("Join the %s stream from its beginning, and read exercise %s's assessments until it concludes and the stream is quiet", stream, exercise),
@@ -149,7 +146,10 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 						if len(history) == 0 {
 							return fmt.Errorf("exercise %s has no history", exercise)
 						}
-						end = view.Verdict
+						if err := view.Rules.validate(); err != nil {
+							return fmt.Errorf("read exercise %s: %w", exercise, err)
+						}
+						end, rules = view.Verdict, view.Rules
 						rep.Note("read %d rounds", len(history))
 						return nil
 					},
@@ -157,7 +157,7 @@ func theaterCheckScenario(joins Joins, needs func() []Need) Scenario {
 				{
 					Intent: "Reconcile each assessment with the observer's record",
 					Action: func(_ context.Context, rep *Reporter) error {
-						lines, errs := checkTheater(exercise, history, end, g.read(), contactRounds)
+						lines, errs := checkTheater(exercise, history, end, g.read(), contactRounds, rules.Sight)
 						for _, line := range lines {
 							rep.Note("%s", line)
 						}
@@ -242,9 +242,10 @@ func getJSON(ctx context.Context, u string, v any) error {
 // checkTheater renders the check of an exercise's assessments against its
 // history: a header, the inconsistencies found, the observer's verdict and
 // who truly holds each objective, and what each faction believes of each
-// objective at the end against the truth. It returns the lines and the
-// number of inconsistencies.
-func checkTheater(exercise string, history []observerRound, end *verdict, all []assessment, k int) ([]string, int) {
+// objective at the end against the truth. k is the rounds intelligence
+// remembers a contact, and sight exercise's sight rule, by kind. It returns
+// the lines and the number of inconsistencies.
+func checkTheater(exercise string, history []observerRound, end *verdict, all []assessment, k int, sight map[string]int) ([]string, int) {
 	history = slices.Clone(history)
 	slices.SortFunc(history, func(a, b observerRound) int { return cmp.Compare(a.Round, b.Round) })
 	latest := lastAssessments(all)
@@ -253,7 +254,7 @@ func checkTheater(exercise string, history []observerRound, end *verdict, all []
 		row(col("key", "assessments"), apart("value", fmt.Sprintf("%d, %d revised", len(all), len(all)-len(latest)))),
 		row(col("key", "contact rounds"), apart("value", strconv.Itoa(k))),
 	)}
-	errs := reconcile(history, latest, k)
+	errs := reconcile(history, latest, k, sight)
 	if len(errs) == 0 {
 		out = append(out, text("consistent  every assessment matches the observer's record under the suppression rules"))
 	} else {
@@ -273,13 +274,9 @@ func checkTheater(exercise string, history []observerRound, end *verdict, all []
 // sorted by round, then faction: intelligence revises a round's assessment
 // when a loss alert follows it, and the revision stands.
 func lastAssessments(all []assessment) []assessment {
-	type key struct {
-		round   int
-		faction string
-	}
-	last := map[key]assessment{}
+	last := map[factionRound]assessment{}
 	for _, a := range all {
-		last[key{a.Round, a.Faction}] = a
+		last[factionRound{a.Faction, a.Round}] = a
 	}
 	out := slices.Collect(maps.Values(last))
 	slices.SortFunc(out, func(a, b assessment) int {
@@ -296,13 +293,13 @@ func lastAssessments(all []assessment) []assessment {
 //     health, strength, status, and cell;
 //   - sees: every enemy element in the faction's observation of the round
 //     is a contact of age 0, as the observer saw it, and no other contact is;
-//   - remembers: an older contact is in no cell in sight, and no older than
-//     k rounds;
+//   - remembers: an older contact is in no cell in sight, under the sight
+//     rule, and no older than k rounds;
 //   - objectives: every objective in sight is reported with its true
 //     holder, none is reported before its faction first had it in sight,
 //     and none out of sight is reported as seen this round. An objective a
 //     loss alert told of is reported as the alert has it, in sight or not.
-func reconcile(history []observerRound, assessments []assessment, k int) []string {
+func reconcile(history []observerRound, assessments []assessment, k int, sight map[string]int) []string {
 	rounds := map[int]observerRound{}
 	for _, h := range history {
 		rounds[h.Round] = h
@@ -310,15 +307,15 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 	factions := history[0].State.Factions
 	// firstSeen is the first round each faction had each objective in
 	// sight, and alerts each objective's losses, by faction.
-	firstSeen := map[string]map[string]int{}
+	firstSeen := map[string]map[location]int{}
 	type alert struct {
 		round  int
 		holder string
 	}
-	alerts := map[string]map[string][]alert{}
+	alerts := map[string]map[location][]alert{}
 	for _, f := range factions {
-		firstSeen[f] = map[string]int{}
-		alerts[f] = map[string][]alert{}
+		firstSeen[f] = map[location]int{}
+		alerts[f] = map[location][]alert{}
 	}
 	for _, h := range history {
 		for i, o := range h.Observations {
@@ -326,8 +323,8 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 				break
 			}
 			for _, obj := range o.Objectives {
-				if _, ok := firstSeen[factions[i]][place(obj.At)]; !ok {
-					firstSeen[factions[i]][place(obj.At)] = h.Round
+				if _, ok := firstSeen[factions[i]][obj.At]; !ok {
+					firstSeen[factions[i]][obj.At] = h.Round
 				}
 			}
 		}
@@ -336,26 +333,22 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 		}
 		for _, c := range h.Resolution.Captures {
 			if c.From != "" && alerts[c.From] != nil {
-				alerts[c.From][place(c.At)] = append(alerts[c.From][place(c.At)], alert{h.Round, c.Faction})
+				alerts[c.From][c.At] = append(alerts[c.From][c.At], alert{h.Round, c.Faction})
 			}
 		}
 	}
 	alerted := func(f string, o belief) bool {
-		return slices.Contains(alerts[f][place(o.At)], alert{o.Seen, o.Holder})
+		return slices.Contains(alerts[f][o.At], alert{o.Seen, o.Holder})
 	}
 
 	var errs []string
-	type roundFaction struct {
-		round   int
-		faction string
-	}
-	issued := map[roundFaction]bool{}
+	issued := map[factionRound]bool{}
 	for _, a := range assessments {
-		issued[roundFaction{a.Round, a.Faction}] = true
+		issued[factionRound{a.Faction, a.Round}] = true
 	}
 	for _, h := range history {
 		for _, f := range factions {
-			if !issued[roundFaction{h.Round, f}] {
+			if !issued[factionRound{f, h.Round}] {
 				errs = append(errs, fmt.Sprintf("round %d %s: no assessment was issued", h.Round, f))
 			}
 		}
@@ -372,7 +365,7 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 		obs := h.Observations[i]
 		fail := func(format string, args ...any) { errs = append(errs, tag+": "+fmt.Sprintf(format, args...)) }
 
-		if !slices.Equal(elementKeys(a.Own), elementKeys(obs.Own)) {
+		if !sameElements(a.Own, obs.Own) {
 			fail("own elements differ from the truth")
 		}
 		contacts := map[string]contact{}
@@ -382,7 +375,7 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 		visible := map[string]bool{}
 		for _, e := range obs.Contacts {
 			visible[e.ID] = true
-			if c, ok := contacts[e.ID]; !ok || c.Age != 0 || elementKey(c.element) != elementKey(e) {
+			if c, ok := contacts[e.ID]; !ok || c.Age != 0 || !sameElement(c.element, e) {
 				fail("%s is in sight at %s, strength %d, but not reported so", e.ID, place(e.At), e.Strength)
 			}
 		}
@@ -390,7 +383,7 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 			if c.Age == 0 && !visible[c.ID] {
 				fail("%s is reported in sight, but is not", c.ID)
 			}
-			if c.Age > 0 && inSight(obs.Own, c.At) {
+			if c.Age > 0 && inSight(obs.Own, c.At, sight) {
 				fail("%s is remembered at %s, a cell in sight", c.ID, place(c.At))
 			}
 			if c.Age > k {
@@ -398,24 +391,23 @@ func reconcile(history []observerRound, assessments []assessment, k int) []strin
 			}
 		}
 
-		seen := map[string]string{}
+		seen := map[location]string{}
 		for _, o := range obs.Objectives {
-			seen[place(o.At)] = o.Holder
+			seen[o.At] = o.Holder
 		}
-		reported := map[string]bool{}
+		reported := map[location]bool{}
 		for _, o := range a.Objectives {
-			reported[place(o.At)] = true
+			reported[o.At] = true
 		}
 		for _, o := range obs.Objectives {
-			if !reported[place(o.At)] {
+			if !reported[o.At] {
 				fail("%s is in sight, but not reported", objectiveName(o.At))
 			}
 		}
 		for _, o := range a.Objectives {
-			p := place(o.At)
-			first, before := firstSeen[f][p]
+			first, before := firstSeen[f][o.At]
 			before = before && first <= r
-			holder, now := seen[p]
+			holder, now := seen[o.At]
 			switch {
 			case alerted(f, o) && (!now || o.Seen > r):
 				// A loss alert told of it; one of a later round than the
@@ -444,14 +436,14 @@ func beliefs(history []observerRound, assessments []assessment) []string {
 	}
 	var out []string
 	for _, f := range final.State.Factions {
-		known := map[string]belief{}
+		known := map[location]belief{}
 		for _, o := range last[f].Objectives {
-			known[place(o.At)] = o
+			known[o.At] = o
 		}
 		var rows []detail
 		for _, at := range final.State.objectives() {
 			believed := "undiscovered"
-			if o, ok := known[place(at)]; ok {
+			if o, ok := known[at]; ok {
 				believed = orUnheld(o.Holder)
 				if o.Age > 0 {
 					believed += fmt.Sprintf(" (seen %d ago)", o.Age)
@@ -495,24 +487,26 @@ func truth(final observerRound, v *verdict) []string {
 	return append(out, labeled{label: "holds", items: holds}.lines("  ", len("believes"), same)...)
 }
 
-// elementKeys returns each element's key, sorted.
-func elementKeys(es []element) []string {
-	keys := make([]string, len(es))
-	for i, e := range es {
-		keys[i] = elementKey(e)
-	}
-	slices.Sort(keys)
-	return keys
+// sameElements reports whether a and b hold the same elements, in any
+// order, as sameElement compares them.
+func sameElements(a, b []element) bool {
+	byID := func(x, y element) int { return cmp.Compare(x.ID, y.ID) }
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.SortFunc(a, byID)
+	slices.SortFunc(b, byID)
+	return slices.EqualFunc(a, b, sameElement)
 }
 
-// elementKey renders what the check compares of an element: its ID,
-// strength, health, status, and cell.
-func elementKey(e element) string {
-	return fmt.Sprintf("%s %d %v %s %s", e.ID, e.Strength, e.Health, e.Status, place(e.At))
+// sameElement reports whether a and b agree in what the check compares of
+// an element: its ID, strength, health, status, and cell.
+func sameElement(a, b element) bool {
+	return a.ID == b.ID && a.Strength == b.Strength && slices.Equal(a.Health, b.Health) && a.Status == b.Status && a.At == b.At
 }
 
-// inSight reports whether any of own sees at, under exercise's sight rule.
-func inSight(own []element, at location) bool {
+// inSight reports whether any of own sees at, under exercise's sight rule:
+// the Chebyshev distance an element of each kind sees within its own
+// sector.
+func inSight(own []element, at location, sight map[string]int) bool {
 	return slices.ContainsFunc(own, func(e element) bool {
 		return e.At.Sector == at.Sector && max(abs(e.At.X-at.X), abs(e.At.Y-at.Y)) <= sight[e.Kind]
 	})

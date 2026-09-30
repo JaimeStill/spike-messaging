@@ -27,19 +27,58 @@ func newScript(t *testing.T) *script {
 	// The narration's step has begun, as the theater's second step begins it.
 	s.n.begin()
 	// The observer's view, as exercise's API tells it at the start: the seed,
-	// and the objectives in a:4,4 and b:1,1.
+	// the rules, and the objectives in a:4,4 and b:1,1.
 	s.n.read = func(context.Context) (exerciseView, error) {
-		var v exerciseView
-		v.Seed = 42
-		err := json.Unmarshal([]byte(`{"seed": 42, "state": {"map": {"sectors": [
-			{"id": "a", "objectives": [{"x": 4, "y": 4}]}, {"id": "b", "objectives": [{"x": 1, "y": 1}]}]}}}`), &v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return v, nil
+		return viewOf(t, rulesBlock()), nil
 	}
 	s.n.note = func(format string, args ...any) { s.lines = append(s.lines, fmt.Sprintf(format, args...)) }
 	return s
+}
+
+// rulesBlock is the rules block of exercise's view: a capture takes two
+// rounds, and a squad sees one cell, a scout two.
+func rulesBlock() map[string]any {
+	return map[string]any{"capture_rounds": 2, "sight": map[string]int{"squad": 1, "scout": 2}}
+}
+
+// viewOf is the observer's view the script's narrator reads, with rules:
+// the seed 42, and the objectives in a:4,4 and b:1,1.
+func viewOf(t *testing.T, rules map[string]any) exerciseView {
+	t.Helper()
+	return viaJSON[exerciseView](t, map[string]any{"seed": 42, "rules": rules, "state": map[string]any{"map": map[string]any{"sectors": []any{
+		map[string]any{"id": "a", "objectives": []any{map[string]any{"x": 4, "y": 4}}},
+		map[string]any{"id": "b", "objectives": []any{map[string]any{"x": 1, "y": 1}}},
+	}}}})
+}
+
+// The narrator refuses a view of exercise's that lacks the rules, rather
+// than narrate the captures under rules it does not know.
+func TestNarratorRefusesAViewWithoutRules(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		rules map[string]any
+		want  string
+	}{
+		{"no rules", nil, "the rules give no capture_rounds\nthe rules give no sight"},
+		{"no capture rounds", map[string]any{"sight": map[string]int{"squad": 1}}, "the rules give no capture_rounds"},
+		{"no sight", map[string]any{"capture_rounds": 2}, "the rules give no sight"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := newNarrator(theaterID)
+			n.read = func(context.Context) (exerciseView, error) { return viewOf(t, tc.rules), nil }
+			body, err := json.Marshal(map[string]any{"exercise": theaterID, "name": "skirmish", "factions": []string{"red", "blue"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = n.handle(t.Context(), eventOf(startedType, body, time.Now()))
+			if err == nil || !strings.HasSuffix(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want one ending %q", err, tc.want)
+			}
+			if n.setup != nil {
+				t.Error("the narrator took the start of an exercise whose rules it refused")
+			}
+		})
+	}
 }
 
 // at hands the narrator an event of typ with data, ms after the start.

@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -22,14 +23,37 @@ type (
 		Factions []string          `json:"factions"`
 		Holders  map[string]string `json:"holders"`
 	}
+	// ruleset is the rules exercise plays by, as far as the scenarios read
+	// them: how many rounds in a row a faction must end alone on an
+	// objective to take it, and the Chebyshev distance an element of each
+	// kind sees within its own sector.
+	ruleset struct {
+		CaptureRounds int            `json:"capture_rounds"`
+		Sight         map[string]int `json:"sight"`
+	}
 	// exerciseView is what GET /api/exercises/{id} returns, as far as the
 	// scenarios read it.
 	exerciseView struct {
 		Seed    int64         `json:"seed"`
+		Rules   ruleset       `json:"rules"`
 		State   exerciseState `json:"state"`
 		Verdict *verdict      `json:"verdict"`
 	}
 )
+
+// validate returns an error unless the rules give a positive number of
+// capture rounds and a sight for some kind, as exercise's API always does: a
+// view without them would narrate or check the exercise wrongly.
+func (r ruleset) validate() error {
+	var errs []error
+	if r.CaptureRounds <= 0 {
+		errs = append(errs, errors.New("the rules give no capture_rounds"))
+	}
+	if len(r.Sight) == 0 {
+		errs = append(errs, errors.New("the rules give no sight"))
+	}
+	return errors.Join(errs...)
+}
 
 // objectives returns every objective's cell, in the map's order.
 func (s exerciseState) objectives() []location {

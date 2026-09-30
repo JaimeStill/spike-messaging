@@ -25,10 +25,6 @@ import (
 // under, so the stream's consumers show which are courier's.
 const TheaterDurable = "courier-theater-"
 
-// captureRounds is how many rounds in a row a faction must end alone on an
-// objective to take it, as exercise's rules set it.
-const captureRounds = 2
-
 // settle is how long the theater waits, after the conclusion, for the final
 // round's assessments, which are issued after it.
 const settle = 3 * time.Second
@@ -183,57 +179,90 @@ type narrator struct {
 
 	mu        sync.Mutex
 	setup     *started
-	view      exerciseView                      // the observer's view, read at the start
-	initial   map[string][]element              // each faction's squads in round 0
-	latest    map[string][]element              // each faction's squads in its latest observation
-	open      bool                              // whether the narration's step has begun
-	told      bool                              // whether the initial conditions were narrated
-	blocks    map[int]*block                    // the rounds not yet narrated, and late changes
-	seen      int                               // the latest round an event belongs to
-	printed   int                               // the last round narrated, or -1
-	sites     []location                        // the objectives, as the observer's view has them
-	holders   map[string]string                 // each objective's holder, by place, as the captures tell it
-	regroups  map[string]map[string]bool        // each faction's recovering squads already narrated
-	losses    map[string]map[string]lost        // each faction's objectives lost, by place
-	pictures  map[string]assessment             // each faction's last assessment
-	standing  standing                          // each faction's last directive, by element
-	moving    map[string]string                 // the key of each faction's orders in effect, as narrated
-	orders    map[string]map[int]movement       // each faction's latest orders not yet resolved, by round
-	resolves  int                               // the last round resolved
-	revisions map[string][2]int                 // the first and highest revision of each faction's assessments, by "faction/round"
-	counts    map[string]int                    // events by type
-	times     map[string]map[string][]time.Time // event times, by type and "faction/round"
+	view      exerciseView                            // the observer's view, with the rules, read at the start
+	initial   map[string][]element                    // each faction's squads in round 0
+	latest    map[string][]element                    // each faction's squads in its latest observation
+	open      bool                                    // whether the narration's step has begun
+	told      bool                                    // whether the initial conditions were narrated
+	blocks    map[int]*block                          // the rounds not yet narrated, and late changes
+	seen      int                                     // the latest round an event belongs to
+	printed   int                                     // the last round narrated, or -1
+	sites     []location                              // the objectives, as the observer's view has them
+	holders   map[location]string                     // each objective's holder, as the captures tell it
+	regroups  map[string]map[string]bool              // each faction's recovering squads already narrated
+	losses    map[string]map[location]lost            // each faction's objectives lost
+	pictures  map[string]assessment                   // each faction's last assessment
+	standing  standing                                // each faction's last directive, by element
+	moving    map[string]movement                     // each faction's orders in effect, as narrated
+	orders    map[string]map[int]movement             // each faction's latest orders not yet resolved, by round
+	resolves  int                                     // the last round resolved
+	revisions map[factionRound]revised                // the revisions of each faction's assessments of each round
+	counts    map[string]int                          // events by type
+	times     map[string]map[factionRound][]time.Time // event times, by type, faction, and round
 	end       *concluded
+}
+
+// factionRound names one faction's events of one round.
+type factionRound struct {
+	faction string
+	round   int
+}
+
+// revised is the first and the highest revision of a faction's assessments
+// of a round.
+type revised struct {
+	first, highest int
 }
 
 // block is what one round changed, as the narration tells it: the
 // observer's record of the round, and what each faction knows, decides,
 // and orders in it.
 type block struct {
-	observer []labeled                      // fights and retreats, one row each
-	shown    map[string]bool                // the elements the observer's rows show destroyed
-	results  map[string]map[string][]string // each faction's objective results, by verb
-	fates    map[string][]string            // each faction's elements destroyed or regrouping
-	knows    map[string][]string            // each faction's assessment changes
-	decides  map[string][]detail            // each faction's directive changes, one per element
-	orders   map[string]string              // each faction's orders, as issued in the round
+	observer []labeled                    // fights and retreats, one row each
+	shown    map[string]bool              // the elements the observer's rows show destroyed
+	results  map[string]*objectiveResults // each faction's objective results
+	fates    map[string][]string          // each faction's elements destroyed or regrouping
+	knows    map[string][]string          // each faction's assessment changes
+	decides  map[string][]detail          // each faction's directive changes, one per element
+	orders   map[string]string            // each faction's orders, as issued in the round
 }
 
-// resultVerbs orders a faction's objective results in its row.
-var resultVerbs = []string{"captures", "takes", "loses"}
+// objectiveResults is a faction's objective results in a round: the
+// objectives it captures, those it is taking, and those it loses.
+type objectiveResults struct {
+	captures, takes, loses []string
+}
+
+// items renders the results, each verb with its objectives, in the row's
+// order: captures, takes, loses. A nil r has none.
+func (r *objectiveResults) items() []string {
+	if r == nil {
+		return nil
+	}
+	var out []string
+	for _, v := range []struct {
+		verb string
+		what []string
+	}{{"captures", r.captures}, {"takes", r.takes}, {"loses", r.loses}} {
+		if len(v.what) > 0 {
+			out = append(out, v.verb+" "+strings.Join(v.what, " · "))
+		}
+	}
+	return out
+}
 
 func newNarrator(exercise string) *narrator {
 	return &narrator{
 		exercise:  exercise,
 		note:      func(string, ...any) {},
-		revisions: map[string][2]int{},
+		revisions: map[factionRound]revised{},
 		read:      func(context.Context) (exerciseView, error) { return exerciseView{}, nil },
 		started:   newSignal(), concluded: newSignal(), settled: newSignal(),
 		initial: map[string][]element{}, latest: map[string][]element{},
 		blocks: map[int]*block{}, printed: -1,
-		holders: map[string]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[string]lost{}, pictures: map[string]assessment{},
-		standing: standing{}, moving: map[string]string{}, orders: map[string]map[int]movement{},
-		counts: map[string]int{}, times: map[string]map[string][]time.Time{},
+		holders: map[location]string{}, regroups: map[string]map[string]bool{}, losses: map[string]map[location]lost{}, pictures: map[string]assessment{},
+		standing: standing{}, moving: map[string]movement{}, orders: map[string]map[int]movement{},
+		counts: map[string]int{}, times: map[string]map[factionRound][]time.Time{},
 	}
 }
 
@@ -244,12 +273,16 @@ func (n *narrator) handle(ctx context.Context, e event.Event) error {
 	if exerciseOf(e) != n.exercise {
 		return nil
 	}
-	// The objectives are read before any later event is handled, so every
-	// cell is named as it is told.
+	// The objectives and the rules are read before any later event is
+	// handled, so every cell is named, and every capture counted, as it is
+	// told.
 	var view exerciseView
 	if e.Type == startedType {
 		var err error
 		if view, err = n.read(ctx); err != nil {
+			return fmt.Errorf("read exercise %s: %w", n.exercise, err)
+		}
+		if err := view.Rules.validate(); err != nil {
 			return fmt.Errorf("read exercise %s: %w", n.exercise, err)
 		}
 	}
@@ -279,11 +312,12 @@ func (n *narrator) handle(ctx context.Context, e event.Event) error {
 		}
 		n.belongs(d.Round)
 		if n.losses[d.Faction] == nil {
-			n.losses[d.Faction] = map[string]lost{}
+			n.losses[d.Faction] = map[location]lost{}
 		}
-		n.losses[d.Faction][place(d.At)] = d
-		n.holders[place(d.At)] = d.Holder
-		n.result(d.Round, d.Faction, "loses", n.name(d.At)+" to "+d.Holder)
+		n.losses[d.Faction][d.At] = d
+		n.holders[d.At] = d.Holder
+		r := n.results(d.Round, d.Faction)
+		r.loses = append(r.loses, n.name(d.At)+" to "+d.Holder)
 	case observedType:
 		d, err := decode[observed](e)
 		if err != nil {
@@ -304,11 +338,11 @@ func (n *narrator) handle(ctx context.Context, e event.Event) error {
 		n.belongs(d.Round)
 		n.stamp(e, d.Faction, d.Round)
 		n.assessed(d)
-		k := d.Faction + "/" + strconv.Itoa(d.Round)
+		k := factionRound{d.Faction, d.Round}
 		if r, ok := n.revisions[k]; !ok {
-			n.revisions[k] = [2]int{d.Revision, d.Revision}
+			n.revisions[k] = revised{first: d.Revision, highest: d.Revision}
 		} else {
-			n.revisions[k] = [2]int{r[0], max(r[1], d.Revision)}
+			n.revisions[k] = revised{first: r.first, highest: max(r.highest, d.Revision)}
 		}
 	case directiveType:
 		d, err := decode[directives](e)
@@ -357,9 +391,9 @@ func (n *narrator) cellOf(faction string) func(string) (location, bool) {
 // stamp records e's time under its type, its faction, and its round.
 func (n *narrator) stamp(e event.Event, faction string, round int) {
 	if n.times[e.Type] == nil {
-		n.times[e.Type] = map[string][]time.Time{}
+		n.times[e.Type] = map[factionRound][]time.Time{}
 	}
-	k := faction + "/" + fmt.Sprint(round)
+	k := factionRound{faction, round}
 	n.times[e.Type][k] = append(n.times[e.Type][k], e.Time)
 }
 
@@ -371,7 +405,7 @@ func (n *narrator) at(round int) *block {
 	b := n.blocks[round]
 	if b == nil {
 		b = &block{
-			shown: map[string]bool{}, results: map[string]map[string][]string{}, fates: map[string][]string{},
+			shown: map[string]bool{}, results: map[string]*objectiveResults{}, fates: map[string][]string{},
 			knows: map[string][]string{}, decides: map[string][]detail{}, orders: map[string]string{},
 		}
 		n.blocks[round] = b
@@ -379,13 +413,13 @@ func (n *narrator) at(round int) *block {
 	return b
 }
 
-// result records an objective result of a faction's in the block of round.
-func (n *narrator) result(round int, faction, verb, what string) {
+// results returns a faction's objective results in the block of round.
+func (n *narrator) results(round int, faction string) *objectiveResults {
 	b := n.at(round)
 	if b.results[faction] == nil {
-		b.results[faction] = map[string][]string{}
+		b.results[faction] = &objectiveResults{}
 	}
-	b.results[faction][verb] = append(b.results[faction][verb], what)
+	return b.results[faction]
 }
 
 // advance narrates, once the initial conditions are, each block of a round
@@ -496,13 +530,7 @@ func (n *narrator) sides(b *block) []side {
 	factions := n.factions(b)
 	observer := side{name: "observer", rows: slices.Clone(b.observer)}
 	for _, f := range factions {
-		var items []string
-		for _, verb := range resultVerbs {
-			if what := b.results[f][verb]; len(what) > 0 {
-				items = append(items, verb+" "+strings.Join(what, " · "))
-			}
-		}
-		items = append(items, b.fates[f]...)
+		items := append(b.results[f].items(), b.fates[f]...)
 		if len(items) > 0 {
 			observer.rows = append(observer.rows, labeled{label: f, items: items})
 		}
@@ -579,21 +607,20 @@ func (n *narrator) rows(indent string, l labeled) []string {
 // name renders a cell for the narration: an objective's as objective:x,y,
 // any other as sector:x,y.
 func (n *narrator) name(l location) string {
-	p := place(l)
-	if _, ok := n.holders[p]; ok {
-		_, xy, _ := strings.Cut(p, ":")
-		return "objective:" + xy
+	if _, ok := n.holders[l]; ok {
+		return objectiveName(l)
 	}
-	return p
+	return place(l)
 }
 
-// learn takes the seed and the objectives from the observer's view, read at
-// the start, when no objective is held.
+// learn takes the seed, the rules, and the objectives from the observer's
+// view, read at the start, when no objective is held. handle validates the
+// view's rules before it learns them.
 func (n *narrator) learn(v exerciseView) {
 	n.view = v
 	n.sites = v.State.objectives()
 	for _, l := range n.sites {
-		n.holders[place(l)] = ""
+		n.holders[l] = ""
 	}
 }
 
@@ -653,7 +680,7 @@ func (n *narrator) settle() {
 		if p, ok := n.pictures[f]; !ok || p.Round < n.end.Round {
 			return
 		}
-		if r := n.revisions[f+"/"+strconv.Itoa(n.end.Round)]; n.lostAt(f, n.end.Round) && r[1] <= r[0] {
+		if r := n.revisions[factionRound{f, n.end.Round}]; n.lostAt(f, n.end.Round) && r.highest <= r.first {
 			return
 		}
 	}
@@ -677,7 +704,7 @@ func (n *narrator) lostAt(faction string, round int) bool {
 func (n *narrator) resolved(d resolved) {
 	n.resolves = d.Round
 	for _, c := range d.Captures {
-		n.holders[place(c.At)] = c.Faction
+		n.holders[c.At] = c.Faction
 	}
 	if n.setup != nil {
 		for _, f := range n.setup.Factions {
@@ -716,10 +743,12 @@ func (n *narrator) resolved(d resolved) {
 		if c.From != "" {
 			what += " from " + c.From
 		}
-		n.result(d.Round, c.Faction, "captures", what)
+		r := n.results(d.Round, c.Faction)
+		r.captures = append(r.captures, what)
 	}
 	for _, a := range d.Progress {
-		n.result(d.Round, a.Faction, "takes", fmt.Sprintf("%s %d/%d", n.name(a.At), a.Rounds, captureRounds))
+		r := n.results(d.Round, a.Faction)
+		r.takes = append(r.takes, fmt.Sprintf("%s %d/%d", n.name(a.At), a.Rounds, n.view.Rules.CaptureRounds))
 	}
 	for _, l := range d.Losses {
 		if !b.shown[l.ID] {
@@ -772,16 +801,16 @@ func (n *narrator) assessed(d assessment) {
 			changes = append(changes, "lost "+c.ID)
 		}
 	}
-	believed := map[string]belief{}
+	believed := map[location]belief{}
 	for _, o := range prev.Objectives {
-		believed[place(o.At)] = o
+		believed[o.At] = o
 	}
 	for _, o := range d.Objectives {
-		if p, ok := believed[place(o.At)]; ok && p.Holder == o.Holder {
+		if p, ok := believed[o.At]; ok && p.Holder == o.Holder {
 			continue
 		}
 		state := heldBy(o.Holder)
-		if l, ok := n.losses[d.Faction][place(o.At)]; ok && l.Round == o.Seen && l.Holder == o.Holder {
+		if l, ok := n.losses[d.Faction][o.At]; ok && l.Round == o.Seen && l.Holder == o.Holder {
 			state = "lost to " + o.Holder
 		}
 		changes = append(changes, n.name(o.At)+" "+state)
@@ -817,8 +846,10 @@ type movement struct {
 	move, retreat, pursue []string
 }
 
-// key identifies a movement, to tell one from another.
-func (m movement) key() string { return fmt.Sprint(m.move, m.retreat, m.pursue) }
+// equal reports whether m and o move the same squads, the same way.
+func (m movement) equal(o movement) bool {
+	return slices.Equal(m.move, o.move) && slices.Equal(m.retreat, o.retreat) && slices.Equal(m.pursue, o.pursue)
+}
 
 // String renders a movement: each way squads move, or that all hold when
 // none moves.
@@ -883,10 +914,10 @@ func (n *narrator) inEffect(faction string, round int) {
 	if !ok {
 		return
 	}
-	if prev, told := n.moving[faction]; told && prev == m.key() {
+	if prev, told := n.moving[faction]; told && prev.equal(m) {
 		return
 	}
-	n.moving[faction] = m.key()
+	n.moving[faction] = m
 	n.at(round - 1).orders[faction] = m.String()
 }
 
@@ -908,7 +939,7 @@ func (n *narrator) final() []string {
 			objectives = text("objectives  none")
 		}
 		for _, l := range n.sites {
-			objectives = objectives.with(row(col("objective", n.name(l)), apart("holder", orUnheld(n.holders[place(l)]))))
+			objectives = objectives.with(row(col("objective", n.name(l)), apart("holder", orUnheld(n.holders[l]))))
 		}
 		out = append(out, objectives)
 		for _, f := range n.setup.Factions {
@@ -956,12 +987,7 @@ func (n *narrator) final() []string {
 func (n *narrator) hops(from, to string, shift int) []time.Duration {
 	var out []time.Duration
 	for k, starts := range n.times[from] {
-		faction, round, _ := strings.Cut(k, "/")
-		var r int
-		if _, err := fmt.Sscan(round, &r); err != nil {
-			continue
-		}
-		ends := n.times[to][faction+"/"+fmt.Sprint(r+shift)]
+		ends := n.times[to][factionRound{k.faction, k.round + shift}]
 		for _, s := range starts {
 			var best time.Duration = -1
 			for _, e := range ends {
