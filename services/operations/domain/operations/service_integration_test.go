@@ -56,7 +56,7 @@ func loc(x, y int) route.Location {
 }
 
 // The fixture is one 5×1 sector "a" with its objective at 4,0, and red's
-// force r1 at 0,0 and scout r2 at 1,0.
+// squad r1 at 0,0 and scout r2 at 1,0, both ready.
 func open(t *testing.T, svc *operations.Service) string {
 	t.Helper()
 	id := uuid.NewV7().String()
@@ -76,11 +76,13 @@ func open(t *testing.T, svc *operations.Service) string {
 
 func red(id string, round int, r1, r2 route.Location) operations.Maneuver {
 	return operations.Maneuver{Exercise: id, Faction: "red", Round: round, Own: []route.Element{
-		{ID: "r1", Kind: "force", At: r1},
-		{ID: "r2", Kind: "scout", At: r2},
+		{ID: "r1", Kind: "squad", Status: route.StatusReady, At: r1},
+		{ID: "r2", Kind: "scout", Status: route.StatusReady, At: r2},
 	}}
 }
 
+// assign returns red's directives on round: each element's target, under
+// the secure rule.
 func assign(id string, round int, targets map[string]*route.Location) operations.Assign {
 	c := operations.Assign{Exercise: id, Faction: "red", Round: round}
 	for _, e := range slices.Sorted(func(yield func(string) bool) {
@@ -90,7 +92,7 @@ func assign(id string, round int, targets map[string]*route.Location) operations
 			}
 		}
 	}) {
-		c.Directives = append(c.Directives, operations.Directive{Element: e, Target: targets[e]})
+		c.Directives = append(c.Directives, operations.Directive{Element: e, Rule: "secure", Target: targets[e]})
 	}
 	return c
 }
@@ -140,7 +142,7 @@ func steps(ls ...route.Location) []route.Location { return ls }
 
 func sameOrders(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
-		return x.Element == y.Element && slices.Equal(x.Steps, y.Steps)
+		return x.Element == y.Element && x.Retreat == y.Retreat && slices.Equal(x.Steps, y.Steps)
 	})
 }
 
@@ -189,7 +191,7 @@ func TestManeuverIssuesOrdersTowardTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 1 || len(ops[1].Targets) != 2 || ops[0].LastRound != -1 {
+	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 1 || len(ops[1].Targets) != 2 || ops[1].Rules["r2"] != "secure" || ops[0].LastRound != -1 {
 		t.Errorf("Find = %+v", ops)
 	}
 }
@@ -221,8 +223,8 @@ func TestStaleInputsAreSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, op := range ops {
-		if op.Faction == "red" && (len(op.Targets) != 0 || op.DirectiveRound != 1) {
-			t.Errorf("red's operation = %+v, want no target and directive round 1", op)
+		if op.Faction == "red" && (len(op.Targets) != 0 || len(op.Rules) != 0 || op.DirectiveRound != 1) {
+			t.Errorf("red's operation = %+v, want no target or rule and directive round 1", op)
 		}
 	}
 }
@@ -285,7 +287,7 @@ func TestADirectiveAheadOfItsObservationWaitsForIt(t *testing.T) {
 	}
 }
 
-// A destroyed element's target is dropped with it.
+// A destroyed element's target and rule are dropped with it.
 func TestDestroyedElementsDropTheirTargets(t *testing.T) {
 	svc, _ := setup(t)
 	id := open(t, svc)
@@ -306,8 +308,48 @@ func TestDestroyedElementsDropTheirTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ops[1].Targets["r1"]; ok || len(ops[1].Elements) != 1 {
-		t.Errorf("red = %+v, want r1 and its target gone", ops[1])
+	_, targeted := ops[1].Targets["r1"]
+	_, ruled := ops[1].Rules["r1"]
+	if targeted || ruled || len(ops[1].Elements) != 1 {
+		t.Errorf("red = %+v, want r1 and its target and rule gone", ops[1])
+	}
+}
+
+// An engaged element stays in its fight under an engage directive; a
+// retreat directive on the same round changes the plan, so the round's
+// orders are issued again, with the retreat's one step flagged.
+func TestARetreatWithdrawsAnEngagedElement(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	ctx := t.Context()
+	c := red(id, 0, loc(1, 0), loc(3, 0))
+	c.Own[0].Status = route.StatusEngaged
+	if err := svc.Maneuver(ctx, c, nil); err != nil {
+		t.Fatal(err)
+	}
+	fight, back := loc(1, 0), loc(0, 0)
+	engage := operations.Assign{Exercise: id, Faction: "red", Round: 0, Directives: []operations.Directive{
+		{Element: "r1", Rule: "engage", Target: &fight},
+	}}
+	if err := svc.Assign(ctx, engage, nil); err != nil {
+		t.Fatal(err)
+	}
+	retreat := engage
+	retreat.Directives = []operations.Directive{{Element: "r1", Rule: "retreat", Target: &back}}
+	if err := svc.Assign(ctx, retreat, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := ordersRows(t, db)
+	want := []route.Order{{Element: "r1", Steps: steps(back), Retreat: true}}
+	if len(got) != 2 || len(got[0].Orders) != 0 || got[1].Round != 1 || !sameOrders(got[1].Orders, want) {
+		t.Errorf("outbox holds %+v, want round 1's empty orders, then r1's retreat", got)
+	}
+	ops, err := svc.Find(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops[1].Rules["r1"] != "retreat" || ops[1].Targets["r1"] != back {
+		t.Errorf("red = %+v, want r1's retreat to 0,0", ops[1])
 	}
 }
 
@@ -446,16 +488,30 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
+	// exists reports whether the query's one boolean holds.
+	exists := func(q string) bool {
+		t.Helper()
+		r, err := db.QueryContext(t.Context(), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = r.Close() }()
+		var ok bool
+		if !r.Next() || r.Scan(&ok) != nil {
+			t.Fatalf("%s: no boolean", q)
+		}
+		return ok
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down rules: %v", err)
+	}
+	if exists(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'operation' AND column_name = 'rules')`) {
+		t.Error("after 0003's down, the rules column remains")
+	}
 	if err := m.Down(t.Context(), 2); err != nil {
 		t.Fatalf("down: %v", err)
 	}
-	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('operation') IS NOT NULL`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = r.Close() }()
-	var exists bool
-	if !r.Next() || r.Scan(&exists) != nil || exists {
+	if exists(`SELECT to_regclass('operation') IS NOT NULL`) {
 		t.Error("after down, the operation table remains")
 	}
 }

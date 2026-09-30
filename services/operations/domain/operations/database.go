@@ -67,6 +67,7 @@ type operationRow struct {
 	DirRound   int       `json:"directive_round"`
 	Elements   []byte    `json:"elements"`
 	Targets    []byte    `json:"targets"`
+	Rules      []byte    `json:"rules"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
@@ -85,6 +86,7 @@ func (r operationRow) operation() (Operation, error) {
 		json.Unmarshal(r.Map, &op.plan),
 		json.Unmarshal(r.Elements, &op.Elements),
 		json.Unmarshal(r.Targets, &op.Targets),
+		json.Unmarshal(r.Rules, &op.Rules),
 	); err != nil {
 		return Operation{}, fmt.Errorf("operation %s/%s: decode: %w", r.ExerciseID, r.Faction, err)
 	}
@@ -142,7 +144,8 @@ func (s *store) all(ctx context.Context, id string) ([]Operation, error) {
 	return out, nil
 }
 
-// save records op's elements, targets, and last round.
+// save records op's elements, targets, rules, last round, and last
+// directive's round.
 func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	elements := op.Elements
 	if elements == nil {
@@ -152,6 +155,10 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	if targets == nil {
 		targets = map[string]route.Location{}
 	}
+	rules := op.Rules
+	if rules == nil {
+		rules = map[string]string{}
+	}
 	enc, err := encode(elements)
 	if err != nil {
 		return fmt.Errorf("encode elements: %w", err)
@@ -160,9 +167,13 @@ func (s *store) save(ctx context.Context, tx *sqlate.Tx, op Operation) error {
 	if err != nil {
 		return fmt.Errorf("encode targets: %w", err)
 	}
+	rls, err := encode(rules)
+	if err != nil {
+		return fmt.Errorf("encode rules: %w", err)
+	}
 	if _, err := s.record.Exec(ctx, tx, query.Args{
 		"exercise_id": op.Exercise, "faction": op.Faction,
-		"elements": enc, "targets": tgt, "last_round": op.LastRound,
+		"elements": enc, "targets": tgt, "rules": rls, "last_round": op.LastRound,
 		"directive_round": op.DirectiveRound,
 	}); err != nil {
 		return fmt.Errorf("save operation %s/%s: %w", op.Exercise, op.Faction, err)

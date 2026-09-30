@@ -58,19 +58,32 @@ func (m Map) Objectives() []Location {
 	return out
 }
 
-// Element is one of a faction's elements: its ID, its kind, and where it
-// stands.
+// The statuses an element reports: ready to move, engaged in a fight in its
+// cell, or recovering from a retreat.
+const (
+	StatusReady      = "ready"
+	StatusEngaged    = "engaged"
+	StatusRecovering = "recovering"
+)
+
+// RuleRetreat is the directive rule that withdraws an engaged element from
+// its fight, one step, to its target.
+const RuleRetreat = "retreat"
+
+// Element is one of a faction's elements: its ID, its kind, its status, and
+// where it stands.
 type Element struct {
-	ID   string   `json:"id"`
-	Kind string   `json:"kind"`
-	At   Location `json:"at"`
+	ID     string   `json:"id"`
+	Kind   string   `json:"kind"`
+	Status string   `json:"status"`
+	At     Location `json:"at"`
 }
 
 // Moves returns how many steps an element of kind may take in one round:
-// a force 1, a scout 2, and an unknown kind none.
+// a squad 1, a scout 2, and an unknown kind none.
 func Moves(kind string) int {
 	switch kind {
-	case "force":
+	case "squad":
 		return 1
 	case "scout":
 		return 2
@@ -79,9 +92,12 @@ func Moves(kind string) int {
 }
 
 // Order is one element's steps for a round, the shape exercise records.
+// Retreat marks the one step that withdraws an engaged element from its
+// fight, the only order exercise accepts from it.
 type Order struct {
 	Element string     `json:"element"`
 	Steps   []Location `json:"steps"`
+	Retreat bool       `json:"retreat,omitempty"`
 }
 
 // Path returns a shortest sequence of steps from from to to, excluding
@@ -155,29 +171,43 @@ func (s Sector) open(p Point) bool {
 }
 
 // Plan returns the orders that carry a faction's elements toward their
-// targets this round: each element with a target it does not stand on and
-// can reach takes up to its kind's moves along a shortest path.
+// targets this round, given each element's target and its directive's
+// rule. A ready element with a target it does not stand on and can reach
+// takes up to its kind's moves along a shortest path. An engaged element
+// stays in its fight, unless its rule is retreat and its target is one
+// step away: then it takes that step, a retreat. A recovering element
+// stays.
 //
 // No two of the faction's elements may end on one cell, the rule under
-// which exercise refuses an order whole, so Plan applies exercise's own
-// test to the planned ends: an element that moves, and ends where another
-// element ends, is refused. Where movers alone share a cell, the one with
-// the lowest ID keeps it; where an element that stays is there, none does.
-// Plan shortens each refused element's steps by one and tests again, until
-// no end is shared, so an element can follow another into the cell it
-// leaves, and two can swap cells. An element that ends up with no steps
-// holds, and gets no order.
-func Plan(m Map, elements []Element, targets map[string]Location) []Order {
+// which exercise refuses an order whole, except a cell that held a fight at
+// the round's start, where reinforcements may join. Plan tests the planned
+// ends the same way, taking a cell where one of the faction's engaged
+// elements stands for a fight's: an element that moves, and ends outside a
+// fight where another element ends, is refused. Where movers alone share a
+// cell, the one with the lowest ID keeps it; where an element that stays is
+// there, none does. Plan shortens each refused element's steps by one and
+// tests again, until no end is shared, so an element can follow another
+// into the cell it leaves, and two can swap cells. An element that ends up
+// with no steps holds, and gets no order.
+func Plan(m Map, elements []Element, targets map[string]Location, rules map[string]string) []Order {
 	es := slices.Clone(elements)
 	slices.SortFunc(es, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
 	paths := make([][]Location, len(es))
+	retreat := make([]bool, len(es))
+	fights := make(map[Location]bool)
 	for i, e := range es {
 		target, ok := targets[e.ID]
-		if !ok {
-			continue
-		}
-		if path, ok := m.Path(e.At, target); ok {
-			paths[i] = path[:min(Moves(e.Kind), len(path))]
+		switch {
+		case e.Status == StatusEngaged:
+			fights[e.At] = true
+			if ok && rules[e.ID] == RuleRetreat && slices.Contains(m.steps(e.At), target) {
+				paths[i], retreat[i] = []Location{target}, true
+			}
+		case e.Status == StatusRecovering, !ok:
+		default:
+			if path, ok := m.Path(e.At, target); ok {
+				paths[i] = path[:min(Moves(e.Kind), len(path))]
+			}
 		}
 	}
 	end := func(i int) Location {
@@ -192,8 +222,8 @@ func Plan(m Map, elements []Element, targets map[string]Location) []Order {
 		for i := range es {
 			at[end(i)] = append(at[end(i)], i)
 		}
-		for _, group := range at {
-			if len(group) < 2 {
+		for cell, group := range at {
+			if len(group) < 2 || fights[cell] {
 				continue
 			}
 			// group is in ID order. The lowest-ID mover keeps the cell unless
@@ -213,7 +243,7 @@ func Plan(m Map, elements []Element, targets map[string]Location) []Order {
 	var orders []Order
 	for i, e := range es {
 		if len(paths[i]) > 0 {
-			orders = append(orders, Order{Element: e.ID, Steps: slices.Clip(paths[i])})
+			orders = append(orders, Order{Element: e.ID, Steps: slices.Clip(paths[i]), Retreat: retreat[i]})
 		}
 	}
 	return orders

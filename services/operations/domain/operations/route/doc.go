@@ -11,6 +11,8 @@
 // inside the grid and not an obstacle, or, from a gate's cell, traverses the
 // link to the linked gate's cell; entering a gate and traversing it are
 // separate steps. [Plan] finds a shortest path to each target by
-// breadth-first search over those steps, and orders the element along it up
-// to its kind's moves per round.
+// breadth-first search over those steps, and orders a ready element along
+// it up to its kind's moves per round. An engaged element stays in its
+// fight unless its directive's rule withdraws it one step, and a recovering
+// element stays.
 package route

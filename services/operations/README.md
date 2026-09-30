@@ -21,7 +21,7 @@ Mounted under `/api/operations`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round of the last directive it applied, its elements, and each element's target |
+| `GET /{exercise}` | Each faction's operation: its status, the last round it acted on, the round of the last directive it applied, its elements, and each element's target and rule |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -34,7 +34,7 @@ payload into its command's input, its own reading of the payload:
 | Subscription | Event | Command |
 |--------------|-------|---------|
 | `operations-started` | `exercise.started` | `Open` both factions' operations over the map |
-| `operations-directives` | `command.directive.issued` | `Assign` the targets a faction's directives name |
+| `operations-directives` | `command.directive.issued` | `Assign` the targets a faction's directives name, with their rules |
 | `operations-observed` | `exercise.round.observed` | `Maneuver`: record the elements and issue the next round's orders |
 | `operations-concluded` | `exercise.concluded` | `Close` the exercise's operations |
 
@@ -43,16 +43,21 @@ an operation not open yet, as when a round's observation is handled before its s
 redelivered after 250ms rather than refused.
 
 The service emits `operations.orders.issued`, whose subject is the exercise's ID:
-`{exercise, faction, round, orders: [{element, steps: [{sector, x, y}]}]}`. It emits one per
+`{exercise, faction, round, orders: [{element, steps: [{sector, x, y}], retreat}]}`, where
+`retreat` appears only on a retreat's order. It emits one per
 faction per observed round, for the round after it, even with no orders, and none past the round
 limit. When a directive changes the plan for orders already issued, it emits them again for the
 same round, and exercise keeps the last it records. A directive's payload is
-`{exercise, faction, round, directives: [{element, target}]}`, where a null target holds the
-element.
+`{exercise, faction, round, directives: [{element, rule, contact, target}]}`. The service reads
+each directive's rule and target, and keeps them together: a null target holds the element and
+drops its rule.
 
-Each element steps toward its target along a shortest path, found by breadth-first search over
-open cells and gates (`domain/operations/route`), up to its moves per round, and no two of a
-faction's elements end a round on one cell.
+Each ready element steps toward its target along a shortest path, found by breadth-first search
+over open cells and gates (`domain/operations/route`), up to its moves per round: a squad one, a
+scout two. An engaged element stays in its fight, because exercise pins it there, unless its
+rule is `retreat` and its target is one step away: then its order is that step, flagged as a
+retreat. A recovering element stays. No two of a faction's elements end a round on one cell,
+except a cell where one of its engaged elements stands, which reinforcements may join.
 
 ## Composition
 

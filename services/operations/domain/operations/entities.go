@@ -41,9 +41,9 @@ const (
 
 // Operation is one faction's operation in an exercise, as the query shows
 // it: the faction's elements as its last observation left them, the target
-// each one's directive set, the last observed round it issued orders
-// from, and the round of the last directive it applied, each -1 before the
-// first.
+// and the rule each one's directive set, the last observed round it issued
+// orders from, and the round of the last directive it applied, each -1
+// before the first.
 type Operation struct {
 	Exercise       string                    `json:"exercise"`
 	Faction        string                    `json:"faction"`
@@ -52,6 +52,7 @@ type Operation struct {
 	DirectiveRound int                       `json:"directive_round"`
 	Elements       []route.Element           `json:"elements"`
 	Targets        map[string]route.Location `json:"targets"`
+	Rules          map[string]string         `json:"rules"`
 	UpdatedAt      time.Time                 `json:"updated_at"`
 	plan           route.Map
 	limit          int
@@ -85,10 +86,12 @@ func (c Open) Validate() error {
 	return invalid(errs)
 }
 
-// Directive is one element's directive: the target it heads for, or no
-// target, which holds it where it stands.
+// Directive is one element's directive: the rule command decided it by,
+// such as secure or retreat, and the target it heads for, or no target,
+// which holds it where it stands.
 type Directive struct {
 	Element string          `json:"element"`
+	Rule    string          `json:"rule"`
 	Target  *route.Location `json:"target"`
 }
 
