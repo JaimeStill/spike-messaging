@@ -340,6 +340,37 @@ func TestAFightLastsRounds(t *testing.T) {
 	}
 }
 
+// A fight holds its elements: an element that starts the round in a cell
+// with the enemy cannot move out, so the fight runs until one side is
+// destroyed, and an element outside the fight still moves.
+func TestAFightPinsItsElements(t *testing.T) {
+	c := loc("a", 1, 1)
+	s := state(force("r1", "red", 4, c), force("b1", "blue", 3, c), force("r2", "red", 2, loc("a", 3, 3)))
+	orders := []rules.Order{order("b1", loc("a", 1, 2)), order("r1", loc("a", 1, 0)), order("r2", loc("a", 3, 2))}
+	s, _, _, res := rules.Resolve(s, 1, 10, orders)
+	at := map[string]rules.Location{}
+	for _, e := range s.Elements {
+		at[e.ID] = e.At
+	}
+	if at["r1"] != c || at["b1"] != c || at["r2"] != loc("a", 3, 2) {
+		t.Errorf("after round 1: %v; want r1 and b1 pinned at %s and r2 moved", at, c.Key())
+	}
+	if len(res.Engagements) != 1 {
+		t.Fatalf("round 1: engagements %+v, want the fight to go on", res.Engagements)
+	}
+	s, _, _, res = rules.Resolve(s, 2, 10, orders)
+	if len(res.Losses) != 1 || res.Losses[0].ID != "b1" {
+		t.Errorf("round 2: losses %+v, want b1", res.Losses)
+	}
+	// Once the fight is over, the survivor moves again.
+	s, _, _, _ = rules.Resolve(s, 3, 10, []rules.Order{order("r1", loc("a", 1, 0))})
+	for _, e := range s.Elements {
+		if e.ID == "r1" && e.At != loc("a", 1, 0) {
+			t.Errorf("r1 at %s after the fight, want a:1,0", e.At.Key())
+		}
+	}
+}
+
 // The resolution records an objective that changes hands, with the faction
 // it was taken from, and none for one that stays with its holder.
 func TestResolutionRecordsCaptures(t *testing.T) {

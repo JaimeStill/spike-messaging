@@ -24,7 +24,9 @@
 //     that would end on the cell where another element of its faction ends
 //     is refused too, repeatedly until no two elements of one faction share
 //     a cell. Only the final cells matter, so elements that pass through or
-//     swap with each other do not meet.
+//     swap with each other do not meet. An element that starts the round in
+//     a cell holding the other faction's elements is pinned in the fight
+//     there: its order is refused, and it stays.
 //  2. Engage. In each cell holding both factions' elements, each faction's
 //     strength is summed, and each faction loses half the other's total,
 //     rounded up, both at once: a fight is attrition, and lasts as many

@@ -27,6 +27,26 @@ func Resolve(s State, round, limit int, orders []Order) (next State, obs [2]Obse
 	return next, Observe(next, round), Judge(next, round, limit), res
 }
 
+// contested returns the cells, by [Location.Key], that hold both factions'
+// elements.
+func contested(es []Element) map[string]bool {
+	factions := make(map[string]map[string]bool)
+	for _, e := range es {
+		k := e.At.Key()
+		if factions[k] == nil {
+			factions[k] = make(map[string]bool)
+		}
+		factions[k][e.Faction] = true
+	}
+	out := make(map[string]bool)
+	for k, fs := range factions {
+		if len(fs) > 1 {
+			out[k] = true
+		}
+	}
+	return out
+}
+
 // Resolution is what a round's resolution did, as the umpire records it:
 // each engagement, each objective that changed hands, and each element
 // destroyed. Every list is empty, not nil, for a round where nothing
@@ -67,16 +87,18 @@ type Loss struct {
 	Faction string `json:"faction"`
 }
 
-// move applies every order at once, refusing the ones the rules refuse.
+// move applies every order at once, refusing the ones the rules refuse,
+// and every order of an element pinned in a fight.
 func move(s *State, orders []Order) {
 	byID := make(map[string]Order, len(orders))
 	for _, o := range orders {
 		byID[o.Element] = o
 	}
+	pinned := contested(s.Elements)
 	final := make([]Location, len(s.Elements))
 	for i, e := range s.Elements {
 		final[i] = e.At
-		if o, ok := byID[e.ID]; ok {
+		if o, ok := byID[e.ID]; ok && !pinned[e.At.Key()] {
 			if to, ok := s.Map.walk(e, o.Steps); ok {
 				final[i] = to
 			}
