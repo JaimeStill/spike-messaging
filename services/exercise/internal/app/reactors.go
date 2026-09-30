@@ -35,10 +35,13 @@ const relayStage = ordersStage + 1
 
 // ordersSubscription names the durable consumer and delivery group through
 // which the orders reactor receives the operations service's orders. Its
-// Name is also the consumer the inbox records the reactor's claims under.
+// Name is also the consumer the inbox records the reactor's claims under. It
+// starts at its consumer's creation, so a first boot skips the orders the
+// stream already retains.
 var ordersSubscription = messaging.Subscription{
 	Name:  "exercise-orders",
 	Types: []string{"operations.orders.issued"},
+	Start: messaging.StartNew,
 }
 
 // Reactors composes the application's event-driven entry points: components
