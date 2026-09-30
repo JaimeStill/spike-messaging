@@ -12,5 +12,8 @@
   },
   "nats": {
     "url": "nats://127.0.0.1:4225"
+  },
+  "messaging": {
+    "relay_poll": "50ms"
   }
 }
