@@ -32,7 +32,9 @@ and go-core, and `courier/scenario` to no NATS package.
   coordinator, and the throttle that logs a repeating failure once per interval.
 - **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
   delivery groups, and the `Runtime`, a service's messaging built from its config over an
-  injected broker and engine, with its relay and its consuming reactors.
+  injected broker and engine, with its relay and its consuming reactors. The runtime logs the
+  traffic it carries: each event the relay publishes, and each delivery a consumer handles, with
+  its outcome.
 - **`messaging/outbox` and `messaging/inbox`**: the engine-agnostic sink and relay, and the
   inbox's claim, each over an `Engine` of statements that an engine's module supplies.
   `messaging/postgres` is the Postgres engine: both packages' statements and the `messaging`
@@ -41,23 +43,23 @@ and go-core, and `courier/scenario` to no NATS package.
   `messaging/messagingtest`.
 - **courier** (`courier/cmd/courier`, its own module): the spike's CLI, in the Elemental CLI
   layout. Its narrated scenarios each show one capability on a broker, `--broker memory` or
-  `--broker nats`. Each step's checkpoint adds its scenarios. `directives` and `assessments`
-  stand in for command on the exercise services' stream, writing its directives and reading
-  intelligence's assessments.
+  `--broker nats`. Each step's checkpoint adds its scenarios. On the exercise services' stream,
+  `directives` stands in for command, `assessments` narrates assessments and directives, and
+  `theater` narrates an exercise as the demonstration.
 - **The exercise** (`exercise.md`): four services, `exercise`, `intelligence`, `command`, and
-  `operations`, that play a two-faction exercise of sector dominance. Each round runs as a chain
-  of events and commands across all four. `services/exercise`, the world,
-  `services/intelligence`, and `services/operations` are built; command is planned. The theater
-  (`mise run demo-theater`) plays a larger exercise across the running services, and
-  `mise run demo-theater-check` reconciles its assessments against exercise's record.
+  `operations`, that play a two-faction exercise of sector dominance, all built. Each round runs as
+  a chain of events and commands across all four. `mise run demo-theater` plays the skirmish
+  across the running services, narrated by courier's `theater`, and `mise run
+  demo-theater-check` reconciles its assessments against exercise's record.
 
 ## Path
 
 The steps in dependency order. Each is one `start` session, and each session may revise the steps
 after it:
 
-1. **command**: assessments become directives, and the loop closes and runs on its own, with
-   command deciding every round of the theater.
+1. **the skirmish**: the demonstration's redesign (`exercise.md`, "The skirmish, next"): one
+   13×13 grid, squads of operators with health, seeded fights, retreat and reinforcement, and
+   two-round capture.
 2. **the final validation**: two replicas, drain, outages, convergence, and the import check.
    Its close states the answer.
 

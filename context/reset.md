@@ -1,90 +1,93 @@
-# reset · intelligence
+# reset · command
 
 - **Status:** closeout
 - **Session:** start
-- **Branch:** intelligence
+- **Branch:** command
 
 ## Disposition
 
 - **Add or sharpen:**
   - `exercise.md`:
-    - intelligence is built. The note records where each suppression rule is enforced, K as
-      `contact_rounds`, the payload, and the concluded-round rule.
-    - New notes for command, from intelligence's assessments:
-      - `known` before `holder`;
-      - stale objective beliefs;
-      - destroyed contacts lingering;
-      - `kind` and `strength`;
-      - a conclusion arriving before its final round's events.
-    - The `directives` stand-in decides once, on round 0.
-    - Unbounded redelivery now names intelligence.
-    - Tasks are `<category>-<action>`.
-  - `design.md`:
-    - "Readiness lags `Start`" notes that the lifecycle tests await readiness.
-    - A new open question: a durable consumer outlives a process that dies without its release.
+    - command is built, and the note records where each rule is enforced: path distance,
+      standing capture targets, and the directive's `rule` and `contact`.
+    - The rules gain attrition and pinning, in place of the instant engagement and its tie.
+    - exercise emits `exercise.round.resolved`, and "One round" lists it.
+    - operations applies the newest directive whenever it arrives.
+    - The note describes the theater narration, the skirmish fixture, and the 50ms local poll.
+    - Unbounded redelivery names command.
+    - A new section, "The skirmish, next", holds the settled redesign and the deferred ideas.
+    - The notes for command that intelligence's assessments raised are integrated into command's
+      entry.
   - `README.md`:
-    - The capabilities list gains intelligence, courier's `directives` and `assessments`
-      stand-ins, and the theater with its check.
-    - The path splits the last step into **command**, then **the final validation**.
-  - `CLAUDE.md`: the modules paragraph names `services/intelligence`, and the tasks are
-    `<category>-<action>`.
-- **Integrated:** intelligence's API, stages, events, and configuration are stated by
-  `services/intelligence/README.md` and its package documentation (`go doc` on
-  `./services/intelligence/domain/intelligence` and `.../fusion`).
+    - The capabilities list gains command, the runtime's traffic logging, and courier's
+      `theater`.
+    - The path is now **the skirmish**, then **the final validation**.
+  - `design.md`:
+    - The `Runtime` entry records the traffic logging.
+    - A new open question: a change-only event must carry its full state, so a consumer that
+      skips stale input loses nothing.
+  - `CLAUDE.md`: the modules paragraph names `services/command`.
+- **Integrated:** command's API, stages, events, and rules are stated by
+  `services/command/README.md` and its package documentation (`go doc` on
+  `./services/command/domain/command` and `.../decide`). The theater narration is stated by
+  `courier/scenario/theater.go`, and the skirmish by exercise's README.
 - **Validated:**
-  - **Checkpoint A, intelligence runs.** The architect ran it by hand over exercise, operations,
-    and courier's `directives`. Red's assessments saw b1 at the edge of a scout's sight, kept it
-    at its last-seen cell aging 1, 2, 3, and dropped it at round 5 (K = 3). The objectives aged
-    and refreshed as sight reached them.
-    - An earlier by-hand run found `directives` loses silently when started after round 0,
-      because its round-0 directive is skipped as stale.
-  - **Checkpoint B, the final validation.**
-    - The full task set, integration included, passed across every module.
-    - A live run showed the seen-empty drop: red dropped b2 at age 1 once its cell was seen
-      empty.
+  - **Checkpoint A, command runs by hand.** The architect ran the four services and the theater
+    by hand. command re-decided after contacts, captures, and losses, and its log showed its
+    traffic.
+  - **Checkpoint B, the first final validation.** The full task set passed across every module.
+    A 50-round `demo-theater` on command was consistent over 102 assessments.
+  - **Re-plan: stage 3, broker traffic in the service logs**, at the architect's request. The new
+    integration test sees a published event, a handled delivery, and a repeat.
+  - **Re-plan: checkpoint C, the demonstration.** The additions:
+    - attrition;
+    - `exercise.round.resolved`;
+    - the skirmish fixture, whose symmetry test fails when the symmetry is broken;
+    - the 50ms local poll;
+    - courier's `theater` narration, with `demo-theater` on the skirmish.
     - Adjusts:
-      - courier's release deletes only its own run's consumers. A concurrent run's release had
-        deleted `assessments`' consumer; the new test fails on the old release with
-        `consumer deleted`.
-      - All three services' lifecycle tests await readiness.
-  - **Re-plan: stages 6 and 7, the theater.**
-    - The fixture has three sectors joined by gates, walls, five objectives, and six elements a
-      side. It is validated against exercise's rules and checked by BFS for reachability.
-    - `demo-theater`, `assessments --summary`, and the task rename.
-    - A 50-round run: losses match on both sides, every rule fires, and red ends with a stale
-      belief about `east:9,4`.
-    - Adjust: the summary now narrates by round, and `demo-theater-check` reconciles a run
-      against exercise's history. On the architect's run: 102 assessments, 0 inconsistencies.
-      The check exits 1 when K is set wrong.
-  - **Branch review** (reviewer on Opus, all nine findings verified).
+      - The narration shows a round's orders when the round resolves, the ones exercise applied,
+        and a pursuit reads as one engagement.
+      - Squads are pinned in a fight, so fights last several rounds.
+      - courier's listing test names the new scenario.
+    - A skirmish run took about 17s: red won holding every objective, and `demo-theater-check`
+      was consistent over 28 assessments.
+  - **Branch review** (reviewer on Opus; the session verified all seven findings).
     - Fixed:
-      - The final round's assessment could be lost when `Close` won the race with the final
-        `Observe`. `Close` now records `closed_round` (migration 0002). The new test fails on
-        the old rule.
-      - The check requires one assessment per round per faction.
-      - The round book begins at round 0.
-      - The full narration waits for every named faction, with a fallback when the start has
-        aged out.
-    - Recorded: the courier consumer leak, the unbounded redelivery, and the notes for command.
-    - The architect's rerun: 102 assessments, consistent, with `closed_round` 50 on both rows.
-  - **The editor pass** (Sonnet): 8 files, prose only. "payload" was reverted to "event entity".
+      - operations applies a late directive (migration 0002, `directive_round`), where it used
+        to skip one behind its last observation and lose the change for good. The new test
+        fails on the old rule.
+      - `demo-theater-check` defaults to the latest exercise of any name.
+      - `demo-theater` fails when its narration fails.
+      - The ledger names what its assessed→directed figure counts.
+      - A stale comment in decide's test.
+    - Recorded: the `Resolution` missing from the round history, the narration reading orders by
+      stream order, and command's unbounded redelivery.
+    - Rerun: the full task set passed, and a skirmish on the architect's services was
+      consistent. Those services predate the operations fix; its integration test proves it.
+  - **The editor passes** (Sonnet, twice): prose only. I read both diffs.
 
 ## Next-focus
 
-A `start` session for the path's step 1: **command** (`context/exercise.md`).
+A `start` session for the path's step 1: **the skirmish** (`context/exercise.md`, "The skirmish,
+next").
 
-- Generate `services/command` the way intelligence was: gonew from go-web-sdk-template
-  `template/v0.9.0` (module path `.../go-web-sdk-template/template`), taking the service layer
-  renamed, on the `command` database, port 8083, the shared stream.
-- It keys its rows by exercise and faction. Its commands are `Open`, `Decide`, and `Close`.
-- It consumes `exercise.started`, `intelligence.assessment.issued`, and `exercise.concluded`,
-  with the `ErrNotOpen` redelivery and the concluded-round rule intelligence uses.
-- It decides by exercise.md's three rules: engage a weaker known contact within 3 cells, forces
-  only; otherwise secure the nearest objective not held and not already targeted; otherwise
-  hold. It reads `known` before `holder`.
-- It issues `command.directive.issued` in the shape operations reads, resending the faction's
-  full target state whenever a target changes.
-- **Checkpoint.** `demo-theater` runs with command in place of courier's `directives`: elements
-  are re-decided every round, after losses and captures, and `demo-theater-check` still reports
-  consistent. Settle at SETTLE how the theater tells command's directives apart in its
-  narration.
+- Redesign the demonstration's world and rules as the note settles:
+  - one 13×13 grid;
+  - three squads of four operators with percentage health, and two scouts, a side;
+  - mirrored random objectives and starting positions from a stored seed;
+  - squads see 1 cell and move 1; scouts see 2 and move 2;
+  - seeded fights;
+  - command's retreat, which draws a free volley and costs the squad its next round, and its
+    reinforcement;
+  - two-round capture;
+  - the narration's new step titles.
+- Settle at SETTLE:
+  - how operators and health appear in the payloads, with `strength` kept as the health total;
+  - how the seed is chosen and stored;
+  - how the retreat order reaches exercise.
+- Revise guideline 7, and keep the `Resolution` in the round history.
+- Restart operations before any live run, so its migration 0002 applies.
+- **Checkpoint.** A seeded skirmish plays differently per seed and the same for one seed. It
+  lasts well under a minute, shows fights over several rounds, a retreat, a reinforcement, and a
+  two-round capture, and `demo-theater-check` stays consistent.
