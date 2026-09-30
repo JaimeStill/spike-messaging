@@ -5,9 +5,11 @@ For every assessment intelligence issued of the exercise, it checks the
 suppression rules against the true state of that round, which exercise's
 history API holds:
 
-  - own:        the faction's own elements are exactly the true ones;
+  - own:        the faction's own elements are exactly the true ones, with
+                their true health, strength, and status;
   - sees:       every enemy element in sight is a contact of age 0, at its
-                true cell with its true strength, and no other contact is;
+                true cell with its true health, strength, and status, and no
+                other contact is;
   - remembers:  every older contact's cell is out of sight, and it is no
                 older than contact_rounds;
   - objectives: every objective in sight shows its true holder, no
@@ -32,7 +34,7 @@ import sys
 import urllib.request
 import uuid
 
-SIGHT = {"force": 2, "scout": 4}
+SIGHT = {"squad": 1, "scout": 2}
 K = int(os.environ.get("INTELLIGENCE_CONTACT_ROUNDS", "3"))
 URL = os.environ.get("EXERCISE_URL", "http://localhost:8081")
 
@@ -100,7 +102,7 @@ def main():
         state = history[r]
         tag = f"round {r} {f}"
         own = [e for e in state["elements"] if e["faction"] == f]
-        key = lambda e: (e["id"], e["strength"], place(e["at"]))
+        key = lambda e: (e["id"], e["strength"], tuple(e["health"]), e["status"], place(e["at"]))
         if sorted(map(key, a["own"])) != sorted(map(key, own)):
             errors.append(f"{tag}: own elements differ from the truth")
         visible = {e["id"]: e for e in state["elements"] if e["faction"] != f and sees(own, e["at"])}

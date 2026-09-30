@@ -99,7 +99,7 @@ echo "split-check: courier/scenario reaches neither nats.go nor the nats provide
 '''
 
 [tasks."demo-theater"]
-description = "Play an exercise on the running services and narrate it: the skirmish, or the fixture FIXTURE names (theater for the larger map)"
+description = "Play a skirmish on the running services and narrate it: SEED replays a seed, and FIXTURE names another fixture"
 run = '''
 set -eu
 fixture="services/exercise/fixtures/${FIXTURE:-skirmish}.json"
@@ -109,7 +109,9 @@ for port in 8081 8082 8083 8084; do
 done
 out=$(mktemp -d)
 go build -o "$out/courier" ./courier/cmd/courier
-id=$(curl -sf -XPOST localhost:8081/api/exercises -d @"$fixture" | jq -r .id)
+# SEED replays a skirmish; without it, exercise draws a seed, and the narration shows it.
+body=$(jq -c --argjson seed "${SEED:-null}" 'if $seed == null then . else . + {seed: $seed} end' "$fixture")
+id=$(curl -sf -XPOST localhost:8081/api/exercises -d "$body" | jq -r .id)
 # The narration joins the stream before the start, so it reads from round 0.
 "$out/courier" --broker nats scenario theater --exercise "$id" --wait 5m &
 narration=$!
