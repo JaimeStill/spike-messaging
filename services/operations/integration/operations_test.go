@@ -159,7 +159,7 @@ func TestOperations_DirectivesBecomeOrders(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 4, "height": 1, "objectives": []any{map[string]any{"x": 3, "y": 0}}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 4, "height": 1}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 5,
 	})
 	await(t, "round 1's orders", 10*time.Second, func() bool { return len(w.orders(t)) >= 1 })

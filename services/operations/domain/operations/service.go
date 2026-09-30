@@ -92,23 +92,17 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 		if err != nil || op.Status == StatusClosed || c.Sequence <= op.DirectiveSeq {
 			return err
 		}
-		op.DirectiveRound, op.DirectiveSeq = c.Round, c.Sequence
+		op.DirectiveSeq = c.Sequence
 		before := op.orders()
-		op.Targets = maps.Clone(op.Targets)
-		if op.Targets == nil {
-			op.Targets = map[string]route.Location{}
-		}
-		op.Rules = maps.Clone(op.Rules)
-		if op.Rules == nil {
-			op.Rules = map[string]string{}
+		op.Standing = maps.Clone(op.Standing)
+		if op.Standing == nil {
+			op.Standing = map[string]route.Standing{}
 		}
 		for _, d := range c.Directives {
 			if d.Target == nil {
-				delete(op.Targets, d.Element)
-				delete(op.Rules, d.Element)
+				delete(op.Standing, d.Element)
 			} else {
-				op.Targets[d.Element] = *d.Target
-				op.Rules[d.Element] = d.Rule
+				op.Standing[d.Element] = route.Standing{Target: *d.Target, Rule: d.Rule}
 			}
 		}
 		// Only a directive on the round the operation last acted on can
@@ -142,10 +136,8 @@ func (s *Service) Maneuver(ctx context.Context, c Maneuver, claim Claim) error {
 		live := func(id string) bool {
 			return slices.ContainsFunc(op.Elements, func(e route.Element) bool { return e.ID == id })
 		}
-		op.Targets = maps.Clone(op.Targets)
-		maps.DeleteFunc(op.Targets, func(id string, _ route.Location) bool { return !live(id) })
-		op.Rules = maps.Clone(op.Rules)
-		maps.DeleteFunc(op.Rules, func(id string, _ string) bool { return !live(id) })
+		op.Standing = maps.Clone(op.Standing)
+		maps.DeleteFunc(op.Standing, func(id string, _ route.Standing) bool { return !live(id) })
 		op.LastRound = c.Round
 		op.raise(q, op.orders())
 		return s.store.save(ctx, tx, op)
@@ -192,7 +184,7 @@ func (s *Service) claimed(ctx context.Context, name string, claim Claim, fn func
 
 // orders plans the operation's orders for the round after its last.
 func (op Operation) orders() []route.Order {
-	return route.Plan(op.plan, op.Elements, op.Targets, op.Rules)
+	return route.Plan(op.plan, op.Elements, op.Standing)
 }
 
 // raise raises the operation's orders for the round after its last, unless

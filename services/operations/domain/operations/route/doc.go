@@ -13,6 +13,7 @@
 // separate steps. [Plan] finds a shortest path to each target by
 // breadth-first search over those steps, and orders a ready element along
 // it up to its kind's moves per round. An engaged element stays in its
-// fight unless its directive's rule withdraws it one step, and a recovering
-// element stays.
+// fight unless its directive's rule, retreat, withdraws it one step; under
+// pursue it gets an order with no steps, to fire on an enemy that retreats
+// from its cell. A recovering element stays.
 package route

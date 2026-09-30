@@ -68,25 +68,24 @@ type Reactors struct {
 func newReactors(
 	infra *Infrastructure,
 	dom *Domain,
-	cfg *config.Config,
+	_ *config.Config,
 	lc *lifecycle.Coordinator,
 ) (*Reactors, error) {
-	shutdown := cfg.ShutdownTimeout.Duration()
 	svc := dom.Operations
-	rs := &Reactors{Relay: infra.Messaging.Relay(infra.SQL.DB, shutdown)}
+	rs := &Reactors{Relay: infra.Messaging.Relay(infra.SQL.DB)}
 	corelifecycle.Register(lc, "relay", relayStage, rs.Relay)
 
 	var err error
-	if rs.Started, err = infra.Messaging.Consume(startedSubscription, shutdown, svc.Open); err != nil {
+	if rs.Started, err = infra.Messaging.Consume(startedSubscription, svc.Open); err != nil {
 		return nil, err
 	}
-	if rs.Directives, err = infra.Messaging.Consume(directivesSubscription, shutdown, svc.Assign); err != nil {
+	if rs.Directives, err = infra.Messaging.Consume(directivesSubscription, svc.Assign); err != nil {
 		return nil, err
 	}
-	if rs.Observed, err = infra.Messaging.Consume(observedSubscription, shutdown, svc.Maneuver); err != nil {
+	if rs.Observed, err = infra.Messaging.Consume(observedSubscription, svc.Maneuver); err != nil {
 		return nil, err
 	}
-	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, shutdown, svc.Close); err != nil {
+	if rs.Concluded, err = infra.Messaging.Consume(concludedSubscription, svc.Close); err != nil {
 		return nil, err
 	}
 	corelifecycle.Register(lc, "started", consumeStage, rs.Started)

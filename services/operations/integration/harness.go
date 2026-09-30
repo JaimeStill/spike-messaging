@@ -68,7 +68,7 @@ func Launch(t testing.TB, opts Options) *Service {
 		client:   webtest.NewClient("http://" + addr),
 		Database: pgtest.Scratch(t),
 	}
-	s.Stream, s.Prefix = natstest.Stream(t, NATSURL())
+	s.Stream, s.Prefix = natstest.Scratch(t, NATSURL())
 	s.Process = processtest.Launch(t, environment(opts, addr, s)...)
 	return s
 }

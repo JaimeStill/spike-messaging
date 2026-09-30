@@ -13,9 +13,9 @@ func loc(sector string, x, y int) route.Location {
 }
 
 // twoSectors is a 3×3 sector a with an obstacle at 1,1 and a gate at 2,2,
-// linked to the gate at 0,0 of a 3×1 sector b, whose objective is at 2,0.
+// linked to the gate at 0,0 of a 3×1 sector b.
 //
-//	a:  . . .     b:  G . O
+//	a:  . . .     b:  G . .
 //	    . # .
 //	    . . G
 var twoSectors = route.Map{Sectors: []route.Sector{
@@ -26,8 +26,7 @@ var twoSectors = route.Map{Sectors: []route.Sector{
 	},
 	{
 		ID: "b", Width: 3, Height: 1,
-		Objectives: []route.Point{{X: 2, Y: 0}},
-		Gates:      []route.Gate{{At: route.Point{X: 0, Y: 0}, To: loc("a", 2, 2)}},
+		Gates: []route.Gate{{At: route.Point{X: 0, Y: 0}, To: loc("a", 2, 2)}},
 	},
 }}
 
@@ -35,16 +34,13 @@ var twoSectors = route.Map{Sectors: []route.Sector{
 // point flattened beside its sector.
 func TestMapDecodesTheExerciseShape(t *testing.T) {
 	var m route.Map
-	data := `{"sectors":[{"id":"a","width":2,"height":1,"obstacles":[],"objectives":[{"x":1,"y":0}],
+	data := `{"sectors":[{"id":"a","width":2,"height":1,"obstacles":[],
 		"gates":[{"at":{"x":0,"y":0},"to":{"sector":"b","x":3,"y":4}}]}]}`
 	if err := json.Unmarshal([]byte(data), &m); err != nil {
 		t.Fatal(err)
 	}
 	if got := m.Sectors[0].Gates[0].To; got != loc("b", 3, 4) {
 		t.Errorf("gate links to %v", got)
-	}
-	if got := m.Objectives(); !slices.Equal(got, []route.Location{loc("a", 1, 0)}) {
-		t.Errorf("Objectives = %v", got)
 	}
 }
 
@@ -89,7 +85,7 @@ func TestPlanMovesByKind(t *testing.T) {
 		"there": loc("b", 1, 0),
 		"stuck": loc("a", 1, 1),
 	}
-	got := route.Plan(twoSectors, elements, targets, nil)
+	got := route.Plan(twoSectors, elements, standing(targets, nil))
 	want := []route.Order{
 		{Element: "f", Steps: []route.Location{loc("a", 2, 1)}},
 		{Element: "s", Steps: []route.Location{loc("a", 1, 2), loc("a", 2, 2)}},
@@ -114,7 +110,7 @@ func TestPlanKeepsElementsApart(t *testing.T) {
 	}
 	target := loc("l", 2, 0)
 	targets := map[string]route.Location{"a": target, "b": target, "c": target, "d": loc("l", 4, 0), "e": loc("l", 4, 0)}
-	got := route.Plan(line, elements, targets, nil)
+	got := route.Plan(line, elements, standing(targets, nil))
 	// a and b both reach 2,0 and a keeps it, so b holds; c and d swap 3,0
 	// and 4,0; e's step onto 4,0 is where d ends, so e holds.
 	want := []route.Order{
@@ -132,7 +128,7 @@ func TestPlanKeepsElementsApart(t *testing.T) {
 		{ID: "f", Kind: "squad", At: loc("l", 0, 0)},
 		{ID: "s", Kind: "scout", At: loc("l", 1, 0)},
 		{ID: "w", Kind: "squad", At: loc("l", 3, 0)},
-	}, map[string]route.Location{"f": loc("l", 5, 0), "s": loc("l", 5, 0)}, nil)
+	}, standing(map[string]route.Location{"f": loc("l", 5, 0), "s": loc("l", 5, 0)}, nil))
 	want = []route.Order{
 		{Element: "f", Steps: []route.Location{loc("l", 1, 0)}},
 		{Element: "s", Steps: []route.Location{loc("l", 2, 0)}},
@@ -160,7 +156,7 @@ func TestPlanHoldsEngagedAndRecoveringElements(t *testing.T) {
 		"rec": loc("b", 2, 0),
 	}
 	rules := map[string]string{"e": "secure", "far": route.RuleRetreat, "r": route.RuleRetreat, "rec": "secure"}
-	got := route.Plan(twoSectors, elements, targets, rules)
+	got := route.Plan(twoSectors, elements, standing(targets, rules))
 	want := []route.Order{{Element: "r", Steps: []route.Location{loc("a", 2, 1)}, Retreat: true}}
 	if !equal(got, want) {
 		t.Errorf("Plan = %v, want %v", got, want)
@@ -182,7 +178,7 @@ func TestPlanLetsReinforcementsJoinAFight(t *testing.T) {
 	}
 	targets := map[string]route.Location{"a": fight, "b": fight, "e": fight, "x": loc("l", 5, 0), "y": loc("l", 5, 0)}
 	rules := map[string]string{"a": "reinforce", "b": "reinforce", "e": "engage", "x": "secure", "y": "secure"}
-	got := route.Plan(line, elements, targets, rules)
+	got := route.Plan(line, elements, standing(targets, rules))
 	// a and b both join e in its fight; x and y would share 5,0, and x keeps
 	// it.
 	want := []route.Order{
@@ -204,7 +200,7 @@ func TestPlanPursuesInPlace(t *testing.T) {
 	}
 	targets := map[string]route.Location{"e": loc("a", 0, 0), "p": loc("a", 2, 0)}
 	rules := map[string]string{"e": "engage", "p": route.RulePursue}
-	got := route.Plan(twoSectors, elements, targets, rules)
+	got := route.Plan(twoSectors, elements, standing(targets, rules))
 	want := []route.Order{{Element: "p", Steps: []route.Location{}, Pursue: true}}
 	if !equal(got, want) || got[0].Steps == nil {
 		t.Errorf("Plan = %v, want %v", got, want)
@@ -232,4 +228,14 @@ func equal(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
 		return x.Element == y.Element && x.Retreat == y.Retreat && x.Pursue == y.Pursue && slices.Equal(x.Steps, y.Steps)
 	})
+}
+
+// standing joins each element's target with its rule, as operations keeps
+// them.
+func standing(targets map[string]route.Location, rules map[string]string) map[string]route.Standing {
+	out := make(map[string]route.Standing, len(targets))
+	for id, at := range targets {
+		out[id] = route.Standing{Target: at, Rule: rules[id]}
+	}
+	return out
 }

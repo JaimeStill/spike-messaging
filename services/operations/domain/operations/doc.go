@@ -21,10 +21,11 @@
 //
 // # Commands
 //
-// A reactor's adapter invokes each command for an event another service
-// raised. Each command takes an optional [Claim]. The adapter binds the
-// claim over its inbox, and the command runs it first in its transaction, so
-// a redelivery changes nothing.
+// A consuming reactor invokes each command for an event another service
+// raised, with the event's data decoded into the command's input. Each
+// command takes an optional [Claim]. The reactor binds the claim over its
+// inbox, and the command runs it first in its transaction, so a redelivery
+// changes nothing.
 //
 //   - [Service.Open] opens both factions' operations on exercise.started.
 //   - [Service.Assign] sets targets and rules on command.directive.issued.
@@ -38,8 +39,9 @@
 // for an operation not open yet fails with [ErrNotOpen], which is not
 // permanent: the events arrive on separate subscriptions, so a round's
 // observation can be handled before the start that opens its operation, and
-// the broker redelivers it. Each command locks its faction's row, so
-// replicas act on one faction's inputs one at a time. Each command skips an
-// input from a round earlier than the last the operation acted on, and any
-// input for a closed operation.
+// the broker redelivers it. Assign and Maneuver lock their faction's row, so
+// replicas act on one faction's inputs one at a time, and skip any input
+// for a closed operation. Assign skips a directive whose sequence is no
+// higher than the last it applied, and Maneuver an observation of a round
+// no later than the last it acted on.
 package operations

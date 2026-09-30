@@ -63,7 +63,7 @@ func open(t *testing.T, svc *operations.Service) string {
 	err := svc.Open(t.Context(), operations.Open{
 		Exercise: id,
 		Map: route.Map{Sectors: []route.Sector{{
-			ID: "a", Width: 5, Height: 1, Objectives: []route.Point{{X: 4, Y: 0}},
+			ID: "a", Width: 5, Height: 1,
 		}}},
 		Factions:   [2]string{"red", "blue"},
 		RoundLimit: 3,
@@ -191,7 +191,7 @@ func TestManeuverIssuesOrdersTowardTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 1 || len(ops[1].Targets) != 2 || ops[1].Rules["r2"] != "secure" || ops[0].LastRound != -1 {
+	if len(ops) != 2 || ops[1].Faction != "red" || ops[1].LastRound != 1 || len(ops[1].Standing) != 2 || ops[1].Standing["r2"].Rule != "secure" || ops[0].LastRound != -1 {
 		t.Errorf("Find = %+v", ops)
 	}
 }
@@ -223,8 +223,8 @@ func TestStaleInputsAreSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, op := range ops {
-		if op.Faction == "red" && (len(op.Targets) != 0 || len(op.Rules) != 0 || op.DirectiveRound != 1) {
-			t.Errorf("red's operation = %+v, want no target or rule and directive round 1", op)
+		if op.Faction == "red" && (len(op.Standing) != 0 || op.DirectiveSeq != 2) {
+			t.Errorf("red's operation = %+v, want no standing and directive sequence 2", op)
 		}
 	}
 }
@@ -256,7 +256,7 @@ func TestALateLowerSequenceIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, op := range ops {
-		if op.Faction == "red" && (op.DirectiveSeq != 2 || len(op.Targets) != 1 || op.Targets["r2"] != newer) {
+		if op.Faction == "red" && (op.DirectiveSeq != 2 || len(op.Standing) != 1 || op.Standing["r2"].Target != newer) {
 			t.Errorf("red's operation = %+v, want the sequence-2 directive's target alone", op)
 		}
 	}
@@ -341,9 +341,7 @@ func TestDestroyedElementsDropTheirTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, targeted := ops[1].Targets["r1"]
-	_, ruled := ops[1].Rules["r1"]
-	if targeted || ruled || len(ops[1].Elements) != 1 {
+	if _, standing := ops[1].Standing["r1"]; standing || len(ops[1].Elements) != 1 {
 		t.Errorf("red = %+v, want r1 and its target and rule gone", ops[1])
 	}
 }
@@ -382,7 +380,7 @@ func TestARetreatWithdrawsAnEngagedElement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ops[1].Rules["r1"] != "retreat" || ops[1].Targets["r1"] != back {
+	if st := ops[1].Standing["r1"]; st.Rule != "retreat" || st.Target != back {
 		t.Errorf("red = %+v, want r1's retreat to 0,0", ops[1])
 	}
 }
@@ -535,6 +533,15 @@ func TestMigrationsUpAndDown(t *testing.T) {
 			t.Fatalf("%s: no boolean", q)
 		}
 		return ok
+	}
+	if exists(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'operation' AND column_name = 'directive_round')`) {
+		t.Error("after up, the directive_round column remains")
+	}
+	if err := m.Down(t.Context(), 1); err != nil {
+		t.Fatalf("down directive round: %v", err)
+	}
+	if !exists(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'operation' AND column_name = 'directive_round')`) {
+		t.Error("after 0005's down, the directive_round column is missing")
 	}
 	if err := m.Down(t.Context(), 1); err != nil {
 		t.Fatalf("down directive sequence: %v", err)

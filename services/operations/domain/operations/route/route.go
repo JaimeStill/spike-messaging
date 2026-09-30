@@ -33,29 +33,16 @@ type Gate struct {
 
 // Sector is one W×H grid of the map, with its features.
 type Sector struct {
-	ID         string  `json:"id"`
-	Width      int     `json:"width"`
-	Height     int     `json:"height"`
-	Obstacles  []Point `json:"obstacles"`
-	Objectives []Point `json:"objectives"`
-	Gates      []Gate  `json:"gates"`
+	ID        string  `json:"id"`
+	Width     int     `json:"width"`
+	Height    int     `json:"height"`
+	Obstacles []Point `json:"obstacles"`
+	Gates     []Gate  `json:"gates"`
 }
 
-// Map is the exercise's public map.
+// Map is the exercise's public map, which carries no objectives.
 type Map struct {
 	Sectors []Sector `json:"sectors"`
-}
-
-// Objectives returns the location of every objective of m, in the order the
-// map lists them.
-func (m Map) Objectives() []Location {
-	var out []Location
-	for _, s := range m.Sectors {
-		for _, p := range s.Objectives {
-			out = append(out, Location{Sector: s.ID, Point: p})
-		}
-	}
-	return out
 }
 
 // The statuses an element reports: ready to move, engaged in a fight in its
@@ -73,6 +60,13 @@ const RuleRetreat = "retreat"
 // RulePursue is the directive rule that holds an engaged element in its
 // fight, ready to fire on an enemy that retreats from its cell.
 const RulePursue = "pursue"
+
+// Standing is what an element's directive set: the target it heads for,
+// and the rule command decided it by.
+type Standing struct {
+	Target Location
+	Rule   string
+}
 
 // Element is one of a faction's elements: its ID, its kind, its status, and
 // where it stands.
@@ -178,8 +172,8 @@ func (s Sector) open(p Point) bool {
 }
 
 // Plan returns the orders that carry a faction's elements toward their
-// targets this round, given each element's target and its directive's
-// rule. A ready element with a target it does not stand on and can reach
+// targets this round, given each element's standing: its target and its
+// directive's rule. A ready element with a target it does not stand on and can reach
 // takes up to its kind's moves along a shortest path. An engaged element
 // stays in its fight, unless its rule is retreat and its target is one
 // step away: then it takes that step, a retreat. If its rule is pursue, it
@@ -203,7 +197,7 @@ func (s Sector) open(p Point) bool {
 // only when the faction's only element in a contested cell is recovering:
 // Plan then refuses a reinforcement that exercise would allow, a lost move
 // and never an illegal order.
-func Plan(m Map, elements []Element, targets map[string]Location, rules map[string]string) []Order {
+func Plan(m Map, elements []Element, standing map[string]Standing) []Order {
 	es := slices.Clone(elements)
 	slices.SortFunc(es, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
 	paths := make([][]Location, len(es))
@@ -211,14 +205,15 @@ func Plan(m Map, elements []Element, targets map[string]Location, rules map[stri
 	pursue := make([]bool, len(es))
 	fights := make(map[Location]bool)
 	for i, e := range es {
-		target, ok := targets[e.ID]
+		st, ok := standing[e.ID]
+		target := st.Target
 		switch {
 		case e.Status == StatusEngaged:
 			fights[e.At] = true
-			if rules[e.ID] == RulePursue {
+			if st.Rule == RulePursue {
 				pursue[i] = true
 			}
-			if ok && rules[e.ID] == RuleRetreat && slices.Contains(m.steps(e.At), target) {
+			if ok && st.Rule == RuleRetreat && slices.Contains(m.steps(e.At), target) {
 				paths[i], retreat[i] = []Location{target}, true
 			}
 		case e.Status == StatusRecovering, !ok:

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -40,23 +41,45 @@ const (
 )
 
 // Operation is one faction's operation in an exercise, as the query shows
-// it: the faction's elements as its last observation left them, the target
-// and the rule each one's directive set, the last observed round it issued
-// orders from, the round of the last directive it applied, each -1
-// before the first, and that directive's sequence, 0 before the first.
+// it: the faction's elements as its last observation left them, the
+// standing each one's directive set, the last observed round it issued
+// orders from, -1 before the first, and the last applied directive's
+// sequence, 0 before the first. Its JSON shows the standing as two maps by
+// element, targets and rules.
 type Operation struct {
-	Exercise       string                    `json:"exercise"`
-	Faction        string                    `json:"faction"`
-	Status         Status                    `json:"status"`
-	LastRound      int                       `json:"last_round"`
-	DirectiveRound int                       `json:"directive_round"`
-	DirectiveSeq   int                       `json:"directive_sequence"`
-	Elements       []route.Element           `json:"elements"`
-	Targets        map[string]route.Location `json:"targets"`
-	Rules          map[string]string         `json:"rules"`
-	UpdatedAt      time.Time                 `json:"updated_at"`
-	plan           route.Map
-	limit          int
+	Exercise     string                    `json:"exercise"`
+	Faction      string                    `json:"faction"`
+	Status       Status                    `json:"status"`
+	LastRound    int                       `json:"last_round"`
+	DirectiveSeq int                       `json:"directive_sequence"`
+	Elements     []route.Element           `json:"elements"`
+	Standing     map[string]route.Standing `json:"-"`
+	UpdatedAt    time.Time                 `json:"updated_at"`
+	plan         route.Map
+	limit        int
+}
+
+// MarshalJSON shows the operation with its standing split into targets and
+// rules, each keyed by element.
+func (op Operation) MarshalJSON() ([]byte, error) {
+	type fields Operation
+	targets, rules := split(op.Standing)
+	return json.Marshal(struct {
+		fields
+		Targets map[string]route.Location `json:"targets"`
+		Rules   map[string]string         `json:"rules"`
+	}{fields(op), targets, rules})
+}
+
+// split returns each element's target and each element's rule of standing,
+// as the operation's JSON and its columns keep them.
+func split(standing map[string]route.Standing) (map[string]route.Location, map[string]string) {
+	targets := make(map[string]route.Location, len(standing))
+	rules := make(map[string]string, len(standing))
+	for id, st := range standing {
+		targets[id], rules[id] = st.Target, st.Rule
+	}
+	return targets, rules
 }
 
 // Open is the open command's input, operations' reading of an
@@ -89,7 +112,7 @@ func (c Open) Validate() error {
 
 // Directive is one element's directive: the rule command decided it by,
 // such as secure or retreat, and the target it heads for, or no target,
-// which holds it where it stands.
+// which holds it where it stands. command's decide package names the rules.
 type Directive struct {
 	Element string          `json:"element"`
 	Rule    string          `json:"rule"`
@@ -111,7 +134,7 @@ type Assign struct {
 
 // Validate reports every way c is unusable, wrapping [ErrValidation].
 func (c Assign) Validate() error {
-	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), checkSequence(c.Sequence)}
+	errs := []error{checkExercise(c.Exercise), checkFaction(c.Faction), checkRound(c.Round), checkCounter("sequence", c.Sequence)}
 	for i, d := range c.Directives {
 		if d.Element == "" {
 			errs = append(errs, fmt.Errorf("directive %d: the element is empty", i))
@@ -148,8 +171,8 @@ func (c Close) Validate() error {
 // Claim is an idempotency claim that a command runs in its transaction
 // before it does anything else. It reports whether this is the first time
 // the command's input was handled. On false the command changes nothing and
-// succeeds. A reactor's adapter binds a Claim over its inbox and the event
-// it handles. A caller without an inbox, such as a test, passes a nil
+// succeeds. The consuming reactor binds a Claim over its inbox and the
+// event it handles. A caller without an inbox, such as a test, passes a nil
 // Claim, which claims nothing. It is an alias, so the claim a consumer
 // built by messaging's Consume hands over is one.
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
@@ -175,9 +198,10 @@ func checkRound(r int) error {
 	return nil
 }
 
-func checkSequence(n int) error {
+// checkCounter checks n, a producer's counter, which counts from 1.
+func checkCounter(name string, n int) error {
 	if n < 1 {
-		return fmt.Errorf("sequence %d is below 1", n)
+		return fmt.Errorf("%s %d is not positive", name, n)
 	}
 	return nil
 }
