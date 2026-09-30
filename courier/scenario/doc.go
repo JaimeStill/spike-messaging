@@ -18,9 +18,10 @@
 //
 // The directives scenario stands in for the exercise's command service. It
 // takes [Joins], a broker on the stream the exercise services share rather
-// than a scratch one, reads the map and a faction's first observation from
-// it, and issues one command.directive.issued that sends each of the
-// faction's elements to secure an objective.
+// than a scratch one, reads a faction's first observation from it, and
+// issues one command.directive.issued that sends each of the faction's
+// elements to an objective the observation reports, or holds it when the
+// faction knows none.
 //
 // The assessments scenario joins the same stream and narrates one
 // exercise's intelligence.assessment.issued events and the
@@ -29,7 +30,9 @@
 //
 // The theater scenario is the demonstration. It joins the same stream
 // before an exercise starts and narrates the exercise as the services play
-// it: the initial conditions, with the seed, one line for each event that
+// it: the initial conditions, held until the umpire's first resolution
+// tells the objectives (which the factions do not know, and which the
+// narration names objective:x,y), with the seed, one line for each event that
 // changes something, tagged with its round, its service, and its faction,
 // and the final conditions, with the events on the stream by type and the median
 // latency of each hop in the chain.
