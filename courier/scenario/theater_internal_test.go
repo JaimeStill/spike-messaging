@@ -55,9 +55,10 @@ func sq(id, kind string, strength int, at map[string]any) map[string]any {
 
 // The narrator tells the initial conditions once the start and both round-0
 // observations are in, then one line for each event that changes something
-// (a sighting, a changed directive, a new set of moving squads, a fight, a
-// loss, a capture, an objective seen held) and nothing for one that
-// changes nothing. Its final conditions give the verdict, the holders, the
+// (a sighting, a changed directive, a new set of moving squads in the
+// orders in effect for a round, a fight, a loss, a capture, an objective
+// seen held) and nothing for one that changes nothing: an engagement
+// pursuing its contact, or orders exercise refuses as late. Its final conditions give the verdict, the holders, the
 // survivors and losses, the events by type, and the median of each hop.
 func TestNarratorTellsWhatChanges(t *testing.T) {
 	s := newScript(t)
@@ -102,6 +103,13 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"engagements": []any{map[string]any{"at": cell("a", 3, 0), "elements": []any{
 			map[string]any{"id": "b1", "faction": "blue", "before": 3, "after": 1},
 			map[string]any{"id": "r1", "faction": "red", "before": 4, "after": 2}}}}})
+	// r1 pursues b1 into another cell: the same engagement, not narrated.
+	s.at(2010, directiveType, map[string]any{"faction": "red", "round": 2, "directives": []any{
+		map[string]any{"element": "r1", "rule": "engage", "contact": "b1", "target": cell("a", 3, 1)},
+		map[string]any{"element": "r2", "rule": "hold", "target": nil}}})
+	// Orders for a round already resolved, which exercise refuses, are not
+	// narrated.
+	s.at(2020, ordersType, map[string]any{"faction": "red", "round": 2, "orders": []any{}})
 	s.at(3000, resolvedType, map[string]any{"round": 3,
 		"engagements": []any{map[string]any{"at": cell("a", 3, 0), "elements": []any{
 			map[string]any{"id": "b1", "faction": "blue", "before": 1, "after": 0},
@@ -151,8 +159,8 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		"objectives  a:4,4 red · b:1,1 unheld",
 		"red         r1 1 · r2 1 · strength 2",
 		"blue        none · strength 0 · lost b1",
-		"events      20 on the stream: 1 exercise.started · 3 exercise.round.resolved · 5 exercise.round.observed · " +
-			"5 intelligence.assessment.issued · 2 command.directive.issued · 3 operations.orders.issued · 1 exercise.concluded",
+		"events      22 on the stream: 1 exercise.started · 3 exercise.round.resolved · 5 exercise.round.observed · " +
+			"5 intelligence.assessment.issued · 3 command.directive.issued · 4 operations.orders.issued · 1 exercise.concluded",
 		// observed→assessed: red 0 (8ms), red 1 (10ms), red 3 (11ms), blue 3
 		// (11ms); assessed→directed: 10ms and 15ms; directed→ordered, to the
 		// next round's first orders after it: 10ms and 15ms.

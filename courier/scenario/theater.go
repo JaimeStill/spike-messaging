@@ -231,6 +231,8 @@ type narrator struct {
 	pictures map[string]assessmentData         // each faction's last assessment
 	standing standing                          // each faction's last directive, by element
 	moving   map[string]string                 // each faction's moving squads, as narrated
+	orders   map[string]map[int]string         // each faction's latest orders not yet resolved, by round
+	resolves int                               // the last round resolved
 	counts   map[string]int                    // events by type
 	times    map[string]map[string][]time.Time // event times, by type and "faction/round"
 	end      *concludedData
@@ -243,7 +245,7 @@ func newNarrator(exercise string) *narrator {
 		started:  newSignal(), concluded: newSignal(), settled: newSignal(),
 		initial: map[string][]squad{}, latest: map[string][]squad{},
 		holders: map[string]string{}, pictures: map[string]assessmentData{},
-		standing: standing{}, moving: map[string]string{},
+		standing: standing{}, moving: map[string]string{}, orders: map[string]map[int]string{},
 		counts: map[string]int{}, times: map[string]map[string][]time.Time{},
 	}
 }
@@ -383,9 +385,16 @@ func (n *narrator) settle() {
 	n.settled.fire()
 }
 
-// resolved narrates the umpire's record of a round: each fight, each squad
-// destroyed, and each objective that changed hands.
+// resolved narrates the umpire's record of a round: the orders each faction
+// had in effect for it, then each fight, each squad destroyed, and each
+// objective that changed hands.
 func (n *narrator) resolved(d resolvedData) {
+	n.resolves = d.Round
+	if n.setup != nil {
+		for _, f := range n.setup.Factions {
+			n.inEffect(f, d.Round)
+		}
+	}
 	for _, g := range d.Engagements {
 		var sides []string
 		for _, e := range g.Elements {
@@ -451,9 +460,16 @@ func (n *narrator) assessed(d assessmentData) {
 	}
 }
 
-// ordered narrates a faction's orders when the squads they move differ
-// from those its last narrated orders moved.
+// ordered records a faction's orders for their round. operations issues a
+// round's orders when it sees the round before, and issues them again when
+// a directive changes them, and exercise keeps the last it records; so the
+// orders are narrated when their round resolves, as the ones in effect,
+// and orders for a round already resolved, which exercise refuses, are
+// not narrated at all.
 func (n *narrator) ordered(d ordersData) {
+	if d.Round <= n.resolves {
+		return
+	}
 	var moving []string
 	for _, o := range d.Orders {
 		if len(o.Steps) > 0 {
@@ -461,16 +477,35 @@ func (n *narrator) ordered(d ordersData) {
 		}
 	}
 	slices.Sort(moving)
-	key := strings.Join(moving, " ")
-	if prev, ok := n.moving[d.Faction]; ok && prev == key {
+	if n.orders[d.Faction] == nil {
+		n.orders[d.Faction] = map[int]string{}
+	}
+	n.orders[d.Faction][d.Round] = strings.Join(moving, " ")
+}
+
+// inEffect narrates the orders a faction had in effect for round when the
+// squads they move differ from those its last narrated orders moved, and
+// forgets its orders for round and earlier.
+func (n *narrator) inEffect(faction string, round int) {
+	pending := n.orders[faction]
+	key, ok := pending[round]
+	for r := range pending {
+		if r <= round {
+			delete(pending, r)
+		}
+	}
+	if !ok {
 		return
 	}
-	n.moving[d.Faction] = key
-	what := "all squads halt"
+	if prev, told := n.moving[faction]; told && prev == key {
+		return
+	}
+	n.moving[faction] = key
+	what := "all squads hold"
 	if key != "" {
 		what = "moves " + key
 	}
-	n.line(d.Round, "operations", d.Faction, what)
+	n.line(round, "operations", faction, what)
 }
 
 // final returns the final conditions: the verdict, who holds each
@@ -604,8 +639,8 @@ func squads(ss []squad, full bool) string {
 // is narrated as what it changes.
 type standing map[string]map[string]directive
 
-// changes renders each directive of d that differs from its element's last
-// one, and records d as the faction's standing directives. Each line names
+// changes renders each directive of d that does not continue its element's
+// last one, and records d as the faction's standing directives. Each line names
 // what the squad now does and, when it was doing something else, what that
 // was.
 func (s standing) changes(d directiveData) []string {
@@ -628,9 +663,14 @@ func (s standing) changes(d directiveData) []string {
 	return lines
 }
 
+// sameDirective reports whether b continues a: the same rule and contact,
+// and the same target, except that an engage pursuing its contact to
+// another cell continues it.
 func sameDirective(a, b directive) bool {
-	return a.Rule == b.Rule && a.Contact == b.Contact && (a.Target == nil) == (b.Target == nil) &&
-		(a.Target == nil || *a.Target == *b.Target)
+	if a.Rule != b.Rule || a.Contact != b.Contact || (a.Target == nil) != (b.Target == nil) {
+		return false
+	}
+	return a.Target == nil || a.Rule == "engage" && a.Contact != "" || *a.Target == *b.Target
 }
 
 // doing renders what a directive has its squad do, in the present tense
