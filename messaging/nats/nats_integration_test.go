@@ -26,7 +26,7 @@ const failsafe = 10 * time.Second
 // broker returns a broker on a scratch stream, shut down when the test ends.
 func broker(t *testing.T) *nats.Broker {
 	t.Helper()
-	url, stream, prefix := natstest.Scratch(t)
+	url, stream, prefix := natstest.Open(t)
 	return started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix})
 }
 
@@ -145,7 +145,7 @@ func TestPublishRejectsUncarriableHeader(t *testing.T) {
 // Provisioning is idempotent: a second broker on the same stream, as a
 // replica builds, converges on it and shares its events.
 func TestProvisionIsIdempotent(t *testing.T) {
-	url, stream, prefix := natstest.Scratch(t)
+	url, stream, prefix := natstest.Open(t)
 	cfg := nats.Config{URL: url, Stream: stream, Prefix: prefix}
 	first := started(t, cfg)
 	second := started(t, cfg)
@@ -171,7 +171,7 @@ func TestProvisionIsIdempotent(t *testing.T) {
 // none keeps every event.
 func TestProvisionBoundsRetention(t *testing.T) {
 	for _, age := range []time.Duration{0, time.Hour} {
-		url, stream, prefix := natstest.Scratch(t)
+		url, stream, prefix := natstest.Open(t)
 		b := started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix, MaxAge: libconfig.Duration(age)})
 		js, err := jetstream.New(b.Conn())
 		if err != nil {
@@ -191,7 +191,7 @@ func TestProvisionBoundsRetention(t *testing.T) {
 // is waiting to hear of it, ends Receive with the error once its next pulls
 // fail, rather than retrying a consumer that is gone.
 func TestDeletedConsumerEndsReceive(t *testing.T) {
-	url, stream, prefix := natstest.Scratch(t)
+	url, stream, prefix := natstest.Open(t)
 	b := started(t, nats.Config{URL: url, Stream: stream, Prefix: prefix})
 	src, err := b.Subscribe(messaging.Subscription{Name: "doomed"})
 	if err != nil {
