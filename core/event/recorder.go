@@ -74,7 +74,7 @@ func (r *Recorder[Tx]) Emit[R any](ctx context.Context, fn func(Tx, *Queue) (R, 
 		q := &Queue{}
 		out, err := fn(tx, q)
 		if err != nil {
-			return out, err
+			return zero, err
 		}
 		if err := q.Err(); err != nil {
 			return zero, fmt.Errorf("event: raise: %w", err)

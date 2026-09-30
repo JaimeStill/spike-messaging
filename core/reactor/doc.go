@@ -6,7 +6,8 @@
 // lifecycle component, with the Start, Shutdown, and Ready methods other
 // infrastructure exposes, plus [Reactor.Err] for a failure while running. The
 // package knows nothing of messaging or of the coordinator; the composition
-// root registers a reactor at the stage it chooses and monitors its Err.
+// root registers a reactor at the stage it chooses, and the registration
+// monitors its Err.
 //
 // # Drain
 //

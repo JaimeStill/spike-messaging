@@ -2,10 +2,11 @@
 // coordinator in one call.
 //
 // A [Component] has the methods Start, Shutdown, and Ready, through which
-// every piece of infrastructure joins the lifecycle, and Err, a channel that
-// reports a failure after Start. A reactor is a component. [Register] adds a
-// component at the stage the caller names, with its readiness check, and
-// monitors its Err, which a lifecycle.Service alone cannot carry. The stage
+// every piece of infrastructure joins the lifecycle, such as a database or a
+// broker. A [Monitored] component also has Err, a channel that reports a
+// failure after Start; a reactor is one. [Register] adds a component at the
+// stage the caller names, with its readiness check, and monitors the Err of
+// a monitored one, which a lifecycle.Service alone cannot carry. The stage
 // stays at the call site because it encodes the process's dependency order,
 // which a library cannot know.
 //

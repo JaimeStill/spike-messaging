@@ -61,7 +61,7 @@ func CheckType(t string) error {
 			return fmt.Errorf("type %q: an empty token", t)
 		}
 		if strings.ContainsFunc(tok, func(r rune) bool { return r == '*' || r == '>' || unicode.IsSpace(r) || unicode.IsControl(r) }) {
-			return fmt.Errorf("type %q must not contain whitespace, '*', or '>'", t)
+			return fmt.Errorf("type %q must not contain whitespace, a control character, '*', or '>'", t)
 		}
 	}
 	return nil
