@@ -32,7 +32,14 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint in each module with SQL"
-run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/command && go tool sqlint) && (cd services/exercise && go tool sqlint) && (cd services/intelligence && go tool sqlint) && (cd services/operations && go tool sqlint)"
+run = '''
+set -e
+golangci-lint run --build-tags integration $MODULES
+# Each module with SQL keeps a sqlint.toml at its root.
+for conf in $(git ls-files '*sqlint.toml'); do
+  (cd "$(dirname "$conf")" && go tool sqlint)
+done
+'''
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres and NATS"
@@ -75,7 +82,7 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, and that courier's scenarios reach no NATS package"
+description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, that courier's scenarios reach no NATS package, and that each service's domain reaches no messaging package and no service reaches another"
 run = '''
 allowed='^github.com/standards-lab/(sqlate(/(header|query|sqltest|migrate))?|go-core(/.*)?)$'
 # A package outside the standard library has a dot in its first path element.
@@ -96,6 +103,27 @@ if [ -n "$found" ]; then
   echo "courier/scenario reaches NATS packages:"; echo "$found"; exit 1
 fi
 echo "split-check: courier/scenario reaches neither nats.go nor the nats provider"
+# Evidence 6: a service's domain and data packages reach, of the spike, only core and their own
+# module, so no messaging package or provider; the rest of the service is its composition root.
+# Their tests are left out, because an integration test composes the sink it records through.
+# No package of a service, tests included, reaches another service.
+for dir in services/*/; do
+  svc=$(basename "$dir")
+  mod="github.com/JaimeStill/spike-messaging/services/$svc"
+  deps=$(cd "$dir" && go list -deps ./domain/... ./data/...) || exit 1
+  found=$(echo "$deps" | awk '{print $1}' | grep '^github.com/JaimeStill/spike-messaging/' \
+    | grep -Ev "^(github.com/JaimeStill/spike-messaging/core/|$mod(/|$))" | sort -u || true)
+  if [ -n "$found" ]; then
+    echo "$svc's domain reaches spike packages outside core:"; echo "$found"; exit 1
+  fi
+  deps=$(cd "$dir" && go list -deps -test -tags integration ./...) || exit 1
+  found=$(echo "$deps" | awk '{print $1}' | grep '^github.com/JaimeStill/spike-messaging/services/' \
+    | grep -Ev "^$mod(/|$)" | sort -u || true)
+  if [ -n "$found" ]; then
+    echo "$svc reaches another service:"; echo "$found"; exit 1
+  fi
+done
+echo "split-check: each service's domain reaches no messaging package, and no service reaches another"
 '''
 
 [tasks."demo-theater"]
@@ -121,7 +149,7 @@ wait "$narration"
 '''
 
 [tasks."demo-theater-check"]
-description = "Reconcile a theater run's assessments against the umpire's record: the latest run, or the exercise ID given"
+description = "Reconcile a theater run's assessments against the observer's record: the latest run, or the exercise ID given"
 usage = 'arg "[id]" help="the exercise to check (default: the latest)"'
 run = '''
 set -eu
