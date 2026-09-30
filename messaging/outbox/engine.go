@@ -3,9 +3,10 @@ package outbox
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/standards-lab/sqlate/query"
+
+	"github.com/JaimeStill/spike-messaging/messaging/internal/engine"
 )
 
 // Engine is the SQL a database engine's module supplies: every statement the
@@ -31,23 +32,13 @@ type Engine struct {
 // validate reports every statement the engine leaves undefined or defines
 // with the wrong parameters.
 func (e Engine) validate() error {
-	var errs []error
-	check := func(field string, st query.Statement, params ...string) {
-		if st.Name() == "" {
-			errs = append(errs, fmt.Errorf("%s is not defined", field))
-			return
-		}
-		got := slices.Sorted(slices.Values(st.Params()))
-		want := slices.Sorted(slices.Values(params))
-		if !slices.Equal(got, want) {
-			errs = append(errs, fmt.Errorf("%s (%s) takes parameters %v, want %v", field, st.Name(), got, want))
-		}
-	}
-	check("Emit", e.Emit, "source", "id", "header", "data")
-	check("ClaimRow", e.ClaimRow)
-	check("MarkPublished", e.MarkPublished, "seq")
-	if len(errs) > 0 {
-		return fmt.Errorf("outbox: engine: %w", errors.Join(errs...))
+	err := errors.Join(
+		engine.Check("Emit", e.Emit, "source", "id", "header", "data"),
+		engine.Check("ClaimRow", e.ClaimRow),
+		engine.Check("MarkPublished", e.MarkPublished, "seq"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox: engine: %w", err)
 	}
 	return nil
 }

@@ -65,7 +65,7 @@ func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbo
 // that commits events. Each event it publishes is logged at info with its
 // type, id, and subject, so the service's log shows the traffic it sends.
 func (r *Runtime) Relay(db sqlate.Beginner, shutdown time.Duration) *reactor.Reactor[event.Event] {
-	src := r.Outbox.Relay(db, outbox.Poll(r.cfg.RelayPoll.Duration()), outbox.Drain(shutdown/4))
+	src := r.Outbox.Relay(db, r.cfg.RelayPoll.Duration(), outbox.Drain(shutdown/4))
 	publish := func(ctx context.Context, e event.Event) error {
 		if err := r.Broker.Publish(ctx, e); err != nil {
 			return err

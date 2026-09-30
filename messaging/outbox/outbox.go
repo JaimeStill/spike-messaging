@@ -1,6 +1,8 @@
 package outbox
 
 import (
+	"time"
+
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/spike-messaging/core/event"
@@ -24,10 +26,18 @@ func New(eng Engine) (*Outbox, error) {
 // Sink returns the [event.Sink] a composition root builds a service's
 // [event.Recorder] over: it writes the events a command raises into the
 // command's own transaction.
-func (o *Outbox) Sink() event.Sink[*sqlate.Tx] { return sink{o} }
+func (o *Outbox) Sink() event.Sink[*sqlate.Tx] { return sink{o.eng} }
 
-// Relay returns a relay over the outbox in db. Poll and Timeout must be
-// positive.
-func (o *Outbox) Relay(db sqlate.Beginner, opts ...RelayOption) *Relay {
-	return newRelay(o, db, opts...)
+// Relay returns a relay over the outbox in db that waits poll between
+// passes once a pass finds no row, or ends on a failure. poll and any
+// [Timeout] must be positive, and any [Drain] not negative.
+func (o *Outbox) Relay(db sqlate.Beginner, poll time.Duration, opts ...RelayOption) *Relay {
+	r := &Relay{eng: o.eng, db: db, poll: poll, timeout: defaultTimeout}
+	for _, opt := range opts {
+		opt(r)
+	}
+	if r.poll <= 0 || r.timeout <= 0 || r.drain < 0 {
+		panic("outbox: relay poll and timeout must be positive, and drain not negative")
+	}
+	return r
 }
