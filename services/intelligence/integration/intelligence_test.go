@@ -117,13 +117,12 @@ type contact struct {
 }
 
 type assessmentData struct {
-	Exercise   string    `json:"exercise"`
-	Faction    string    `json:"faction"`
-	Round      int       `json:"round"`
-	Contacts   []contact `json:"contacts"`
-	Objectives []struct {
-		Known bool `json:"known"`
-	} `json:"objectives"`
+	Exercise   string     `json:"exercise"`
+	Faction    string     `json:"faction"`
+	Round      int        `json:"round"`
+	Contacts   []contact  `json:"contacts"`
+	Objectives []struct{} `json:"objectives"`
+	Explored   []location `json:"explored"`
 }
 
 type assessment struct {
@@ -171,7 +170,7 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	w.publish(t, "/exercise", "exercise.started", id, map[string]any{
 		"exercise": id, "name": "chain",
-		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 13, "height": 13, "objectives": []any{map[string]any{"x": 12, "y": 12}}}}},
+		"map":      map[string]any{"sectors": []any{map[string]any{"id": "a", "width": 13, "height": 13, "objectives": []any{}}}},
 		"factions": []string{"red", "blue"}, "round_interval_ms": 1000, "round_limit": 9,
 	})
 	await(t, "round 0's assessment", 10*time.Second, func() bool { return len(w.assessments(t)) >= 1 })
@@ -182,7 +181,7 @@ func TestIntelligence_ObservationsBecomeAssessments(t *testing.T) {
 
 	got := w.assessments(t)
 	for r, a := range got[:5] {
-		if a.Exercise != id || a.Faction != "red" || a.Round != r || len(a.Objectives) != 1 || a.Objectives[0].Known {
+		if a.Exercise != id || a.Faction != "red" || a.Round != r || len(a.Objectives) != 0 || len(a.Explored) != 9 {
 			t.Errorf("assessment %d = %+v", r, a)
 		}
 		switch {

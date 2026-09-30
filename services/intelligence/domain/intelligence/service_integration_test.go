@@ -57,11 +57,11 @@ func loc(x, y int) fusion.Location {
 	return fusion.Location{Sector: "a", Point: fusion.Point{X: x, Y: y}}
 }
 
-// openInput is the start of an exercise over one sector "a" with its
-// objective at 4,0.
+// openInput is the start of an exercise over one sector "a", 13 by 13,
+// whose map carries no objectives.
 func openInput(id string) intelligence.Open {
 	var m fusion.Map
-	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","objectives":[{"x":4,"y":0}]}]}`), &m); err != nil {
+	if err := json.Unmarshal([]byte(`{"sectors":[{"id":"a","width":13,"height":13,"objectives":[]}]}`), &m); err != nil {
 		panic(err)
 	}
 	return intelligence.Open{Exercise: id, Map: m, Factions: [2]string{"red", "blue"}}
@@ -168,8 +168,13 @@ func TestObserveIssuesAssessments(t *testing.T) {
 		if len(ages) != len(wantAges[i]) || (len(ages) == 1 && ages[0] != wantAges[i][0]) {
 			t.Errorf("round %d: contact ages %v, want %v", i, ages, wantAges[i])
 		}
-		if len(a.Objectives) != 1 || a.Objectives[0].Known {
-			t.Errorf("round %d: objectives %+v, want the one objective unknown", i, a.Objectives)
+		if len(a.Objectives) != 0 {
+			t.Errorf("round %d: objectives %+v, want none seen", i, a.Objectives)
+		}
+		// r1's squad sees the cells around it, clipped at the sector's edge, and
+		// each round's are added to the last's.
+		if want := []int{4, 10, 12, 14}[i]; len(a.Explored) != want {
+			t.Errorf("round %d: %d cells explored, want %d cumulative", i, len(a.Explored), want)
 		}
 	}
 

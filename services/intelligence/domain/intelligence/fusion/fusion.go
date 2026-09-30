@@ -25,24 +25,19 @@ func (l Location) String() string {
 	return l.Sector + ":" + strconv.Itoa(l.X) + "," + strconv.Itoa(l.Y)
 }
 
-// Map is the exercise's public map, as far as intelligence reads it: each
-// sector's objectives.
-type Map struct {
-	Sectors []struct {
-		ID         string  `json:"id"`
-		Objectives []Point `json:"objectives"`
-	} `json:"sectors"`
+// Sector is a sector of the map, as far as intelligence reads it: its ID
+// and the size of its grid.
+type Sector struct {
+	ID     string `json:"id"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
-// Objectives returns the location of every objective of m.
-func (m Map) Objectives() []Location {
-	var out []Location
-	for _, s := range m.Sectors {
-		for _, p := range s.Objectives {
-			out = append(out, Location{Sector: s.ID, Point: p})
-		}
-	}
-	return out
+// Map is the exercise's public map, as far as intelligence reads it: each
+// sector's size. The map holds no objectives; a faction learns one when an
+// observation reports it.
+type Map struct {
+	Sectors []Sector `json:"sectors"`
 }
 
 // Element is an element as an observation reports it: its ID, its faction,
@@ -110,10 +105,10 @@ type Contact struct {
 	Age  int `json:"age"`
 }
 
-// Objective is what the faction knows of one objective. Known reports
-// whether any of its elements has seen it; when it has, Holder is the
-// faction that held it when last seen ("" for none), Seen is that round,
-// and Age the rounds since.
+// Objective is what the faction knows of one objective, which is listed
+// only once one of its elements has seen it. Holder is the faction that
+// held it when last seen ("" for none), Seen is that round, and Age the
+// rounds since. Known is always true; it stays so the payload's shape does.
 type Objective struct {
 	At     Location `json:"at"`
 	Holder string   `json:"holder"`
@@ -123,33 +118,41 @@ type Objective struct {
 }
 
 // Picture is what a faction knows after a round: its own elements, the
-// contacts it knows of, and every objective of the map. Round is the round
-// it is of, -1 before the first. Every list is sorted: elements and
-// contacts by ID, and objectives by location.
+// contacts it knows of, the objectives it has seen, and the cells its
+// elements have had in sight. Round is the round it is of, -1 before the
+// first. Every list is sorted: elements and contacts by ID, objectives by
+// location, and explored cells by sector, then y, then x. Grid is the
+// map's sectors, kept so the explored cells stay within them; it is not
+// part of the picture's JSON.
 type Picture struct {
 	Round      int         `json:"round"`
 	Own        []Element   `json:"own"`
 	Contacts   []Contact   `json:"contacts"`
 	Objectives []Objective `json:"objectives"`
+	Explored   []Location  `json:"explored"`
+	Grid       []Sector    `json:"-"`
 }
 
-// Open returns the picture a faction starts from: the map's objectives,
-// none of them known, and no element.
-func Open(objectives []Location) Picture {
-	p := Picture{Round: -1, Own: []Element{}, Contacts: []Contact{}, Objectives: []Objective{}}
-	for _, at := range objectives {
-		p.Objectives = append(p.Objectives, Objective{At: at, Seen: -1})
+// Open returns the picture a faction starts from over map m: no element,
+// no contact, no objective, and nothing explored.
+func Open(m Map) Picture {
+	return Picture{
+		Round:      -1,
+		Own:        []Element{},
+		Contacts:   []Contact{},
+		Objectives: []Objective{},
+		Explored:   []Location{},
+		Grid:       slices.Clone(m.Sectors),
 	}
-	slices.SortFunc(p.Objectives, byLocation)
-	return p
 }
 
 // Fuse returns the picture prev becomes with obs, a later round's
 // observation. It takes the observed own elements as they are, and every
 // observed contact and objective as seen this round. A contact it does not
 // observe keeps its last-seen cell and ages, and drops once its age exceeds
-// k or one of the own elements sees its cell. An objective it does not
-// observe keeps what it was last seen as, and ages once known.
+// k or one of the own elements sees its cell. An objective it observes is
+// added when it is new; one it does not observe keeps what it was last seen
+// as, and ages. The cells the own elements see join the explored ones.
 func Fuse(prev Picture, obs Observation, k int) Picture {
 	round := obs.Round
 	p := Picture{
@@ -157,6 +160,7 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 		Own:        make([]Element, 0, len(obs.Own)),
 		Contacts:   []Contact{},
 		Objectives: []Objective{},
+		Grid:       prev.Grid,
 	}
 	for _, e := range obs.Own {
 		p.Own = append(p.Own, e.clone())
@@ -188,13 +192,52 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 	for _, o := range prev.Objectives {
 		if holder, ok := status[o.At]; ok {
 			o = Objective{At: o.At, Holder: holder, Known: true, Seen: round}
-		} else if o.Known {
+			delete(status, o.At)
+		} else {
 			o.Age = round - o.Seen
 		}
 		p.Objectives = append(p.Objectives, o)
 	}
+	for at, holder := range status {
+		p.Objectives = append(p.Objectives, Objective{At: at, Holder: holder, Known: true, Seen: round})
+	}
 	slices.SortFunc(p.Objectives, byLocation)
+
+	p.Explored = p.explore(prev.Explored)
 	return p
+}
+
+// explore returns the cells of explored and every cell inside a sector's
+// grid that one of the picture's own elements sees, each once.
+func (p Picture) explore(explored []Location) []Location {
+	size := make(map[string]Sector, len(p.Grid))
+	for _, s := range p.Grid {
+		size[s.ID] = s
+	}
+	set := make(map[Location]bool, len(explored))
+	for _, at := range explored {
+		set[at] = true
+	}
+	for _, e := range p.Own {
+		s, ok := size[e.At.Sector]
+		if !ok {
+			continue
+		}
+		r := Sight(e.Kind)
+		for y := max(e.At.Y-r, 0); y <= min(e.At.Y+r, s.Height-1); y++ {
+			for x := max(e.At.X-r, 0); x <= min(e.At.X+r, s.Width-1); x++ {
+				set[Location{Sector: s.ID, Point: Point{X: x, Y: y}}] = true
+			}
+		}
+	}
+	out := make([]Location, 0, len(set))
+	for at := range set {
+		out = append(out, at)
+	}
+	slices.SortFunc(out, func(a, b Location) int {
+		return cmp.Or(cmp.Compare(a.Sector, b.Sector), cmp.Compare(a.Y, b.Y), cmp.Compare(a.X, b.X))
+	})
+	return out
 }
 
 // sees reports whether any of the picture's own elements sees at.

@@ -21,7 +21,7 @@ Mounted under `/api/intelligence`:
 
 | Route | Action |
 |-------|--------|
-| `GET /{exercise}` | Each faction's assessment: its status, the last round it fused, its own elements, its contacts with the round each was seen and its age, and its objectives |
+| `GET /{exercise}` | Each faction's assessment: its status, the last round it fused, its own elements, its contacts with the round each was seen and its age, the objectives it has seen, and the cells its elements have had in sight |
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor. The commands have no route: their inputs arrive as events.
@@ -43,12 +43,16 @@ redelivered after 250ms rather than refused.
 
 The service emits `intelligence.assessment.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, own, contacts: [{id, faction, kind, strength, health, status, at,
-seen, age}], objectives: [{at, holder, known, seen, age}]}`. It emits one per faction per observed
-round.
+seen, age}], objectives: [{at, holder, known, seen, age}], explored: [{sector, x, y}]}`. It emits
+one per faction per observed round.
 
 Exercise's observation limits what a faction sees by kind, a squad one cell and a scout two, and
 to the sector. Intelligence keeps a contact at its last-seen cell, and drops it after
-`contact_rounds` rounds unseen or once a friendly element sees that cell empty. An objective never seen has no known holder.
+`contact_rounds` rounds unseen or once a friendly element sees that cell empty. The map carries no
+objectives: a faction discovers one when an observation reports it in sight, and the picture lists
+it from then on, with its last-seen holder and its age (`known` is always true). `explored` holds
+every cell inside a sector's grid that one of the faction's own elements has had in sight, over all
+the rounds so far, sorted by sector, y, then x.
 
 ## Composition
 

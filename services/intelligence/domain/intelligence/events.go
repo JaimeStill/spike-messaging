@@ -18,8 +18,9 @@ var AssessmentIssued = event.Define[AssessmentData]("intelligence.assessment.iss
 // AssessmentData is the event entity of [AssessmentIssued]: the exercise, the
 // faction, and the faction's picture flattened beside them. The picture
 // gives the round assessed, the faction's own elements, its contacts, each
-// with the round it was last seen and its age, and every objective, with
-// its last-seen holder when known.
+// with the round it was last seen and its age, the objectives it has seen,
+// each with its last-seen holder, and the cells its elements have had in
+// sight.
 type AssessmentData struct {
 	Exercise string `json:"exercise"`
 	Faction  string `json:"faction"`

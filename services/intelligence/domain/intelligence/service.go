@@ -57,14 +57,14 @@ func (s *Service) Find(ctx context.Context, exercise string) ([]Assessment, erro
 	return as, nil
 }
 
-// Open opens both factions' assessments in an exercise, each knowing the
-// map's objectives and none of their holders. An assessment already open is
-// left as it is. It raises nothing.
+// Open opens both factions' assessments in an exercise, each knowing no
+// objective and having explored nothing. An assessment already open is left
+// as it is. It raises nothing.
 func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 	if err := c.Validate(); err != nil {
 		return event.Permanent(fmt.Errorf("open: %w", err))
 	}
-	p := fusion.Open(c.Map.Objectives())
+	p := fusion.Open(c.Map)
 	return s.claimed(ctx, "open", claim, func(tx *sqlate.Tx, _ *event.Queue) error {
 		for _, f := range c.Factions {
 			if err := s.store.insert(ctx, tx, c.Exercise, f, p); err != nil {

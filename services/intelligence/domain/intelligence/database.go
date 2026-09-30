@@ -77,16 +77,26 @@ func (r assessmentRow) assessment() (Assessment, error) {
 	if r.ClosedRound != nil {
 		a.closedRound = *r.ClosedRound
 	}
-	if err := json.Unmarshal(r.Picture, &a.Picture); err != nil {
+	var st storedPicture
+	if err := json.Unmarshal(r.Picture, &st); err != nil {
 		return Assessment{}, fmt.Errorf("assessment %s/%s: decode: %w", r.ExerciseID, r.Faction, err)
 	}
+	a.Picture = st.Picture
+	a.Grid = st.Grid
 	return a, nil
+}
+
+// storedPicture is the picture's stored form: the picture, and the grid
+// its JSON leaves out.
+type storedPicture struct {
+	fusion.Picture
+	Grid []fusion.Sector `json:"grid"`
 }
 
 // encode returns p as JSON text, the form a jsonb column's parameter is
 // bound from.
 func encode(p fusion.Picture) (string, error) {
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(storedPicture{Picture: p, Grid: p.Grid})
 	if err != nil {
 		return "", fmt.Errorf("encode picture: %w", err)
 	}

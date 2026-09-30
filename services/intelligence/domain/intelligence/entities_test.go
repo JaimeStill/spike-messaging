@@ -55,12 +55,12 @@ func TestObserveDecodesTheObservedEvent(t *testing.T) {
 // The assessment's payload flattens the picture beside the exercise and
 // the faction.
 func TestAssessmentDataShape(t *testing.T) {
-	d := intelligence.AssessmentData{Exercise: exerciseID, Faction: "red", Picture: fusion.Open(nil)}
+	d := intelligence.AssessmentData{Exercise: exerciseID, Faction: "red", Picture: fusion.Open(fusion.Map{})}
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"exercise":"` + exerciseID + `","faction":"red","round":-1,"own":[],"contacts":[],"objectives":[]}`
+	want := `{"exercise":"` + exerciseID + `","faction":"red","round":-1,"own":[],"contacts":[],"objectives":[],"explored":[]}`
 	if string(b) != want {
 		t.Errorf("payload = %s, want %s", b, want)
 	}
