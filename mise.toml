@@ -99,23 +99,22 @@ echo "split-check: courier/scenario reaches neither nats.go nor the nats provide
 '''
 
 [tasks."demo-theater"]
-description = "Play the theater exercise on the running services: command directs both factions, and the assessments and directives are narrated"
+description = "Play an exercise on the running services and narrate it: the skirmish, or the fixture FIXTURE names (theater for the larger map)"
 run = '''
 set -eu
+fixture="services/exercise/fixtures/${FIXTURE:-skirmish}.json"
+[ -f "$fixture" ] || { echo "no fixture at $fixture"; exit 1; }
 for port in 8081 8082 8083 8084; do
   curl -sf -o /dev/null "localhost:$port/readyz" || { echo "no service is ready on :$port; run exercise-serve, intelligence-serve, command-serve, and operations-serve first"; exit 1; }
 done
 out=$(mktemp -d)
 go build -o "$out/courier" ./courier/cmd/courier
-id=$(curl -sf -XPOST localhost:8081/api/exercises -d @services/exercise/fixtures/theater.json | jq -r .id)
-echo "theater $id"
+id=$(curl -sf -XPOST localhost:8081/api/exercises -d @"$fixture" | jq -r .id)
 # The narration joins the stream before the start, so it reads from round 0.
-"$out/courier" --broker nats scenario assessments --exercise "$id" --summary --wait 5m &
+"$out/courier" --broker nats scenario theater --exercise "$id" --wait 5m &
 sleep 2
 curl -sf -o /dev/null -XPOST "localhost:8081/api/exercises/$id/start"
 wait
-echo "check it against the umpire: mise run demo-theater-check $id"
-echo "command's standing decisions: curl -s localhost:8083/api/command/$id"
 '''
 
 [tasks."demo-theater-check"]
