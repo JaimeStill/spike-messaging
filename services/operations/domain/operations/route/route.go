@@ -70,6 +70,10 @@ const (
 // its fight, one step, to its target.
 const RuleRetreat = "retreat"
 
+// RulePursue is the directive rule that holds an engaged element in its
+// fight, ready to fire on an enemy that retreats from its cell.
+const RulePursue = "pursue"
+
 // Element is one of a faction's elements: its ID, its kind, its status, and
 // where it stands.
 type Element struct {
@@ -93,11 +97,14 @@ func Moves(kind string) int {
 
 // Order is one element's steps for a round, the shape exercise records.
 // Retreat marks the one step that withdraws an engaged element from its
-// fight, the only order exercise accepts from it.
+// fight. Pursue marks the order, with no steps, that keeps an engaged
+// element in its fight and makes it pursue an enemy that retreats. Retreat
+// and pursue are the only orders exercise accepts from an engaged element.
 type Order struct {
 	Element string     `json:"element"`
 	Steps   []Location `json:"steps"`
 	Retreat bool       `json:"retreat,omitempty"`
+	Pursue  bool       `json:"pursue,omitempty"`
 }
 
 // Path returns a shortest sequence of steps from from to to, excluding
@@ -175,7 +182,8 @@ func (s Sector) open(p Point) bool {
 // rule. A ready element with a target it does not stand on and can reach
 // takes up to its kind's moves along a shortest path. An engaged element
 // stays in its fight, unless its rule is retreat and its target is one
-// step away: then it takes that step, a retreat. A recovering element
+// step away: then it takes that step, a retreat. If its rule is pursue, it
+// gets an order with no steps, flagged as a pursuit. A recovering element
 // stays.
 //
 // No two of the faction's elements may end on one cell, the rule under
@@ -188,18 +196,22 @@ func (s Sector) open(p Point) bool {
 // there, none does. Plan shortens each refused element's steps by one and
 // tests again, until no end is shared, so an element can follow another
 // into the cell it leaves, and two can swap cells. An element that ends up
-// with no steps holds, and gets no order.
+// with no steps holds, and gets no order, unless it pursues.
 func Plan(m Map, elements []Element, targets map[string]Location, rules map[string]string) []Order {
 	es := slices.Clone(elements)
 	slices.SortFunc(es, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
 	paths := make([][]Location, len(es))
 	retreat := make([]bool, len(es))
+	pursue := make([]bool, len(es))
 	fights := make(map[Location]bool)
 	for i, e := range es {
 		target, ok := targets[e.ID]
 		switch {
 		case e.Status == StatusEngaged:
 			fights[e.At] = true
+			if rules[e.ID] == RulePursue {
+				pursue[i] = true
+			}
 			if ok && rules[e.ID] == RuleRetreat && slices.Contains(m.steps(e.At), target) {
 				paths[i], retreat[i] = []Location{target}, true
 			}
@@ -242,7 +254,11 @@ func Plan(m Map, elements []Element, targets map[string]Location, rules map[stri
 	}
 	var orders []Order
 	for i, e := range es {
-		if len(paths[i]) > 0 {
+		switch {
+		case pursue[i]:
+			// Steps stays an empty list, not null, in the order's JSON.
+			orders = append(orders, Order{Element: e.ID, Steps: []Location{}, Pursue: true})
+		case len(paths[i]) > 0:
 			orders = append(orders, Order{Element: e.ID, Steps: slices.Clip(paths[i]), Retreat: retreat[i]})
 		}
 	}

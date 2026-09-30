@@ -142,7 +142,7 @@ func steps(ls ...route.Location) []route.Location { return ls }
 
 func sameOrders(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
-		return x.Element == y.Element && x.Retreat == y.Retreat && slices.Equal(x.Steps, y.Steps)
+		return x.Element == y.Element && x.Retreat == y.Retreat && x.Pursue == y.Pursue && slices.Equal(x.Steps, y.Steps)
 	})
 }
 

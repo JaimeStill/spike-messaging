@@ -204,9 +204,9 @@ func (op Operation) raise(q *event.Queue, orders []route.Order) {
 }
 
 // sameOrders reports whether a and b order the same steps, each a retreat
-// or not alike.
+// or a pursuit, or neither, alike.
 func sameOrders(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
-		return x.Element == y.Element && x.Retreat == y.Retreat && slices.Equal(x.Steps, y.Steps)
+		return x.Element == y.Element && x.Retreat == y.Retreat && x.Pursue == y.Pursue && slices.Equal(x.Steps, y.Steps)
 	})
 }

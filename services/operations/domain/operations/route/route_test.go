@@ -195,11 +195,28 @@ func TestPlanLetsReinforcementsJoinAFight(t *testing.T) {
 	}
 }
 
-// An order's retreat flag is left out of its JSON unless it is set.
-func TestOrderEncodesRetreatOnlyWhenSet(t *testing.T) {
+// An engaged element whose rule is pursue gets an order with no steps,
+// flagged as a pursuit; one that engages in place gets none.
+func TestPlanPursuesInPlace(t *testing.T) {
+	elements := []route.Element{
+		{ID: "e", Kind: "squad", Status: route.StatusEngaged, At: loc("a", 0, 0)},
+		{ID: "p", Kind: "scout", Status: route.StatusEngaged, At: loc("a", 2, 0)},
+	}
+	targets := map[string]route.Location{"e": loc("a", 0, 0), "p": loc("a", 2, 0)}
+	rules := map[string]string{"e": "engage", "p": route.RulePursue}
+	got := route.Plan(twoSectors, elements, targets, rules)
+	want := []route.Order{{Element: "p", Steps: []route.Location{}, Pursue: true}}
+	if !equal(got, want) || got[0].Steps == nil {
+		t.Errorf("Plan = %v, want %v", got, want)
+	}
+}
+
+// An order's retreat and pursue flags are left out of its JSON unless set.
+func TestOrderEncodesFlagsOnlyWhenSet(t *testing.T) {
 	for o, want := range map[*route.Order]string{
 		{Element: "r", Steps: []route.Location{}}:                `{"element":"r","steps":[]}`,
 		{Element: "r", Steps: []route.Location{}, Retreat: true}: `{"element":"r","steps":[],"retreat":true}`,
+		{Element: "r", Steps: []route.Location{}, Pursue: true}:  `{"element":"r","steps":[],"pursue":true}`,
 	} {
 		b, err := json.Marshal(o)
 		if err != nil {
@@ -213,6 +230,6 @@ func TestOrderEncodesRetreatOnlyWhenSet(t *testing.T) {
 
 func equal(a, b []route.Order) bool {
 	return slices.EqualFunc(a, b, func(x, y route.Order) bool {
-		return x.Element == y.Element && x.Retreat == y.Retreat && slices.Equal(x.Steps, y.Steps)
+		return x.Element == y.Element && x.Retreat == y.Retreat && x.Pursue == y.Pursue && slices.Equal(x.Steps, y.Steps)
 	})
 }
