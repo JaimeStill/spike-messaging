@@ -1,0 +1,11 @@
+  round 0 red: own r1 a:0,0 | contacts none | objectives none
+  round 0 blue: own b1 a:0,0 | contacts none | objectives none
+  round 0 red directs: r1 capture -> a:4,4 · r2 hold
+  round 0 blue directs: b1 head -> a:0,4
+  round 1 red: own r1 a:0,0 | contacts none | objectives none
+  round 1 blue: own b1 a:0,0 | contacts none | objectives none
+  round 1 red directs: r1 engage -> a:5,5 b2
+  round 2 red: own r1 a:0,0 | contacts none | objectives none
+  round 2 blue: own b1 a:0,0 | contacts none | objectives none
+  concluded after round 2 with no winner: limit
+  drained cleanly

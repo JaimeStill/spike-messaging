@@ -1,0 +1,8 @@
+  round 1 red: own r1 a:0,0 · r2 a:4,4 | contacts b1 a:12,2 seen 1 age 2 | objectives a:0,0 red · a:0,4 unheld age 1 · b:3,3 unknown
+  round 2 red: own r1 a:0,0 · r2 a:4,4 | contacts none | objectives a:0,0 red · a:0,4 unheld age 1 · b:3,3 unknown
+  red dropped b1
+  round 2 blue: own r1 a:0,0 · r2 a:4,4 | contacts none | objectives a:0,0 blue · a:0,4 unheld age 1 · b:3,3 unknown
+  round 3 red: own r1 a:0,0 · r2 a:4,4 | contacts none | objectives a:0,0 red · a:0,4 unheld age 1 · b:3,3 unknown
+  round 3 blue: own r1 a:0,0 · r2 a:4,4 | contacts none | objectives a:0,0 blue · a:0,4 unheld age 1 · b:3,3 unknown
+  concluded after round 3: red wins by objectives
+  drained cleanly

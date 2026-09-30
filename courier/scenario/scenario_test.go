@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,6 +18,45 @@ import (
 func reporter() (*scenario.Reporter, *bytes.Buffer) {
 	var out bytes.Buffer
 	return scenario.NewReporter(output.New(&out, &bytes.Buffer{})), &out
+}
+
+var update = flag.Bool("update", false, "rewrite the golden files under testdata")
+
+// eventID matches a published event's ID in a narration.
+var eventID = regexp.MustCompile(`published event \S+`)
+
+// golden compares got's narrated lines with testdata/name.golden, or
+// rewrites the file under -update. A golden file pins every line a scenario
+// narrates, in order, so a refactor that changes one of them fails. The
+// narration runs beside the steps, so the step headings, the blank lines
+// between them, and "ready" are dropped, and an event ID is masked.
+func golden(t *testing.T, name, got string) {
+	t.Helper()
+	var lines []string
+	for l := range strings.Lines(got) {
+		if l == "\n" || strings.HasPrefix(l, "[") || l == "  ready\n" {
+			continue
+		}
+		lines = append(lines, eventID.ReplaceAllString(l, "published event ID"))
+	}
+	got = strings.Join(lines, "")
+	path := filepath.Join("testdata", name+".golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Errorf("narration differs from %s:\n--- got\n%s\n--- want\n%s", path, got, want)
+	}
 }
 
 func TestRunNarratesStepsAndCleansUp(t *testing.T) {

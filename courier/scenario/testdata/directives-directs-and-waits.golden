@@ -1,0 +1,8 @@
+  round 0: red has 4 elements and reports 3 objectives
+  r1 heads for a:4,0
+  r2 heads for a:0,4
+  r3 heads for b:0,0
+  r4 heads for a:4,0
+  published event ID
+  concluded after round 4: red wins by objectives
+  drained cleanly

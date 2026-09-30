@@ -92,15 +92,7 @@ func TestDirectivesDirectsAndWaits(t *testing.T) {
 		if err := cmd.ExecuteContext(t.Context()); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
-		for _, w := range []string{
-			"round 0: red has 4 elements and reports 3 objectives",
-			"r1 heads for a:4,0", "r2 heads for a:0,4", "r3 heads for b:0,0", "r4 heads for a:4,0",
-			"red wins by objectives", "drained cleanly",
-		} {
-			if !strings.Contains(out.String(), w) {
-				t.Errorf("narration lacks %q:\n%s", w, out)
-			}
-		}
+		golden(t, "directives-directs-and-waits", out.String())
 		if n := released.Load(); n != 1 {
 			t.Errorf("released %d times, want once", n)
 		}
@@ -141,11 +133,7 @@ func TestDirectivesHoldsWithoutKnownObjectives(t *testing.T) {
 		if err := cmd.ExecuteContext(t.Context()); err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
-		for _, w := range []string{"reports 0 objectives", "r1 holds"} {
-			if !strings.Contains(out.String(), w) {
-				t.Errorf("narration lacks %q:\n%s", w, out)
-			}
-		}
+		golden(t, "directives-holds", out.String())
 	}
 }
 
