@@ -2,13 +2,13 @@
 // coordinator in one call.
 //
 // A [Component] has the methods Start, Shutdown, and Ready, through which
-// every piece of infrastructure joins the lifecycle, such as a database or a
-// broker. A [Monitored] component also has Err, a channel that reports a
-// failure after Start; a reactor is one. [Register] adds a component at the
-// stage the caller names, with its readiness check, and monitors the Err of
-// a monitored one, which a lifecycle.Service alone cannot carry. The stage
-// stays at the call site because it encodes the process's dependency order,
-// which a library cannot know.
+// infrastructure such as a database or a broker joins the lifecycle. A
+// [Monitored] component also has Err, a channel that reports a failure after
+// Start; a reactor is one. [Register] adds a component at the stage the
+// caller names, with the component as its readiness check, and monitors the
+// Err of a monitored component, which a lifecycle.Service cannot carry. The
+// stage stays at the call site because it encodes the process's dependency
+// order, which a library cannot know.
 //
 // The package sits in a directory named for its intended home. It is the
 // spike's evidence for adding a component interface and registration by name

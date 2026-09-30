@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/JaimeStill/spike-messaging/core/event"
 	"github.com/JaimeStill/spike-messaging/messaging"
 	"github.com/JaimeStill/spike-messaging/messaging/nats"

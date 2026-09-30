@@ -155,7 +155,7 @@ func squadRows(ss []element, at bool) []detail {
 }
 
 // health renders the health of a squad's operators: NxH when each of its N
-// operators has health H, or each operator's health.
+// operators has health H, otherwise each operator's health.
 func health(hs []int) string {
 	if len(hs) == 0 {
 		return "none"
@@ -170,8 +170,8 @@ func health(hs []int) string {
 	return strings.Join(parts, ",")
 }
 
-// swing renders an element's strength through a fight or a retreat, with
-// the operators it lost, or that it was destroyed.
+// swing renders an element's strength through a fight or a retreat, followed
+// by the operators it lost, or by "destroyed" when it was.
 func swing(e engaged) string {
 	s := fmt.Sprintf("%s %d->%d", e.ID, e.Before, e.After)
 	switch {

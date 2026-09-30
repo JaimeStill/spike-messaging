@@ -90,7 +90,7 @@ func (r assessmentRow) assessment() (Assessment, error) {
 }
 
 // encode returns v as JSON text, the form a jsonb column's parameter is
-// bound from; what names v in the error.
+// bound from. what names v in an error.
 func encode(what string, v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -100,7 +100,8 @@ func encode(what string, v any) (string, error) {
 }
 
 // insert opens one faction's assessment from picture p, unless it is open
-// already. p's grid is stored beside it, once, since nothing changes it.
+// already. It stores p's grid in a column beside the picture, once, because
+// nothing changes the grid.
 func (s *store) insert(ctx context.Context, tx *sqlate.Tx, id, faction string, p fusion.Picture) error {
 	picture, err := encode("picture", p)
 	if err != nil {

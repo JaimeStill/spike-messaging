@@ -11,16 +11,17 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
 
-// narrator follows one exercise's events and narrates them: the initial
-// conditions once the start (when it reads the seed and the objectives from
-// exercise's API) and round 0's observations are in, then each round as a
-// block, and, on demand, the final conditions. It collects what each event
-// changes in the block of the round it belongs to, and narrates a block
-// once an event of a later round arrives, so a block tells a round's story
-// in its order rather than the events'. A change that arrives for a round
-// already narrated is told as late in the next block. It records each
-// event's type and time for the ledger. Its methods are safe to call
-// concurrently from the reactor's goroutine and the scenario's.
+// narrator follows one exercise's events and narrates them. It narrates the
+// initial conditions once the start and round 0's observations are in (at
+// the start it reads the seed, the rules, and the objectives from
+// exercise's API), then each round as a block, and, on demand, the final
+// conditions. It collects what each event changes in the block of the round
+// the event belongs to, and narrates a block once an event of a later round
+// arrives, so a block tells a round's story in the round's order rather
+// than the events'. It tells a change that arrives for a round already
+// narrated as late, in the next block. It records each event's type and time
+// for the ledger. Its methods are safe to call concurrently from the
+// reactor's goroutine and the scenario's.
 type narrator struct {
 	exercise                    string
 	note                        func(string, ...any)
@@ -70,9 +71,9 @@ func (n *narrator) faction(name string) *factionState {
 }
 
 // handle collects one event of the stream in the block of the round it
-// belongs to, ignoring every other exercise's, and narrates the blocks it
-// completes. It counts an event before it decodes it, so a malformed event
-// is counted, and fails permanently on it.
+// belongs to, ignoring events of any other exercise, and narrates the blocks
+// it completes. It counts an event before it decodes it, so it counts a
+// malformed event and then fails permanently on it.
 func (n *narrator) handle(ctx context.Context, e event.Event) error {
 	if exerciseOf(e) != n.exercise {
 		return nil
@@ -103,7 +104,7 @@ func (n *narrator) handle(ctx context.Context, e event.Event) error {
 }
 
 // apply decodes e and applies it by its type. view is the observer's view,
-// read for a start. The caller holds mu.
+// read when e is the start. The caller holds mu.
 func (n *narrator) apply(e event.Event, view exerciseView) error {
 	switch e.Type {
 	case startedType:
@@ -146,9 +147,9 @@ func (n *narrator) applyStarted(d started, view exerciseView) {
 
 // applyResolved collects the observer's record of a round: the orders each
 // faction had in effect for it, in the block of the round before, where
-// they were issued, then each fight, each retreat, each squad destroyed,
-// each objective a faction is taking, and each that changed hands. The
-// captures change the holders before any cell is named.
+// they were issued; then each fight, each retreat, each squad destroyed,
+// each objective a faction is taking, and each objective that changed
+// hands. The captures update the holders before any cell is named.
 func (n *narrator) applyResolved(d resolved) {
 	n.belongs(d.Round)
 	n.world.resolves = d.Round
@@ -215,7 +216,7 @@ func (n *narrator) applyLost(d lost) {
 }
 
 // applyObserved takes a faction's observation of its own squads, and
-// collects each it shows regrouping.
+// collects each squad it shows regrouping.
 func (n *narrator) applyObserved(e event.Event, d observed) {
 	n.belongs(d.Round)
 	n.ledger.stamp(e, d.Faction, d.Round)
@@ -262,10 +263,11 @@ func (n *narrator) applyConcluded(d concluded) {
 }
 
 // settle fires settled once the exercise has concluded, each faction's
-// assessment of the concluded round is in, and a revision of it is in for
-// each faction alerted to an objective lost in that round: intelligence
-// revises an assessment when an alert follows it, with a higher revision
-// than the first it issued, which a redelivery does not raise.
+// assessment of the concluded round is in, and, for each faction alerted to
+// an objective lost in that round, a revision of that assessment is in.
+// intelligence revises an assessment when an alert follows it, giving it a
+// higher revision than the first it issued; a redelivery does not raise the
+// revision.
 func (n *narrator) settle() {
 	if n.end == nil || n.world.setup == nil {
 		return
@@ -314,7 +316,7 @@ func (n *narrator) finish() {
 	n.flush()
 }
 
-// flush narrates every block not yet narrated, and the late changes left.
+// flush narrates every block not yet narrated, then the late changes left.
 // The caller holds mu.
 func (n *narrator) flush() {
 	if !n.cursor.told {
@@ -347,9 +349,9 @@ func (n *narrator) late() []string {
 	return out
 }
 
-// print narrates the block of round, set off from the one before by a
-// blank line, with the late changes collected since, or that the round
-// changed nothing.
+// print narrates the block of round, set off from the block before by a
+// blank line. It includes the late changes collected since, or says that the
+// round changed nothing.
 func (n *narrator) print(round int) {
 	late := n.late()
 	b := n.at(round)

@@ -84,10 +84,10 @@ func newReactors(
 	}, reactor.GraceWithin(shutdown))
 	corelifecycle.Register(lc, "resolve", lifecycle.StageRoot, resolve)
 
-	// The consumer decodes each event's data into the domain's RecordOrders
-	// command and binds the claim to the event, so the domain never sees the
-	// event and a redelivery changes nothing. A refusal is permanent, and the
-	// runtime logs it.
+	// The consuming reactor decodes each event's data into the domain's
+	// RecordOrders command and binds the claim to the event, so the domain
+	// never sees the event and a redelivery changes nothing. A refusal is
+	// permanent, and the runtime logs it.
 	orders, err := infra.Messaging.Consume(ordersSubscription, dom.Exercise.RecordOrders)
 	if err != nil {
 		return nil, err

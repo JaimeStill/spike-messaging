@@ -35,10 +35,10 @@ import (
 // Postgres server they name, the request scenario's exchange on the NATS
 // server, and the join scenarios' broker on the exercise services' stream.
 // It opens nothing that outlives a command: each scenario run builds its own
-// broker (on a scratch stream when the broker is nats), and its own scratch
-// database; the request scenario's broker carries its exchange. The run's
-// cleanup removes them, and a joined broker's leaves the services' stream
-// and its events in place.
+// broker (on a scratch stream when the broker is nats) and its own scratch
+// database, and the request scenario's broker carries its exchange. The
+// run's cleanup removes them, except that a joined broker's cleanup leaves
+// the services' stream and its events in place.
 type Infrastructure struct {
 	cfg *Config
 }
@@ -298,7 +298,7 @@ func deleteConsumers(nc *natsgo.Conn, stream string, names []string) error {
 
 // JoinNeeds returns what the scenarios that join the services' stream
 // (directives, assessments, theater, and theater-check) require: the nats
-// broker, which alone reaches the stream, and then what it needs.
+// broker, which alone reaches the stream, and what that broker needs.
 func (i *Infrastructure) JoinNeeds() []scenario.Need {
 	return i.natsOnly("the services' stream", "cannot reach it")
 }
@@ -310,9 +310,11 @@ func (i *Infrastructure) RequestNeeds() []scenario.Need {
 	return i.natsOnly("a broker with native request and reply", "has none")
 }
 
-// natsOnly returns what a scenario only the nats broker can run requires:
-// on nats, what the broker needs; on any other, a need for what that fails,
-// naming the flag that meets it and why the broker the flags name cannot.
+// natsOnly returns what a scenario that only the nats broker can run
+// requires. With the nats broker, that is what the broker needs. With any
+// other, it is one need that names what the scenario requires and the flag
+// that meets it, and whose check fails with why the broker the flags name
+// cannot.
 func (i *Infrastructure) natsOnly(what, why string) []scenario.Need {
 	if i.cfg.Broker != "nats" {
 		return []scenario.Need{{

@@ -19,9 +19,9 @@ import (
 // its provider supplies, and its database engine's outbox and inbox
 // statements. The broker carries events to and from the service. The outbox
 // holds the events a command emits until the relay publishes them, and the
-// inbox records the events a consumer has handled. Recorder is the one
-// value a domain takes to emit the events it raises, in its command's
-// transaction.
+// inbox records the events a consumer has handled. A domain takes Recorder,
+// its one value for emitting events, and records each event in its
+// command's transaction.
 //
 // A Runtime registers nothing: the composition root registers the broker,
 // the engine's statement verification, and each reactor the runtime
@@ -69,11 +69,12 @@ func New(cfg Config, broker Broker, outboxEngine outbox.Engine, inboxEngine inbo
 
 // Relay returns the reactor that publishes the outbox's committed events on
 // db to the broker, with the grace [reactor.GraceWithin] gives the drain
-// timeout. Its last pass, bounded at a quarter of the drain timeout, below
-// its grace, publishes what the producers above it committed while they
-// drained, so the root registers it below every stage that commits events.
-// Each event it publishes is logged at info with its type, id, and subject,
-// so the service's log shows the traffic it sends.
+// timeout. The relay makes a last pass, bounded at a quarter of the drain
+// timeout and so below its grace, that publishes what the producers
+// committed while they drained. The root therefore registers the relay
+// below every stage that commits events. The relay logs each event it
+// publishes at info with its type, id, and subject, so the service's log
+// shows the traffic it sends.
 func (r *Runtime) Relay(db sqlate.Beginner) *reactor.Reactor[event.Event] {
 	src := r.outbox.Relay(db, r.cfg.RelayPoll.Duration(), outbox.Drain(r.shutdown/4))
 	publish := func(ctx context.Context, e event.Event) error {
@@ -93,19 +94,20 @@ func (r *Runtime) Relay(db sqlate.Beginner) *reactor.Reactor[event.Event] {
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 
 // Consume returns the reactor that consumes sub's events, with the grace
-// [reactor.GraceWithin] gives the drain timeout. Each event's data is decoded into T, the consumer's
-// own type for the payload, and handed to fn with a [Claim] over the inbox
-// under sub.Name, bound to the event, so fn's domain never sees the event
-// and a redelivery changes nothing. Data that does not decode is refused
-// with [event.Permanent], because no redelivery can fix it.
+// [reactor.GraceWithin] gives the drain timeout. The reactor decodes each
+// event's data into T, the consumer's own type for the payload, and hands it
+// to fn with a [Claim] over the inbox under sub.Name, bound to the event, so
+// fn's domain never sees the event and a redelivery changes nothing. Data
+// that does not decode is refused with [event.Permanent], because no
+// redelivery can fix it.
 //
-// Each delivery is logged with the consumer, the event's type, id, and
-// subject, and its outcome, so the service's log shows the traffic it
-// receives. It is "event consumed" at info when handled; repeat, when the
-// claim found the event handled already; or retried, with the error, when
-// the broker will redeliver it. A permanent refusal, a decode's or fn's, is
-// "event refused" at warn with the error, because the broker terminates the
-// delivery and nothing else reports it.
+// The reactor logs each delivery with the consumer, the event's type, id,
+// and subject, and its outcome, so the service's log shows the traffic it
+// receives. The outcome is "event consumed" at info when handled; repeat,
+// when the claim found the event handled already; or retried, with the
+// error, when the broker will redeliver it. A permanent refusal, from the
+// decode or from fn, is "event refused" at warn with the error, because the
+// broker terminates the delivery and nothing else reports it.
 func (r *Runtime) Consume[T any](sub Subscription, fn func(ctx context.Context, data T, claim Claim) error) (*reactor.Reactor[event.Event], error) {
 	src, err := r.broker.Subscribe(sub)
 	if err != nil {

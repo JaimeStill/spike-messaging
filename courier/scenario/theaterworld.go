@@ -1,8 +1,8 @@
 package scenario
 
-// world is the exercise as the observer knows it: the start, what the
-// narration reads of the observer's view at the start (the seed, and the
-// rounds a capture takes), the objectives, and who holds each.
+// world is the exercise as the observer knows it: the start; what the
+// narration reads of the observer's view at the start (the seed and the
+// rounds a capture takes); the objectives; and who holds each.
 type world struct {
 	setup         *started            // the start, once it is in
 	seed          int64               // the exercise's seed, from the view
@@ -13,8 +13,8 @@ type world struct {
 }
 
 // learn takes the seed, the rules, and the objectives from the observer's
-// view, read at the start, when no objective is held. handle validates the
-// view's rules before it learns them.
+// view, which handle reads at the start, when no objective is held. handle
+// validates the view's rules before learn takes them.
 func (w *world) learn(v exerciseView) {
 	w.seed = v.Seed
 	w.captureRounds = v.Rules.CaptureRounds
@@ -27,8 +27,8 @@ func (w *world) learn(v exerciseView) {
 // capture records holder as the holder of the objective at.
 func (w *world) capture(at location, holder string) { w.holders[at] = holder }
 
-// name renders a cell for the narration: an objective's as objective:x,y,
-// any other as sector:x,y. A cell is an objective's when the holders hold
+// name renders a cell for the narration: objective:x,y for an objective's
+// cell, sector:x,y for any other. A cell is an objective's when holders has
 // it, as the view, a capture, or a loss alert tells it.
 func (w *world) name(l location) string {
 	if _, ok := w.holders[l]; ok {

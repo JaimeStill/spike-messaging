@@ -29,7 +29,7 @@ func New(eng Engine) (*Outbox, error) {
 func (o *Outbox) Sink() event.Sink[*sqlate.Tx] { return sink{o.eng} }
 
 // Relay returns a relay over the outbox in db that waits poll between
-// passes once a pass finds no row, or ends on a failure. poll and any
+// passes once a pass finds no row, and ends on a failure. poll and any
 // [Timeout] must be positive, and any [Drain] not negative.
 func (o *Outbox) Relay(db sqlate.Beginner, poll time.Duration, opts ...RelayOption) *Relay {
 	r := &Relay{eng: o.eng, db: db, poll: poll, timeout: defaultTimeout}

@@ -103,10 +103,11 @@ if [ -n "$found" ]; then
   echo "courier/scenario reaches NATS packages:"; echo "$found"; exit 1
 fi
 echo "split-check: courier/scenario reaches neither nats.go nor the nats provider"
-# Evidence 6: a service's domain and data packages reach, of the spike, only core and their own
-# module, so no messaging package or provider; the rest of the service is its composition root.
-# Their tests are left out, because an integration test composes the sink it records through.
-# No package of a service, tests included, reaches another service.
+# Evidence 6: of the spike's packages, a service's domain and data packages reach only core and
+# their own module, so they reach no messaging package or provider; the rest of the service is its
+# composition root. The first check leaves their tests out, because an integration test composes
+# the sink it records through. The second check covers every package of a service, tests included,
+# and finds none that reaches another service.
 for dir in services/*/; do
   svc=$(basename "$dir")
   mod="github.com/JaimeStill/spike-messaging/services/$svc"

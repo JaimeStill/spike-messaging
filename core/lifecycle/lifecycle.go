@@ -14,7 +14,7 @@ type Component interface {
 	Ready() bool
 }
 
-// Monitored is a component that can fail after Start, such as a reactor: Err
+// Monitored is a component that can fail after Start, such as a reactor. Err
 // reports the failure.
 type Monitored interface {
 	Component

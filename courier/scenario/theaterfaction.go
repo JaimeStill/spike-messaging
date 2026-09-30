@@ -8,9 +8,9 @@ import (
 )
 
 // factionState is what the narrator holds of one faction: its squads as
-// observed, what it knows, decides, and orders, as far as the narration
-// tells what changes in them. Its collectors write what changed into a
-// round's block.
+// observed, and what it knows, decides, and orders, as far as the narration
+// tells what changes. Its collectors write what changed into a round's
+// block.
 type factionState struct {
 	name       string
 	initial    []element            // its squads in round 0
@@ -72,9 +72,9 @@ func (f *factionState) revise(round, revision int) {
 	}
 }
 
-// regrouped collects in b each own element an observation shows
-// recovering, once for each time it retreats: it sits out the round after
-// the observed one.
+// regrouped collects in b each own element that an observation shows
+// recovering, once for each time the element retreats. The element sits out
+// the round after the observed one.
 func (f *factionState) regrouped(d observed, b *block) {
 	now := map[string]bool{}
 	for _, s := range d.Own {
@@ -187,8 +187,8 @@ func (m movement) String() string {
 // a round's orders when it sees the round before, and issues them again
 // when a directive changes them. exercise keeps the last orders it
 // records, so the theater narrates a round's orders when the round
-// resolves, as the orders in effect. It does not narrate orders for a
-// round already resolved, the last being resolves, which exercise refuses.
+// resolves, as the orders in effect. It ignores orders for a round already
+// resolved (round resolves or earlier), which exercise refuses.
 func (f *factionState) ordered(d orders, resolves int) {
 	if d.Round <= resolves {
 		return
@@ -210,10 +210,10 @@ func (f *factionState) ordered(d orders, resolves int) {
 	f.orders[d.Round] = m
 }
 
-// inEffect collects in b, the block of the round before round, where the
-// faction issued them, the orders it had in effect for round, when the
-// squads they move, and how, differ from its last narrated orders, and
-// forgets its orders for round and earlier.
+// inEffect collects in b the orders the faction had in effect for round,
+// when the squads they move, or how, differ from its last narrated orders.
+// b is the block of the round before round, where the faction issued them.
+// It also forgets the faction's orders for round and earlier.
 func (f *factionState) inEffect(round int, b *block) {
 	m, ok := f.orders[round]
 	for r := range f.orders {

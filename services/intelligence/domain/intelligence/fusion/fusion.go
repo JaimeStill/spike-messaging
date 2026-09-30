@@ -216,8 +216,8 @@ func Fuse(prev Picture, obs Observation, k int) Picture {
 // when the alert is of that round or a later one. An objective p already
 // saw in a later round than the alert's stands as it is. It reports whether
 // the result differs from p: an alert that restates what p lists changes
-// nothing. The result shares nothing mutable with p but the grid, which
-// nothing changes.
+// nothing. The result shares only the grid with p, and nothing changes the
+// grid.
 func Alert(p Picture, at Location, holder string, round int) (Picture, bool) {
 	out := p
 	out.Own = make([]Element, len(p.Own))

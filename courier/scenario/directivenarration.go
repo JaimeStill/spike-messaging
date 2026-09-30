@@ -1,7 +1,7 @@
 package scenario
 
-// standing is each faction's last directive, by element, so a new directive
-// is narrated as what it changes.
+// standing is each faction's last directive for each element, so the
+// narration tells a new directive as what it changes.
 type standing map[string]map[string]directive
 
 // changes returns each directive of d that does not continue its element's
@@ -13,7 +13,8 @@ func (s standing) changes(d directives) []directive {
 }
 
 // directiveChanges returns each directive of ds that does not continue its
-// element's directive in was, and ds by element, to stand in its place.
+// element's directive in was. It also returns ds keyed by element, which
+// replaces was.
 func directiveChanges(was map[string]directive, ds []directive) (out []directive, now map[string]directive) {
 	now = make(map[string]directive, len(ds))
 	for _, x := range ds {
@@ -26,9 +27,9 @@ func directiveChanges(was map[string]directive, ds []directive) (out []directive
 	return out, now
 }
 
-// sameDirective reports whether b continues a: the same rule and contact,
-// and the same target, except that an engage pursuing its contact to
-// another cell continues it.
+// sameDirective reports whether b continues a: it has the same rule, contact,
+// and target. An engage that follows its contact to another cell also
+// continues it.
 func sameDirective(a, b directive) bool {
 	if a.Rule != b.Rule || a.Contact != b.Contact || (a.Target == nil) != (b.Target == nil) {
 		return false
@@ -39,10 +40,10 @@ func sameDirective(a, b directive) bool {
 // act renders what a directive has its squad do: a verb, the cell it heads
 // for ("-> a:5,5") or fights in ("@ a:5,5"), and the contact it engages,
 // each empty when the directive has none. The narration reads command's
-// secure rule as a capture, and an engage in the squad's own cell, from
-// cell (nil when unknown), as a fight in place. A directive without a rule,
-// as courier's stand-in issues, heads for its target, or holds when it has
-// none. name renders a cell.
+// secure rule as a capture, and an engage in the squad's own cell as a fight
+// in place; cell gives a squad's cell, and is nil when unknown. A directive
+// without a rule, as courier's stand-in issues, heads for its target, or
+// holds when it has none. name renders a cell.
 func act(x directive, cell func(string) (location, bool), name func(location) string) (verb, target, contact string) {
 	if x.Target == nil {
 		return "hold", "", ""

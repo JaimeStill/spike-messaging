@@ -283,9 +283,10 @@ type plan struct {
 	dist      []map[Location]int
 	decisions []Decision
 
-	// open marks each discovered objective the faction does not hold, one
-	// to secure or rescout; explored each cell its elements have had in
-	// sight; and occupied each cell one of them stands in.
+	// open marks each discovered objective the faction does not hold, which
+	// an element may secure or rescout. explored marks each cell its
+	// elements have had in sight, and occupied each cell one of them stands
+	// in.
 	open     map[Location]bool
 	explored map[Location]bool
 	occupied map[Location]bool
@@ -338,9 +339,9 @@ func newPlan(m Map, faction string, a Assessment, standing []Decision) *plan {
 	return p
 }
 
-// fight decides each engaged element's fight, in ID order: it retreats,
-// or holds its cell by pursue or engage. It returns the cells held that
-// way, the fights a free squad may reinforce.
+// fight decides each engaged element's fight, in ID order: the element
+// retreats, or holds its cell by pursue or engage. It returns the cells held
+// that way, which are the fights a free squad may reinforce.
 func (p *plan) fight(m Map, contacts []Contact) map[Location]bool {
 	fights := map[Location]bool{}
 	for i, e := range p.own {
@@ -364,11 +365,11 @@ func (p *plan) fight(m Map, contacts []Contact) map[Location]bool {
 	return fights
 }
 
-// keep gives each element, in ID order, that is undecided, that may
-// accepts by index, and whose standing decision is by rule r, that
-// decision's target again, while the target is in the element's reach,
-// still accepts it, and claimed does not hold it yet. It marks each target
-// kept in claimed and returns them, in the order kept.
+// keep gives each undecided element, in ID order, the target of its standing
+// decision again, when that decision is by rule r, may accepts the element
+// by index, the target is in the element's reach and still accepts it, and
+// claimed does not hold it yet. It marks each kept target in claimed and
+// returns the targets in the order kept.
 func (p *plan) keep(r Rule, claimed map[Location]bool, may func(i int) bool, still func(e Element, at Location) bool) []Location {
 	var kept []Location
 	for i, e := range p.own {

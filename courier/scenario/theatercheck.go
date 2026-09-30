@@ -23,7 +23,7 @@ import (
 const TheaterCheckDurable = "courier-theater-check-"
 
 // observerRound is one round of exercise's history: the state after it,
-// each faction's observation of it, indexed like the factions, and its
+// each faction's observation of it (indexed like the factions), and its
 // resolution, nil for round 0.
 type observerRound struct {
 	Round        int           `json:"round"`
@@ -185,11 +185,11 @@ func (g *assessmentLog) read() []assessment {
 }
 
 // checkTheater renders the check of an exercise's assessments against its
-// history: a header, the inconsistencies found, the observer's verdict and
-// who truly holds each objective, and what each faction believes of each
-// objective at the end against the truth. k is the rounds intelligence
-// remembers a contact, and sight exercise's sight rule, by kind. It returns
-// the lines and the number of inconsistencies.
+// history: a header; the inconsistencies found; the observer's verdict and
+// who truly holds each objective; and what each faction believes of each
+// objective at the end, against the truth. k is the rounds intelligence
+// remembers a contact, and sight is exercise's sight rule, by kind. It
+// returns the lines and the number of inconsistencies.
 func checkTheater(exercise string, history []observerRound, end *verdict, all []assessment, k int, sight map[string]int) ([]string, int) {
 	history = slices.Clone(history)
 	slices.SortFunc(history, func(a, b observerRound) int { return cmp.Compare(a.Round, b.Round) })
@@ -301,8 +301,8 @@ func firstSightings(history []observerRound, factions []string) map[string]map[l
 	return out
 }
 
-// lossAlerts returns each objective's losses, by the faction that lost it:
-// the alerts exercise sent it.
+// lossAlerts returns the loss alerts exercise sent each faction, by faction
+// and objective.
 func lossAlerts(history []observerRound, factions []string) map[string]map[location][]lossAlert {
 	out := map[string]map[location][]lossAlert{}
 	for _, f := range factions {
@@ -321,8 +321,8 @@ func lossAlerts(history []observerRound, factions []string) map[string]map[locat
 	return out
 }
 
-// checkCoverage returns, for each round of the history, each faction no
-// assessment of the round was issued for.
+// checkCoverage returns a message for each faction and round of the history
+// for which no assessment was issued.
 func checkCoverage(history []observerRound, factions []string, assessments []assessment) []string {
 	issued := map[factionRound]bool{}
 	for _, a := range assessments {
@@ -363,9 +363,9 @@ func (rec record) check(a assessment, k int, sight map[string]int) []string {
 }
 
 // checkContacts returns every way an assessment's contacts depart from what
-// its faction saw: an enemy element in sight not reported so, a contact
-// reported in sight that is not, and a remembered one in a cell in sight
-// or remembered past k rounds.
+// its faction saw: an enemy element in sight that is not reported so, a
+// contact reported in sight that is not, and a remembered contact in a cell
+// in sight or remembered past k rounds.
 func checkContacts(a assessment, obs observation, k int, sight map[string]int) []string {
 	var found []string
 	contacts := map[string]contact{}
@@ -394,10 +394,10 @@ func checkContacts(a assessment, obs observation, k int, sight map[string]int) [
 }
 
 // checkObjectives returns every way an assessment's objectives depart from
-// what its faction saw and was told: an objective in sight not reported,
-// or not with its true holder, one reported before the faction first had
-// it in sight, and one out of sight reported as seen this round. An
-// objective a loss alert told of stands as the alert has it.
+// what its faction saw and was told: an objective in sight that is not
+// reported, or not with its true holder; one reported before the faction
+// first had it in sight; and one out of sight reported as seen this round.
+// An objective a loss alert told of stands as the alert has it.
 func (rec record) checkObjectives(a assessment, obs observation) []string {
 	r, f := a.Round, a.Faction
 	alerted := func(o belief) bool {
@@ -471,7 +471,7 @@ func beliefs(history []observerRound, assessments []assessment) []string {
 }
 
 // checkLabelWidth is the width to which the check pads the labels of its
-// closing blocks: the longest of them, believes.
+// closing blocks, the width of the longest, believes.
 const checkLabelWidth = len("believes")
 
 // truth renders the observer's block: the verdict, and who truly holds
@@ -519,9 +519,9 @@ func sameElement(a, b element) bool {
 	return a.ID == b.ID && a.Strength == b.Strength && slices.Equal(a.Health, b.Health) && a.Status == b.Status && a.At == b.At
 }
 
-// inSight reports whether any of own sees at, under exercise's sight rule:
-// the Chebyshev distance an element of each kind sees within its own
-// sector.
+// inSight reports whether any element of own sees the cell at. exercise's
+// sight rule gives the Chebyshev distance an element of each kind sees
+// within its own sector.
 func inSight(own []element, at location, sight map[string]int) bool {
 	return slices.ContainsFunc(own, func(e element) bool {
 		return e.At.Sector == at.Sector && max(abs(e.At.X-at.X), abs(e.At.Y-at.Y)) <= sight[e.Kind]

@@ -29,9 +29,8 @@ const commandSource = "/courier-command"
 // exercise services' stream, reads a faction's first observation, issues a
 // directive that sends each of the faction's elements to an objective the
 // observation reports (or holds it, when the faction knows none), and waits
-// for the exercise to conclude.
-// The operations service turns the directive into orders, and the exercise
-// service resolves them.
+// for the exercise to conclude. The operations service turns the directive
+// into orders, and the exercise service resolves them.
 func directivesScenario(joins Joins, needs func() []Need) Scenario {
 	j := newJoinFlags(2 * time.Minute)
 	var faction string

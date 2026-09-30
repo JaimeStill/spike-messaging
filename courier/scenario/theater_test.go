@@ -38,8 +38,8 @@ func TestTheaterNarratesAnExercise(t *testing.T) {
 	for _, f := range []string{"red", "blue"} {
 		publishJSON(t, b, "a"+f, "intelligence.assessment.issued", map[string]any{"exercise": exerciseID, "faction": f, "round": 1})
 	}
-	// exercise's API tells the seed, the rules, and the objectives the
-	// stream does not.
+	// exercise's API tells the seed, the rules, and the objectives, which
+	// the stream does not.
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/exercises/"+exerciseID {
 			http.NotFound(w, r)

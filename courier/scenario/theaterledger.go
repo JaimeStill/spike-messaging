@@ -13,8 +13,8 @@ type factionRound struct {
 	round   int
 }
 
-// ledger is the theater's record of the stream's traffic: the events of
-// the exercise by type, and the times of those of the chain, by type,
+// ledger is the theater's record of the stream's traffic: the count of the
+// exercise's events by type, and the times of the chain's events, by type,
 // faction, and round, for the chain's latency.
 type ledger struct {
 	counts map[string]int                          // events by type
@@ -35,12 +35,12 @@ func (l *ledger) stamp(e event.Event, faction string, round int) {
 }
 
 // hops returns, for each faction and round with an event of type from, the
-// time from it to the first later event of type to for the same faction on
-// the round shift rounds on. A round with no event of type to counts for
-// nothing, so assessed -> directed measures only rounds that led to a
-// directive. A round's revised assessment follows its first, so
-// observed -> assessed measures the first, and the revision counts toward
-// assessed -> directed only when a directive follows it.
+// time from that event to the first later event of type to for the same
+// faction in the round shift rounds on. A round with no event of type to
+// contributes nothing, so assessed -> directed measures only rounds that led
+// to a directive. A round's revised assessment follows its first, so
+// observed -> assessed measures the first assessment, and the revision
+// counts toward assessed -> directed only when a directive follows it.
 func (l *ledger) hops(from, to string, shift int) []time.Duration {
 	var out []time.Duration
 	for k, starts := range l.times[from] {

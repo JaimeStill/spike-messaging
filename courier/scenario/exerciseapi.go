@@ -25,10 +25,10 @@ type (
 		Factions []string          `json:"factions"`
 		Holders  map[string]string `json:"holders"`
 	}
-	// ruleset is the rules exercise plays by, as far as the scenarios read
-	// them: how many rounds in a row a faction must end alone on an
-	// objective to take it, and the Chebyshev distance an element of each
-	// kind sees within its own sector.
+	// ruleset is the rules of exercise, as far as the scenarios read them:
+	// the rounds in a row a faction must end alone on an objective to take
+	// it, and the Chebyshev distance an element of each kind sees within its
+	// own sector.
 	ruleset struct {
 		CaptureRounds int            `json:"capture_rounds"`
 		Sight         map[string]int `json:"sight"`
@@ -44,8 +44,8 @@ type (
 )
 
 // validate returns an error unless the rules give a positive number of
-// capture rounds and a sight for some kind, as exercise's API always does: a
-// view without them would narrate or check the exercise wrongly.
+// capture rounds and a sight for some kind. exercise's API always gives
+// both, and a view without them would make the narration or the check wrong.
 func (r ruleset) validate() error {
 	var errs []error
 	if r.CaptureRounds <= 0 {

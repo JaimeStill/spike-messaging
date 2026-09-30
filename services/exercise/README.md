@@ -58,10 +58,10 @@ element moves only on an order of one step marked `"retreat": true`. An order ma
 and the retreating element fires back; a retreat no one pursues escapes without a shot. Round 0,
 the start, resolves nothing, so its resolution in the history is `null`.
 
-The umpire's view carries the rules' constants a client reads the state by, so that it never
-mirrors them: `"rules": {"capture_rounds": 2, "sight": {"squad": 1, "scout": 2}}`, the rounds in a
-row a faction ends alone on an objective to take it, and the distance, in cells of its own
-sector, that each kind of element sees.
+The umpire's view carries the rules' constants, so that a client reads the state by them and never
+mirrors them: `"rules": {"capture_rounds": 2, "sight": {"squad": 1, "scout": 2}}`. `capture_rounds`
+is the rounds in a row a faction must end alone on an objective to take it, and `sight` is the
+distance, in cells of its own sector, that each kind of element sees.
 
 `/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
 service, and each reactor.

@@ -73,15 +73,16 @@
 // An element keeps the objective it was securing or rescouting while that
 // objective is still one to secure and it can still reach it, and the cell
 // it was searching while that cell is still unexplored, so a faction's
-// targets do not trade places as its elements move. Those standing targets
-// are claimed before any element picks a new one under the same rule:
-// standing objectives, after the objectives elements stand on, before any
-// objective, within each kind standing search cells before any search
-// cell, and standing rescouts before any rescout.
+// targets do not trade places as its elements move. Within each rule, the
+// standing targets are claimed before any element picks a new one. For
+// secure, the objectives elements stand on come first, then the standing
+// objectives, then any other objective. For search, within each kind, the
+// standing search cells come before any other search cell, and for
+// rescout, the standing rescouts come before any other rescout.
 //
 // # Rule names
 //
-// A [Decision] names its [Rule] by a string, which command's
+// A [Decision] names its [Rule] by a string that command's
 // command.directive.issued event carries. The operations service and the
 // courier CLI read these strings, so the eight names are a contract with
 // them:

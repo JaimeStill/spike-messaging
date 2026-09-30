@@ -193,11 +193,11 @@ func (w *assessmentWatch) verdict() concluded {
 	return w.end
 }
 
-// narrate notes the assessment in full, then each own element the
-// faction's last narrated assessment held that this one lacks, which the
-// faction lost, and each contact it knew that this one lacks, which
-// intelligence dropped, each by ID. The caller holds mu, and records d as
-// the faction's last narrated assessment after.
+// narrate notes the assessment in full, then by ID each own element that the
+// faction's last narrated assessment held and this one lacks (the faction
+// lost it), and each contact that the last one held and this one lacks
+// (intelligence dropped it). The caller holds mu, and afterward records d as
+// the faction's last narrated assessment.
 func (w *assessmentWatch) narrate(d assessment) {
 	w.rep.Note("%s", assessmentLine(d))
 	prev := w.last[d.Faction]

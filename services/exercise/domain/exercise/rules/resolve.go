@@ -100,10 +100,10 @@ type Loss struct {
 	Faction string `json:"faction"`
 }
 
-// Resolve resolves round of s under orders: it moves, exchanges fire between
-// each retreat and its pursuers, fights, and captures, then observes the
-// next state for each faction and judges it against limit, the exercise's
-// round limit. Every random draw comes from seed and round alone, so a round
+// Resolve resolves round of s under orders. It moves the elements, exchanges
+// fire between each retreat and its pursuers, fights, and captures, then
+// observes the next state for each faction and judges it against limit, the
+// exercise's round limit. Every random draw comes from seed and round alone, so a round
 // resolves the same way each time it is resolved under the same orders. It
 // returns the next state, the observations indexed like s.Factions, the
 // verdict, and the round's [Resolution]. Resolve does not change s or
@@ -300,12 +300,13 @@ func (b strengths) engaged(es []Element, i int) Engaged {
 	}
 }
 
-// volley plays out the pursuit of each retreat. Each element of the other
-// faction that stood in the cell a retreat left at the round's start, not
-// recovering, stays there, and whose order pursues, fires once with all its
-// operators at the retreating element, and the retreating element's
-// operators fire back once at the pursuers' operators, all at once. A
-// retreat no one pursues draws no fire. Retreats resolve in ID order.
+// volley plays out the pursuit of each retreat. A pursuer is an element of
+// the other faction that stood in the cell the retreat left at the round's
+// start, is not recovering, stays there, and has an order that pursues. Each
+// pursuer fires once with all its operators at the retreating element, and
+// the retreating element's operators fire back once at the pursuers'
+// operators, all at once. A retreat no one pursues draws no fire. Retreats
+// resolve in ID order.
 func volley(s *State, stayed map[string]Element, retreats map[string]Location, orders []Order, rng *rand.Rand) []Retreat {
 	pursues := make(map[string]bool, len(orders))
 	for _, o := range orders {

@@ -20,9 +20,9 @@ import (
 type Brokers func() (b messaging.Broker, release func() error, err error)
 
 // Joins builds a broker on an existing stream, the one the exercise
-// services share, with the release that frees the broker and anything the
-// run left on the stream. Unlike a scratch broker's, the release leaves the
-// stream and its events in place. The release may be nil.
+// services share, with the release that frees the broker and the durable
+// consumers the run left on the stream. Unlike a scratch broker's, the
+// release leaves the stream and its events in place. The release may be nil.
 type Joins func(stream, prefix string, maxAge time.Duration) (b messaging.Broker, release func() error, err error)
 
 // Dependencies is what the composition root supplies the scenarios. Each

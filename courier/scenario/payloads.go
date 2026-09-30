@@ -7,11 +7,11 @@ import (
 	"github.com/JaimeStill/spike-messaging/core/event"
 )
 
-// The events the join scenarios read, and the directive the directives
-// scenario issues: exercise's start, its observations of each faction, its
-// record of each round, its alert to a faction that lost an objective, and
-// its conclusion; intelligence's assessments; command's directives; and
-// operations' orders.
+// The types of the events the join scenarios read, and of the directive the
+// directives scenario issues. exercise's events are its start, its
+// observations of each faction, its record of each round, its alert to a
+// faction that lost an objective, and its conclusion. The others are
+// intelligence's assessments, command's directives, and operations' orders.
 const (
 	startedType    = "exercise.started"
 	observedType   = "exercise.round.observed"
@@ -23,10 +23,10 @@ const (
 	ordersType     = "operations.orders.issued"
 )
 
-// The scenarios' own readings of the services' payloads, as far as any
-// scenario reads them: the services share no Go types, and courier stands
-// apart from them. Each is named for the payload it reads, and one reading
-// serves every scenario that reads the payload.
+// These types are the scenarios' own readings of the services' payloads, as
+// far as any scenario reads them: the services share no Go types, and
+// courier stands apart from them. Each type is named for the payload it
+// reads, and one type serves every scenario that reads the payload.
 type (
 	point struct {
 		X int `json:"x"`
@@ -66,7 +66,7 @@ type (
 		observation
 	}
 	// started is exercise's start: the map's sectors, the factions, and the
-	// round's pace and limit.
+	// round interval and round limit.
 	started struct {
 		Exercise string `json:"exercise"`
 		Name     string `json:"name"`
@@ -91,7 +91,8 @@ type (
 		Fallen  int    `json:"fallen"`
 	}
 	// retreat is an element falling back, with the enemy elements that fired
-	// on it (its pursuers) and their strength through its return fire.
+	// on it (its pursuers) and each one's strength through the retreating
+	// element's return fire.
 	retreat struct {
 		engaged
 		From     location  `json:"from"`
@@ -232,8 +233,8 @@ func decode[T any](e event.Event) (T, error) {
 	return v, nil
 }
 
-// place names a cell as sector:x,y, as the narrations name a cell they do
-// not know as an objective's.
+// place names a cell as sector:x,y, as the narrations name a cell that they
+// do not know to be an objective's.
 func place(l location) string { return fmt.Sprintf("%s:%d,%d", l.Sector, l.X, l.Y) }
 
 // objectiveName names an objective's cell as objective:x,y, as the theater
@@ -264,7 +265,8 @@ func ids[T any](xs []T, id func(T) string) map[string]bool {
 	return out
 }
 
-// gone returns the ID of each of before, in its order, that now lacks.
+// gone returns the ID of each item of before, in its order, whose ID is not
+// in now.
 func gone[T any](before []T, now map[string]bool, id func(T) string) []string {
 	var out []string
 	for _, x := range before {

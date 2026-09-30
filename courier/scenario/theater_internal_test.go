@@ -41,8 +41,8 @@ func rulesBlock() map[string]any {
 	return map[string]any{"capture_rounds": 2, "sight": map[string]int{"squad": 1, "scout": 2}}
 }
 
-// viewOf is the observer's view the script's narrator reads, with rules:
-// the seed 42, and the objectives in a:4,4 and b:1,1.
+// viewOf returns the observer's view the script's narrator reads: the seed
+// 42, the given rules, and the objectives in a:4,4 and b:1,1.
 func viewOf(t *testing.T, rules map[string]any) exerciseView {
 	t.Helper()
 	return viaJSON[exerciseView](t, map[string]any{"seed": 42, "rules": rules, "state": map[string]any{"map": map[string]any{"sectors": []any{

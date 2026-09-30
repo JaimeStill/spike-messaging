@@ -2,7 +2,7 @@
 // elements in an exercise toward the targets its directives set. For each
 // exercise and faction it stores the public map, the elements as the last
 // observation left them, and each element's target and its directive's
-// rule, and it turns each observed round into the faction's orders for the
+// rule. It turns each observed round into the faction's orders for the
 // next. The pure route package plans the steps; this package persists their
 // inputs and reports the plan as events.
 //
@@ -40,8 +40,8 @@
 // permanent: the events arrive on separate subscriptions, so a round's
 // observation can be handled before the start that opens its operation, and
 // the broker redelivers it. Assign and Maneuver lock their faction's row, so
-// replicas act on one faction's inputs one at a time, and skip any input
+// replicas act on one faction's inputs one at a time. Both skip any input
 // for a closed operation. Assign skips a directive whose sequence is no
-// higher than the last it applied, and Maneuver an observation of a round
-// no later than the last it acted on.
+// higher than the last it applied, and Maneuver skips an observation of a
+// round no later than the last it acted on.
 package operations

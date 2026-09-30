@@ -40,8 +40,8 @@ func (d detail) with(sub ...detail) detail {
 	return d
 }
 
-// list renders ds one line each, at indent, and the list under each two
-// spaces deeper, its cells aligned among themselves.
+// list renders ds one line each, at indent, and each detail's sub-list two
+// spaces deeper. The cells of one list align among themselves.
 func list(ds []detail, indent string) []string {
 	type column struct {
 		at  int
@@ -93,9 +93,9 @@ type labeled struct {
 // wrapAt is the width past which a row lists one item to a line.
 const wrapAt = 100
 
-// lines renders a row at indent: its label padded to width, then its
-// items, joined by " · " on one line, or one to a line aligned under the
-// first when the row asks for it or one line would pass wrapAt.
+// lines renders a row at indent: its label padded to width, then its items,
+// joined by " · " on one line, or one to a line, aligned under the first,
+// when the row asks for it or one line would pass wrapAt.
 func (l labeled) lines(indent string, width int) []string {
 	head := fmt.Sprintf("%s%-*s  ", indent, width, l.label)
 	if one := head + strings.Join(l.items, " · "); !l.each && len(one) <= wrapAt || len(l.items) == 0 {

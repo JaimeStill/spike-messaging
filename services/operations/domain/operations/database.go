@@ -100,7 +100,7 @@ func (r operationRow) operation() (Operation, error) {
 }
 
 // encode returns v as JSON text, the form a jsonb column's parameter is
-// bound from; what names v in the error.
+// bound from. what names v in an error.
 func encode(what string, v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {

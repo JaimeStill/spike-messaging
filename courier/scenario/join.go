@@ -24,15 +24,15 @@ type joinFlags struct {
 	maxAge, wait             time.Duration
 }
 
-// newJoinFlags returns the flags' defaults: the services' default stream,
-// a max_age of a day, and wait.
+// newJoinFlags returns the flags with a max_age default of a day and wait as
+// the --wait default.
 func newJoinFlags(wait time.Duration) *joinFlags {
 	return &joinFlags{maxAge: 24 * time.Hour, wait: wait}
 }
 
-// bind binds the flags to fs, with the help of --exercise and of --wait,
-// which each scenario words for itself. The flags' current values are their
-// defaults.
+// bind binds the flags to fs. The caller supplies the help text of
+// --exercise and --wait, which each scenario words for itself. The flags'
+// current values are their defaults.
 func (j *joinFlags) bind(fs *pflag.FlagSet, exerciseHelp, waitHelp string) {
 	fs.StringVar(&j.exercise, "exercise", "", exerciseHelp)
 	fs.StringVar(&j.stream, "stream", "exercise", "the stream the exercise services share")
@@ -41,8 +41,8 @@ func (j *joinFlags) bind(fs *pflag.FlagSet, exerciseHelp, waitHelp string) {
 	fs.DurationVar(&j.wait, "wait", j.wait, waitHelp)
 }
 
-// validate returns the flags' usage errors: an --exercise that is no
-// exercise's ID, then each of more, then a --wait that is not positive.
+// validate returns the flags' usage errors: an --exercise that is not an
+// exercise ID, each error in more, and a --wait that is not positive.
 func (j *joinFlags) validate(more ...error) error {
 	errs := append([]error{j.exerciseErr()}, more...)
 	if j.wait <= 0 {
@@ -51,8 +51,8 @@ func (j *joinFlags) validate(more ...error) error {
 	return errors.Join(errs...)
 }
 
-// exerciseErr returns the usage error of an --exercise that is no
-// exercise's ID, or nil.
+// exerciseErr returns the usage error for an --exercise that is not an
+// exercise ID, or nil.
 func (j *joinFlags) exerciseErr() error {
 	if _, err := uuid.Parse(j.exercise); err != nil {
 		return errors.New("--exercise must be an exercise's ID")
@@ -62,9 +62,10 @@ func (j *joinFlags) exerciseErr() error {
 
 // join joins the stream the flags name through joins, and keeps the
 // broker's release for the run's cleanup. It subscribes to types under a
-// durable named durable and a fresh ID, which reads the stream from its
-// beginning, registers handle on the subscription as the coordinator's
-// watch, and starts the coordinator. It returns the joined broker.
+// durable consumer named durable plus a fresh ID, which reads the stream
+// from its beginning, registers handle on the subscription as the
+// coordinator's watch, and starts the coordinator. It returns the joined
+// broker.
 func (l *lease) join(ctx context.Context, rep *Reporter, c *coordinator, joins Joins, j *joinFlags, durable string, handle reactor.Func[event.Event], types ...string) (messaging.Broker, error) {
 	if joins == nil {
 		return nil, errors.New("no stream to join is configured")
@@ -88,8 +89,8 @@ func (l *lease) join(ctx context.Context, rep *Reporter, c *coordinator, joins J
 	return b, nil
 }
 
-// stopWatch is a join scenario's last step: it signals the coordinator's
-// drain, which stops the watch.
+// stopWatch returns a join scenario's last step, which signals the
+// coordinator's drain and so stops the watch.
 func stopWatch(c *coordinator) Step {
 	return Step{
 		Intent: "Signal the drain: the watch stops receiving",

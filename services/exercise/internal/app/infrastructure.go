@@ -50,17 +50,16 @@ type Infrastructure struct {
 const verifyStage = admin.Stage + 1
 
 // newInfrastructure constructs the infrastructure services in one place, in
-// dependency order, each registering on lc where it is built at the stage
-// that places it in the process's startup order, so a service cannot exist
-// without a startup, shutdown, or readiness declaration. The database and
-// the broker are lifecycle components, which corelifecycle.Register adds
-// whole, and the messaging verification is a Start hook alone, which lc.Add
-// adds as a lifecycle.Service. The database and the broker register at
-// stage 0, so they start first and drain last, after every reactor. Construction
-// opens nothing: connectivity belongs to a service's Start hook, so a failed
-// cold start leaks no connections. This file is the one place a provider is
-// named: the database's, the broker's, and the messaging engine with its
-// migration set.
+// dependency order. Each registers on lc where it is built, at the stage
+// that places it in the process's startup order: a component through
+// corelifecycle.Register, and the start-only verification as a
+// lifecycle.Service. A service therefore cannot exist without a startup,
+// shutdown, or readiness declaration. The database and the broker register
+// at stage 0, so they start first and drain last, after every reactor.
+// Construction opens nothing: connectivity belongs to a service's Start
+// hook, so a failed cold start leaks no connections. This file is the one
+// place a provider is named: the database's, the broker's, and the
+// messaging engine with its migration set.
 func newInfrastructure(
 	w io.Writer,
 	cfg *config.Config,

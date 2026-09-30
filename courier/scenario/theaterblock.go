@@ -26,8 +26,8 @@ type objectiveResults struct {
 	captures, takes, loses []string
 }
 
-// items renders the results, each verb with its objectives, in the row's
-// order: captures, takes, loses. A nil r has none.
+// items renders the results, each verb with its objectives, in the order
+// captures, takes, loses. A nil r renders none.
 func (r *objectiveResults) items() []string {
 	if r == nil {
 		return nil
@@ -72,9 +72,10 @@ type side struct {
 	rows []labeled
 }
 
-// sides returns a block's sides that have rows: the observer's fights,
-// retreats, and each faction's results, then each faction's knows,
-// decides (by squad), and orders, in the exercise's order of factions.
+// sides returns the sides of a block that have rows. The observer's side
+// comes first, with the fights, the retreats, and each faction's results.
+// Each faction's side follows, in the exercise's order of factions, with its
+// knows, decides (by squad), and orders rows.
 func (n *narrator) sides(b *block) []side {
 	factions := n.factions(b)
 	observer := side{name: "observer", rows: slices.Clone(b.observer)}
@@ -107,8 +108,8 @@ func (n *narrator) sides(b *block) []side {
 	return out
 }
 
-// factions returns the exercise's factions, then any other a block names,
-// sorted.
+// factions returns the exercise's factions, then any other faction a block
+// names, sorted.
 func (n *narrator) factions(b *block) []string {
 	out := slices.Clone(n.world.factions())
 	var others []string
@@ -124,12 +125,12 @@ func (n *narrator) factions(b *block) []string {
 	return append(out, others...)
 }
 
-// rowLabelWidth is the width of the longest of a block's own row labels:
-// retreat, and decides.
+// rowLabelWidth is the width of the longest of a block's own row labels,
+// retreat and decides.
 const rowLabelWidth = len("retreat")
 
-// labelWidth is the width to which a row's label is padded: the longest
-// of the rows' own labels, and of the factions'.
+// labelWidth is the width to which a row's label is padded: the longest of
+// the rows' own labels and the faction names.
 func (n *narrator) labelWidth() int {
 	w := rowLabelWidth
 	for _, f := range n.world.factions() {

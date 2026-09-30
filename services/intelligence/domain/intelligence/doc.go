@@ -1,11 +1,11 @@
 // Package intelligence is the intelligence domain. It keeps what each
-// faction in an exercise knows: for each exercise and faction it stores a
-// picture, the faction's own elements, the enemy contacts it knows of, and
-// the objectives it has discovered with each one's last-seen holder, and it
-// fuses each observed round, and each loss alert, into that picture and
-// reports the result as the faction's assessment. The pure
-// fusion package fuses and enforces the suppression rules; this package
-// persists the picture and reports it as events.
+// faction in an exercise knows. For each exercise and faction it stores a
+// picture: the faction's own elements, the enemy contacts it knows of, and
+// the objectives it has discovered, each with its last-seen holder. It fuses
+// each observed round, and each loss alert, into that picture and reports
+// the result as the faction's assessment. The pure fusion package fuses and
+// enforces the suppression rules; this package persists the picture and
+// reports it as events.
 //
 // The package's files divide the work:
 //

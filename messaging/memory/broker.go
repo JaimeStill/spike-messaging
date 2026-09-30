@@ -40,9 +40,9 @@ func New() *Broker {
 
 var _ messaging.Broker = (*Broker)(nil)
 
-// Publish appends e to the log and wakes every consumer, unless an event
-// with e's source and id was published within
-// [messaging.DefaultDuplicates], in which case it drops e and returns nil.
+// Publish appends e to the log and wakes every consumer. When an event with
+// e's source and id was published within [messaging.DefaultDuplicates],
+// Publish instead drops e and returns nil.
 func (b *Broker) Publish(_ context.Context, e event.Event) error {
 	h, body, err := messaging.Encode(e)
 	if err != nil {

@@ -50,10 +50,10 @@ type Infrastructure struct {
 const verifyStage = admin.Stage + 1
 
 // newInfrastructure constructs the infrastructure services in one place, in
-// dependency order, each registering on lc where it is built, at the stage
+// dependency order. Each registers on lc where it is built, at the stage
 // that places it in the process's startup order: a component through
 // corelifecycle.Register, and the start-only verification as a
-// lifecycle.Service. So a service cannot exist without a startup,
+// lifecycle.Service. A service therefore cannot exist without a startup,
 // shutdown, or readiness declaration. The database and the broker register
 // at stage 0, so they start first and drain last, after every reactor.
 // Construction opens nothing: connectivity belongs to a service's Start

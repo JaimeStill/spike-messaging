@@ -41,11 +41,12 @@ const (
 )
 
 // Operation is one faction's operation in an exercise, as the query shows
-// it: the faction's elements as its last observation left them, the
-// standing each one's directive set, the last observed round it issued
-// orders from, -1 before the first, and the last applied directive's
-// sequence, 0 before the first. Its JSON shows the standing as two maps by
-// element, targets and rules.
+// it. It holds the faction's elements as its last observation left them;
+// each element's standing, the target and rule its directive set; LastRound,
+// the last observed round it issued orders from, -1 before the first; and
+// DirectiveSeq, the sequence of the last applied directive, 0 before the
+// first. Its JSON shows the standing as two maps keyed by element, targets
+// and rules.
 type Operation struct {
 	Exercise     string                    `json:"exercise"`
 	Faction      string                    `json:"faction"`
@@ -71,8 +72,8 @@ func (op Operation) MarshalJSON() ([]byte, error) {
 	}{fields(op), targets, rules})
 }
 
-// split returns each element's target and each element's rule of standing,
-// as the operation's JSON and its columns keep them.
+// split returns the targets and the rules of standing, each keyed by
+// element, as the operation's JSON and its columns keep them.
 func split(standing map[string]route.Standing) (map[string]route.Location, map[string]string) {
 	targets := make(map[string]route.Location, len(standing))
 	rules := make(map[string]string, len(standing))
@@ -173,8 +174,8 @@ func (c Close) Validate() error {
 // the command's input was handled. On false the command changes nothing and
 // succeeds. The consuming reactor binds a Claim over its inbox and the
 // event it handles. A caller without an inbox, such as a test, passes a nil
-// Claim, which claims nothing. It is an alias, so the claim a consumer
-// built by messaging's Consume hands over is one.
+// Claim, which claims nothing. It is an alias, so the claim that
+// messaging's Consume supplies to a consumer is a Claim.
 type Claim = func(ctx context.Context, tx *sqlate.Tx) (first bool, err error)
 
 func checkExercise(id string) error {

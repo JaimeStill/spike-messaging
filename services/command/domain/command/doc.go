@@ -43,13 +43,14 @@
 // the broker redelivers it. Decide locks its faction's row, so replicas act
 // on one faction's assessments one at a time. It skips an assessment whose
 // revision is no higher than the last it decided on, so a revised
-// assessment of a round is decided on again, and one of a closed direction
-// past the round its exercise concluded after, so the final round is
-// decided on even when its conclusion is handled first.
+// assessment of a round is decided on again. It also skips an assessment
+// for a closed direction when its round is past the round its exercise
+// concluded after, so the final round is decided on even when its
+// conclusion is handled first.
 //
 // A [DirectiveIssued] event lists every live element, not only those whose
 // target or rule changed. The operations service skips a directive whose
-// sequence is no higher than the last it applied, so a change in a skipped
-// event would otherwise be lost; the next event it takes carries the whole
-// target state.
+// sequence is no higher than the last it applied, so a change carried only
+// by a skipped event would be lost; the next event it takes carries the
+// whole target state.
 package command

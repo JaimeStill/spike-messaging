@@ -173,11 +173,11 @@ func (s Sector) open(p Point) bool {
 
 // Plan returns the orders that carry a faction's elements toward their
 // targets this round, given each element's standing: its target and its
-// directive's rule. A ready element with a target it does not stand on and can reach
-// takes up to its kind's moves along a shortest path. An engaged element
-// stays in its fight, unless its rule is retreat and its target is one
-// step away: then it takes that step, a retreat. If its rule is pursue, it
-// gets an order with no steps, flagged as a pursuit. A recovering element
+// directive's rule. A ready element with a target it does not stand on and
+// can reach takes up to its kind's moves along a shortest path. An engaged
+// element stays in its fight, unless its rule is retreat and its target is
+// one step away: then it takes that step, a retreat. If its rule is pursue,
+// it gets an order with no steps, flagged as a pursuit. A recovering element
 // stays.
 //
 // No two of the faction's elements may end on one cell, the rule under

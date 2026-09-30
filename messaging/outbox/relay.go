@@ -33,15 +33,14 @@ func Timeout(d time.Duration) RelayOption {
 }
 
 // Drain sets how long a relay keeps publishing once it is cancelled. The
-// relay makes one last pass on a context of its own, bounded by d, and
+// relay makes one last pass on a context of its own, bounded by d. The pass
 // returns when the outbox is empty or a row fails, so the events committed
 // while the producers drained are published before the process exits rather
-// than at its next start. d bounds the claims: once it runs out, the pass
-// claims no further row. A row already claimed is settled on its own
-// deadlines, its handler's [Timeout] and its transaction's twice that, as
-// every row is, unless the reactor's [reactor.Grace] cancels its handler
-// first, so set d below the Grace. The default, 0, makes no last pass. It
-// must not be negative.
+// than at its next start. Once d runs out, the pass claims no further row.
+// A row already claimed settles on its own deadlines, as every row does: its
+// handler's [Timeout] and its transaction's twice that. The reactor's
+// [reactor.Grace] cancels the handler first if it runs out sooner, so set d
+// below the Grace. The default, 0, makes no last pass. d must not be negative.
 func Drain(d time.Duration) RelayOption {
 	return func(r *Relay) { r.drain = d }
 }
