@@ -21,6 +21,9 @@ const (
 	Scout Kind = "scout"
 )
 
+// Kinds is every kind of element, in the order the package lists them.
+var Kinds = []Kind{Squad, Scout}
+
 // Moves returns the number of steps an element of kind k may take in one
 // round, or 0 for a kind the package does not know.
 func (k Kind) Moves() int {

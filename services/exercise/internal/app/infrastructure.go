@@ -57,9 +57,10 @@ const verifyStage = admin.Stage + 1
 // shutdown, or readiness declaration. The database and the broker register
 // at stage 0, so they start first and drain last, after every reactor.
 // Construction opens nothing: connectivity belongs to a service's Start
-// hook, so a failed cold start leaks no connections. This file is the one
-// place a provider is named: the database's, the broker's, and the
-// messaging engine with its migration set.
+// hook, so a failed cold start leaks no connections. With the provider's
+// configuration block in internal/config, this file is the composition root
+// that names a provider: the database's, the broker's, and the messaging
+// engine with its migration set.
 func newInfrastructure(
 	w io.Writer,
 	cfg *config.Config,

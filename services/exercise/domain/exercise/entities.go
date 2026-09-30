@@ -170,13 +170,11 @@ type Rules struct {
 
 // currentRules returns the rules the package resolves every exercise by.
 func currentRules() Rules {
-	return Rules{
-		CaptureRounds: rules.CaptureRounds,
-		Sight: map[rules.Kind]int{
-			rules.Squad: rules.Squad.Sight(),
-			rules.Scout: rules.Scout.Sight(),
-		},
+	r := Rules{CaptureRounds: rules.CaptureRounds, Sight: make(map[rules.Kind]int, len(rules.Kinds))}
+	for _, k := range rules.Kinds {
+		r.Sight[k] = k.Sight()
 	}
+	return r
 }
 
 // started reports whether the exercise is running or paused: it has
