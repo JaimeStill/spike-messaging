@@ -17,62 +17,62 @@ func TestObserve(t *testing.T) {
 		objectives []rules.ObjectiveStatus
 	}{
 		{
-			name: "a force sees an enemy two cells away",
+			name: "a squad sees an enemy one cell away",
 			elements: []rules.Element{
-				force("r1", "red", 2, loc("b", 0, 0)), force("b1", "blue", 2, loc("b", 2, 0)),
+				squad("r1", "red", loc("b", 0, 0)), squad("b1", "blue", loc("b", 1, 0)),
 			},
 			own: []string{"r1"}, contacts: []string{"b1"},
 		},
 		{
-			name: "a force does not see an enemy three cells away",
+			name: "a squad does not see an enemy two cells away",
 			elements: []rules.Element{
-				force("r1", "red", 2, loc("b", 0, 0)), force("b1", "blue", 2, loc("b", 3, 0)),
+				squad("r1", "red", loc("b", 0, 0)), squad("b1", "blue", loc("b", 2, 0)),
 			},
 			own: []string{"r1"}, contacts: []string{},
 		},
 		{
-			name: "a scout sees an enemy four cells away",
+			name: "a scout sees an enemy two cells away",
 			elements: []rules.Element{
-				scout("r1", "red", loc("b", 0, 1)), force("b1", "blue", 2, loc("b", 4, 1)),
+				scout("r1", "red", loc("b", 0, 1)), squad("b1", "blue", loc("b", 2, 1)),
 			},
 			own: []string{"r1"}, contacts: []string{"b1"},
 		},
 		{
-			name: "a scout does not see an enemy five cells away",
+			name: "a scout does not see an enemy three cells away",
 			elements: []rules.Element{
-				scout("r1", "red", loc("b", 0, 1)), force("b1", "blue", 2, loc("b", 5, 1)),
+				scout("r1", "red", loc("b", 0, 1)), squad("b1", "blue", loc("b", 3, 1)),
 			},
 			own: []string{"r1"}, contacts: []string{},
 		},
 		{
 			name: "sight reaches the diagonal corner at the same distance",
 			elements: []rules.Element{
-				force("r1", "red", 2, loc("b", 1, 1)), force("b1", "blue", 2, loc("b", 3, 3)),
+				scout("r1", "red", loc("b", 1, 1)), squad("b1", "blue", loc("b", 3, 3)),
 			},
 			own: []string{"r1"}, contacts: []string{"b1"},
 		},
 		{
 			name: "sight does not cross the sector's edge",
 			elements: []rules.Element{
-				force("r1", "red", 2, loc("a", 1, 5)), force("b1", "blue", 2, loc("b", 1, 5)),
+				squad("r1", "red", loc("a", 1, 5)), squad("b1", "blue", loc("b", 1, 5)),
 			},
 			own: []string{"r1"}, contacts: []string{},
 		},
 		{
 			name: "sight does not cross a gate",
 			elements: []rules.Element{
-				scout("r1", "red", loc("a", 5, 5)), force("b1", "blue", 2, loc("b", 1, 0)),
+				scout("r1", "red", loc("a", 5, 5)), squad("b1", "blue", loc("b", 1, 0)),
 			},
 			own: []string{"r1"}, contacts: []string{},
 		},
 		{
 			name: "any own element's sight counts, and every list is sorted",
 			elements: []rules.Element{
-				force("r2", "red", 2, loc("b", 5, 3)),
-				force("r1", "red", 2, loc("b", 0, 0)),
-				force("b2", "blue", 2, loc("b", 5, 1)),
-				force("b1", "blue", 2, loc("b", 1, 2)),
-				force("b3", "blue", 2, loc("a", 0, 0)),
+				squad("r2", "red", loc("b", 5, 4)),
+				squad("r1", "red", loc("b", 0, 0)),
+				squad("b2", "blue", loc("b", 4, 3)),
+				squad("b1", "blue", loc("b", 1, 1)),
+				squad("b3", "blue", loc("a", 0, 0)),
 			},
 			holders:    map[string]string{"b:5,5": "blue"},
 			own:        []string{"r1", "r2"},
@@ -82,7 +82,7 @@ func TestObserve(t *testing.T) {
 		{
 			name: "an objective in sight reports that it is unheld",
 			elements: []rules.Element{
-				force("r1", "red", 2, loc("a", 3, 2)), force("b1", "blue", 2, loc("b", 0, 5)),
+				squad("r1", "red", loc("a", 3, 1)), squad("b1", "blue", loc("b", 0, 5)),
 			},
 			own:        []string{"r1"},
 			contacts:   []string{},
@@ -117,11 +117,12 @@ func TestObserve(t *testing.T) {
 	}
 }
 
-func TestObserveCarriesKindAndStrength(t *testing.T) {
-	s := state(force("r1", "red", 2, loc("b", 0, 0)), force("b1", "blue", 4, loc("b", 1, 0)))
+// An observation carries each element's kind, health, strength, and status.
+func TestObserveCarriesKindHealthAndStatus(t *testing.T) {
+	want := engaged(hurt(squad("b1", "blue", loc("b", 1, 0)), 80, 35))
+	s := state(engaged(squad("r1", "red", loc("b", 1, 0))), want)
 	obs := rules.Observe(s, 0)
-	want := force("b1", "blue", 4, loc("b", 1, 0))
-	if len(obs[0].Contacts) != 1 || obs[0].Contacts[0] != want {
+	if len(obs[0].Contacts) != 1 || !reflect.DeepEqual(obs[0].Contacts[0], want) {
 		t.Errorf("contacts = %+v, want [%+v]", obs[0].Contacts, want)
 	}
 }

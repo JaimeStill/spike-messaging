@@ -10,13 +10,13 @@ import (
 
 func TestKindStats(t *testing.T) {
 	tests := []struct {
-		name         string
-		kind         rules.Kind
-		moves, sight int
+		name                    string
+		kind                    rules.Kind
+		moves, sight, operators int
 	}{
-		{"a force moves once and sees two cells", rules.Force, 1, 2},
-		{"a scout moves twice and sees four cells", rules.Scout, 2, 4},
-		{"an unknown kind neither moves nor sees", rules.Kind("tank"), 0, 0},
+		{"a squad of four moves once and sees one cell", rules.Squad, 1, 1, 4},
+		{"a scout of one moves twice and sees two cells", rules.Scout, 2, 2, 1},
+		{"an unknown kind neither moves nor sees", rules.Kind("tank"), 0, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -25,6 +25,9 @@ func TestKindStats(t *testing.T) {
 			}
 			if got := tt.kind.Sight(); got != tt.sight {
 				t.Errorf("Sight() = %d, want %d", got, tt.sight)
+			}
+			if got := tt.kind.Operators(); got != tt.operators {
+				t.Errorf("Operators() = %d, want %d", got, tt.operators)
 			}
 		})
 	}

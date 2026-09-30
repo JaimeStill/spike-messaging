@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"maps"
 	"reflect"
 	"slices"
 	"testing"
@@ -16,8 +17,8 @@ func TestMove(t *testing.T) {
 		want   map[string]rules.Location
 	}{
 		{
-			name:   "a force steps one cell",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			name:   "a squad steps one cell",
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1", loc("a", 1, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 1, 0)},
 		},
@@ -29,13 +30,13 @@ func TestMove(t *testing.T) {
 		},
 		{
 			name:   "an order with no steps holds the element",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1")},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
 		{
-			name:   "a force ordered two steps stays",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			name:   "a squad ordered two steps stays",
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1", loc("a", 1, 0), loc("a", 2, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
@@ -47,7 +48,7 @@ func TestMove(t *testing.T) {
 		},
 		{
 			name:   "a diagonal step is refused",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1", loc("a", 1, 1))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
@@ -59,13 +60,13 @@ func TestMove(t *testing.T) {
 		},
 		{
 			name:   "a step off the grid is refused",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1", loc("a", -1, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
 		{
 			name:   "a step into an obstacle is refused",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 2, 1))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 2, 1))},
 			orders: []rules.Order{order("r1", loc("a", 2, 2))},
 			want:   map[string]rules.Location{"r1": loc("a", 2, 1)},
 		},
@@ -77,13 +78,13 @@ func TestMove(t *testing.T) {
 		},
 		{
 			name:   "entering a gate does not traverse it",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 5, 4))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 5, 4))},
 			orders: []rules.Order{order("r1", loc("a", 5, 5))},
 			want:   map[string]rules.Location{"r1": loc("a", 5, 5)},
 		},
 		{
 			name:   "a step from a gate to its link traverses it",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 5, 5))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 5, 5))},
 			orders: []rules.Order{order("r1", loc("b", 0, 0))},
 			want:   map[string]rules.Location{"r1": loc("b", 0, 0)},
 		},
@@ -95,31 +96,31 @@ func TestMove(t *testing.T) {
 		},
 		{
 			name:   "a gate still allows an ordinary step",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 5, 5))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 5, 5))},
 			orders: []rules.Order{order("r1", loc("a", 4, 5))},
 			want:   map[string]rules.Location{"r1": loc("a", 4, 5)},
 		},
 		{
 			name:   "a step into another sector away from a gate is refused",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("r1", loc("b", 0, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
 		{
 			name:   "a step from a gate to a cell other than its link is refused",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 5, 5))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 5, 5))},
 			orders: []rules.Order{order("r1", loc("b", 1, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 5, 5)},
 		},
 		{
 			name:   "an order for an unknown element is ignored",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start:  []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{order("zz", loc("a", 1, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
 		},
 		{
 			name:  "the last order for an element wins",
-			start: []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
+			start: []rules.Element{squad("r1", "red", loc("a", 0, 0))},
 			orders: []rules.Order{
 				order("r1", loc("a", 1, 0)),
 				order("r1", loc("a", 0, 1)),
@@ -129,8 +130,8 @@ func TestMove(t *testing.T) {
 		{
 			name: "two elements of one faction ending on one cell are both refused",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 1)),
-				force("r2", "red", 2, loc("a", 1, 0)),
+				squad("r1", "red", loc("a", 0, 1)),
+				squad("r2", "red", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 1)), order("r2", loc("a", 1, 1))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 1), "r2": loc("a", 1, 0)},
@@ -138,8 +139,8 @@ func TestMove(t *testing.T) {
 		{
 			name: "moving onto a faction member that stays is refused",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("r2", "red", 2, loc("a", 1, 0)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("r2", "red", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 0, 0), "r2": loc("a", 1, 0)},
@@ -147,8 +148,8 @@ func TestMove(t *testing.T) {
 		{
 			name: "moving into a cell a faction member leaves is allowed",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("r2", "red", 2, loc("a", 1, 0)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("r2", "red", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 0)), order("r2", loc("a", 1, 1))},
 			want:   map[string]rules.Location{"r1": loc("a", 1, 0), "r2": loc("a", 1, 1)},
@@ -156,10 +157,10 @@ func TestMove(t *testing.T) {
 		{
 			name: "a refusal cascades to the element that would have followed",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("r2", "red", 2, loc("a", 1, 0)),
-				force("r3", "red", 2, loc("a", 1, 2)),
-				force("r4", "red", 2, loc("a", 2, 1)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("r2", "red", loc("a", 1, 0)),
+				squad("r3", "red", loc("a", 1, 2)),
+				squad("r4", "red", loc("a", 2, 1)),
 			},
 			// r3 and r4 collide on 1,1 and stay; r2 then cannot leave for
 			// 1,1 either, so r1 cannot enter r2's cell.
@@ -177,8 +178,8 @@ func TestMove(t *testing.T) {
 		{
 			name: "elements of one faction may swap cells",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("r2", "red", 2, loc("a", 1, 0)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("r2", "red", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 0)), order("r2", loc("a", 0, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 1, 0), "r2": loc("a", 0, 0)},
@@ -186,8 +187,8 @@ func TestMove(t *testing.T) {
 		{
 			name: "enemies swapping cells do not meet",
 			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("b1", "blue", 3, loc("a", 1, 0)),
+				squad("r1", "red", loc("a", 0, 0)),
+				squad("b1", "blue", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 0)), order("b1", loc("a", 0, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 1, 0), "b1": loc("a", 0, 0)},
@@ -196,10 +197,53 @@ func TestMove(t *testing.T) {
 			name: "a scout passing through an enemy's cell does not meet it",
 			start: []rules.Element{
 				scout("r1", "red", loc("a", 0, 0)),
-				force("b1", "blue", 3, loc("a", 1, 0)),
+				squad("b1", "blue", loc("a", 1, 0)),
 			},
 			orders: []rules.Order{order("r1", loc("a", 1, 0), loc("a", 2, 0))},
 			want:   map[string]rules.Location{"r1": loc("a", 2, 0), "b1": loc("a", 1, 0)},
+		},
+		{
+			name: "an engaged element's retreat of one step leaves the fight",
+			start: []rules.Element{
+				engaged(squad("r1", "red", loc("a", 1, 1))),
+				engaged(squad("b1", "blue", loc("a", 1, 1))),
+			},
+			orders: []rules.Order{retreat("r1", loc("a", 1, 0))},
+			want:   map[string]rules.Location{"r1": loc("a", 1, 0), "b1": loc("a", 1, 1)},
+		},
+		{
+			name: "an engaged scout's retreat of two steps is refused",
+			start: []rules.Element{
+				engaged(scout("r1", "red", loc("a", 1, 1))),
+				engaged(squad("b1", "blue", loc("a", 1, 1))),
+			},
+			orders: []rules.Order{retreat("r1", loc("a", 1, 0), loc("a", 0, 0))},
+			want:   map[string]rules.Location{"r1": loc("a", 1, 1), "b1": loc("a", 1, 1)},
+		},
+		{
+			name:   "a retreat by an element in no fight is an ordinary move",
+			start:  []rules.Element{scout("r1", "red", loc("a", 0, 0))},
+			orders: []rules.Order{retreat("r1", loc("a", 1, 0), loc("a", 1, 1))},
+			want:   map[string]rules.Location{"r1": loc("a", 1, 1)},
+		},
+		{
+			name:   "a recovering element's order is refused",
+			start:  []rules.Element{recovering(squad("r1", "red", loc("a", 0, 0)))},
+			orders: []rules.Order{order("r1", loc("a", 1, 0))},
+			want:   map[string]rules.Location{"r1": loc("a", 0, 0)},
+		},
+		{
+			name: "reinforcements join their own elements in a fight",
+			start: []rules.Element{
+				engaged(squad("r1", "red", loc("a", 1, 1))),
+				engaged(squad("b1", "blue", loc("a", 1, 1))),
+				squad("r2", "red", loc("a", 0, 1)),
+				squad("r3", "red", loc("a", 1, 0)),
+			},
+			orders: []rules.Order{order("r2", loc("a", 1, 1)), order("r3", loc("a", 1, 1))},
+			want: map[string]rules.Location{
+				"r1": loc("a", 1, 1), "r2": loc("a", 1, 1), "r3": loc("a", 1, 1), "b1": loc("a", 1, 1),
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -208,14 +252,22 @@ func TestMove(t *testing.T) {
 			if err := s.Validate(); err != nil {
 				t.Fatalf("start: %v", err)
 			}
-			next, _, _, _ := rules.Resolve(s, 1, 10, tt.orders)
-			if len(next.Elements) != len(tt.want) {
-				t.Fatalf("elements = %v, want %d", ids(next.Elements), len(tt.want))
+			next, _, _, res := rules.Resolve(s, seed, 1, 10, tt.orders)
+			lost := map[string]bool{}
+			for _, l := range res.Losses {
+				lost[l.ID] = true
 			}
+			if len(next.Elements)+len(lost) != len(tt.want) {
+				t.Fatalf("elements = %v and lost %v, want %d", ids(next.Elements), lost, len(tt.want))
+			}
+			// A fight may destroy an element where it stands; the test is of
+			// where the survivors end.
 			for id, want := range tt.want {
 				e, ok := find(next, id)
 				if !ok {
-					t.Errorf("%s: missing", id)
+					if !lost[id] {
+						t.Errorf("%s: missing", id)
+					}
 					continue
 				}
 				if e.At != want {
@@ -229,125 +281,110 @@ func TestMove(t *testing.T) {
 	}
 }
 
-// Engagement is attrition: each faction loses half the other's total in
-// the cell, rounded up, both at once, weakest element first.
-func TestEngage(t *testing.T) {
+// A fight is random, but a seed and a round decide it: the same state,
+// seed, round, and orders always resolve alike.
+func TestAFightIsDecidedBySeedAndRound(t *testing.T) {
 	c := loc("a", 1, 1)
-	tests := []struct {
-		name  string
-		start []rules.Element
-		want  map[string]int // survivor ID -> strength
-	}{
-		{
-			name:  "each side loses half the other's strength, rounded up",
-			start: []rules.Element{force("r1", "red", 5, c), force("b1", "blue", 3, c)},
-			want:  map[string]int{"r1": 3},
-		},
-		{
-			name: "the loss falls on the weakest element first",
-			start: []rules.Element{
-				force("r1", "red", 4, c), force("r2", "red", 2, c),
-				force("b1", "blue", 1, c),
-			},
-			want: map[string]int{"r1": 4, "r2": 1},
-		},
-		{
-			name: "the loss spreads to the next weakest once one falls, and both sides survive",
-			start: []rules.Element{
-				force("r1", "red", 4, c), scout("r2", "red", c),
-				force("b1", "blue", 5, c),
-			},
-			want: map[string]int{"r1": 2, "b1": 2},
-		},
-		{
-			name: "equal strengths lose in ID order",
-			start: []rules.Element{
-				force("r2", "red", 2, c), force("r1", "red", 2, c),
-				force("b1", "blue", 1, c),
-			},
-			want: map[string]int{"r1": 1, "r2": 2},
-		},
-		{
-			name: "three or more elements on a side",
-			start: []rules.Element{
-				force("b1", "blue", 5, c), scout("b2", "blue", c), force("b3", "blue", 2, c),
-				force("r1", "red", 3, c), scout("r2", "red", c),
-			},
-			want: map[string]int{"b1": 5, "b3": 1},
-		},
-		{
-			name:  "equal sides can destroy each other",
-			start: []rules.Element{scout("r1", "red", c), scout("b1", "blue", c)},
-			want:  map[string]int{},
-		},
-		{
-			name: "only cells holding both factions engage",
-			start: []rules.Element{
-				force("r1", "red", 2, loc("a", 0, 0)),
-				force("b1", "blue", 3, loc("a", 1, 0)),
-			},
-			want: map[string]int{"r1": 2, "b1": 3},
-		},
+	s := state(engaged(squad("r1", "red", c)), engaged(squad("b1", "blue", c)))
+	first, _, _, res := rules.Resolve(s, seed, 1, 10, nil)
+	again, _, _, resAgain := rules.Resolve(s, seed, 1, 10, nil)
+	if !reflect.DeepEqual(first, again) || !reflect.DeepEqual(res, resAgain) {
+		t.Errorf("one seed and round resolved two ways:\n%+v\n%+v", res, resAgain)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			next, _, _, _ := rules.Resolve(state(tt.start...), 1, 10, nil)
-			got := map[string]int{}
-			for _, e := range next.Elements {
-				got[e.ID] = e.Strength
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("survivors = %v, want %v", got, tt.want)
-			}
-			if !slices.IsSorted(ids(next.Elements)) {
-				t.Errorf("elements %v are not sorted by ID", ids(next.Elements))
-			}
-		})
+	differ := false
+	for other := int64(1); other <= 20 && !differ; other++ {
+		_, _, _, r := rules.Resolve(s, other, 1, 10, nil)
+		differ = !reflect.DeepEqual(r, res)
+	}
+	if !differ {
+		t.Errorf("twenty seeds resolved round 1 alike")
 	}
 }
 
-// A fight lasts while both sides stay in the cell: a force of 4 against one
-// of 3 takes two rounds. Each round's resolution records the strengths
-// before and after, and the loss in the round it happens.
-func TestAFightLastsRounds(t *testing.T) {
+// Every living operator fires once, all at once: a side's loss in a round
+// is at most its enemy's operators times the most a hit takes, and each
+// element's strength stays the sum of its health.
+func TestFireIsBoundedAndSimultaneous(t *testing.T) {
 	c := loc("a", 1, 1)
-	s := state(force("r1", "red", 4, c), force("b1", "blue", 3, c))
-	want := []rules.Resolution{
-		{
-			Engagements: []rules.Engagement{{At: c, Elements: []rules.Engaged{
-				{ID: "b1", Faction: "blue", Before: 3, After: 1},
-				{ID: "r1", Faction: "red", Before: 4, After: 2},
-			}}},
-			Captures: []rules.Capture{},
-			Losses:   []rules.Loss{},
-		},
-		{
-			Engagements: []rules.Engagement{{At: c, Elements: []rules.Engaged{
-				{ID: "b1", Faction: "blue", Before: 1, After: 0},
-				{ID: "r1", Faction: "red", Before: 2, After: 1},
-			}}},
-			Captures: []rules.Capture{},
-			Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
-		},
-		{Engagements: []rules.Engagement{}, Captures: []rules.Capture{}, Losses: []rules.Loss{}},
-	}
-	for round, w := range want {
-		var res rules.Resolution
-		s, _, _, res = rules.Resolve(s, round+1, 10, nil)
-		if !reflect.DeepEqual(res, w) {
-			t.Errorf("round %d: resolution = %+v, want %+v", round+1, res, w)
+	for sd := int64(1); sd <= 50; sd++ {
+		s := state(
+			engaged(squad("r1", "red", c)),
+			engaged(scout("b1", "blue", c)),
+			engaged(hurt(squad("b2", "blue", c), 30, 30)),
+		)
+		next, _, _, res := rules.Resolve(s, sd, 1, 10, nil)
+		lost := map[string]int{}
+		for _, g := range res.Engagements {
+			for _, e := range g.Elements {
+				lost[e.Faction] += e.Before - e.After
+				if e.After > e.Before || e.Fallen < 0 {
+					t.Fatalf("seed %d: %+v", sd, e)
+				}
+			}
+		}
+		if lost["red"] > 3*rules.MaxDamage || lost["blue"] > 4*rules.MaxDamage {
+			t.Errorf("seed %d: losses %v exceed what the operators can fire", sd, lost)
+		}
+		if err := next.Validate(); err != nil {
+			t.Fatalf("seed %d: %v", sd, err)
 		}
 	}
 }
 
+// A fight lasts while both sides stay in the cell: two full squads take
+// several rounds. Each round's resolution follows on from the last, the
+// elements stay engaged until one side falls, and the fallen one is
+// recorded as a loss in the round it happens.
+func TestAFightLastsRounds(t *testing.T) {
+	c := loc("a", 1, 1)
+	s := state(squad("r1", "red", c), squad("b1", "blue", c))
+	strength := map[string]int{"r1": 400, "b1": 400}
+	rounds := 0
+	for round := 1; round <= 30; round++ {
+		var res rules.Resolution
+		s, _, _, res = rules.Resolve(s, seed, round, 50, nil)
+		if len(res.Engagements) == 0 {
+			break
+		}
+		rounds++
+		for _, e := range res.Engagements[0].Elements {
+			if e.Before != strength[e.ID] {
+				t.Fatalf("round %d: %s before %d, want %d", round, e.ID, e.Before, strength[e.ID])
+			}
+			strength[e.ID] = e.After
+		}
+		for _, e := range s.Elements {
+			if len(res.Losses) == 0 && e.Status != rules.StatusEngaged {
+				t.Errorf("round %d: %s is %s, want engaged", round, e.ID, e.Status)
+			}
+		}
+		if len(res.Losses) > 0 {
+			if len(s.Elements) > 1 {
+				t.Errorf("round %d: losses %+v but %d elements left", round, res.Losses, len(s.Elements))
+			}
+			for _, e := range s.Elements {
+				if e.Status != rules.StatusReady {
+					t.Errorf("round %d: the survivor %s is %s, want ready", round, e.ID, e.Status)
+				}
+			}
+		}
+	}
+	if rounds < 3 {
+		t.Errorf("the fight lasted %d rounds, want several", rounds)
+	}
+	if len(s.Elements) > 1 {
+		t.Errorf("the fight did not end in 30 rounds: %+v", s.Elements)
+	}
+}
+
 // A fight holds its elements: an element that starts the round in a cell
-// with the enemy cannot move out, so the fight runs until one side is
-// destroyed. An element outside the fight still moves.
+// with the enemy cannot move out but by a retreat. An element outside the
+// fight still moves.
 func TestAFightPinsItsElements(t *testing.T) {
 	c := loc("a", 1, 1)
-	s := state(force("r1", "red", 4, c), force("b1", "blue", 3, c), force("r2", "red", 2, loc("a", 3, 3)))
+	s := state(engaged(squad("r1", "red", c)), engaged(squad("b1", "blue", c)), squad("r2", "red", loc("a", 3, 3)))
 	orders := []rules.Order{order("b1", loc("a", 1, 2)), order("r1", loc("a", 1, 0)), order("r2", loc("a", 3, 2))}
-	s, _, _, res := rules.Resolve(s, 1, 10, orders)
+	s, _, _, res := rules.Resolve(s, seed, 1, 10, orders)
 	at := map[string]rules.Location{}
 	for _, e := range s.Elements {
 		at[e.ID] = e.At
@@ -358,38 +395,60 @@ func TestAFightPinsItsElements(t *testing.T) {
 	if len(res.Engagements) != 1 {
 		t.Fatalf("round 1: engagements %+v, want the fight to go on", res.Engagements)
 	}
-	s, _, _, res = rules.Resolve(s, 2, 10, orders)
-	if len(res.Losses) != 1 || res.Losses[0].ID != "b1" {
-		t.Errorf("round 2: losses %+v, want b1", res.Losses)
+}
+
+// A retreat leaves the fight by one step, draws one volley from the enemy
+// it leaves, which takes no fire back, and costs the element its next
+// round, after which it is ready again.
+func TestARetreatDrawsAVolleyAndCostsARound(t *testing.T) {
+	c, back := loc("a", 1, 1), loc("a", 1, 0)
+	s := state(engaged(squad("r1", "red", c)), engaged(squad("b1", "blue", c)))
+	s, _, _, res := rules.Resolve(s, seed, 1, 10, []rules.Order{retreat("r1", back)})
+	if len(res.Retreats) != 1 {
+		t.Fatalf("retreats = %+v, want r1's", res.Retreats)
 	}
-	// Once the fight is over, the survivor moves again.
-	s, _, _, _ = rules.Resolve(s, 3, 10, []rules.Order{order("r1", loc("a", 1, 0))})
-	for _, e := range s.Elements {
-		if e.ID == "r1" && e.At != loc("a", 1, 0) {
-			t.Errorf("r1 at %s after the fight, want a:1,0", e.At.Key())
-		}
+	r := res.Retreats[0]
+	if r.ID != "r1" || r.From != c || r.To != back || r.Before != 400 || r.After > r.Before {
+		t.Errorf("retreat = %+v", r)
+	}
+	if len(res.Engagements) != 0 {
+		t.Errorf("engagements = %+v, want the fight broken off", res.Engagements)
+	}
+	r1, _ := find(s, "r1")
+	b1, _ := find(s, "b1")
+	if r1.At != back || r1.Status != rules.StatusRecovering || r1.Strength != r.After {
+		t.Errorf("r1 = %+v, want recovering at %s with strength %d", r1, back.Key(), r.After)
+	}
+	if b1.Strength != 400 || b1.Status != rules.StatusReady {
+		t.Errorf("b1 = %+v, want untouched and ready", b1)
+	}
+
+	s, _, _, _ = rules.Resolve(s, seed, 2, 10, []rules.Order{order("r1", loc("a", 0, 0))})
+	r1, _ = find(s, "r1")
+	if r1.At != back || r1.Status != rules.StatusReady {
+		t.Errorf("round 2: r1 = %+v, want it held at %s and ready", r1, back.Key())
+	}
+	s, _, _, _ = rules.Resolve(s, seed, 3, 10, []rules.Order{order("r1", loc("a", 0, 0))})
+	if r1, _ = find(s, "r1"); r1.At != loc("a", 0, 0) {
+		t.Errorf("round 3: r1 at %s, want it moving again", r1.At.Key())
 	}
 }
 
-// The resolution records an objective that changes hands, with the faction
-// it was taken from, and none for one that stays with its holder.
-func TestResolutionRecordsCaptures(t *testing.T) {
-	obj := loc("a", 3, 0)
-	s := state(force("r1", "red", 2, loc("a", 2, 0)))
-	s, _, _, res := rules.Resolve(s, 1, 10, []rules.Order{order("r1", obj)})
-	if want := []rules.Capture{{At: obj, Faction: "red"}}; !reflect.DeepEqual(res.Captures, want) {
-		t.Errorf("captures = %+v, want %+v", res.Captures, want)
+// A volley can destroy the element that retreats, and the loss is recorded.
+func TestAVolleyCanDestroyARetreat(t *testing.T) {
+	c := loc("a", 1, 1)
+	for sd := int64(1); sd <= 50; sd++ {
+		s := state(engaged(hurt(scout("r1", "red", c), 1)), engaged(squad("b1", "blue", c)))
+		next, _, _, res := rules.Resolve(s, sd, 1, 10, []rules.Order{retreat("r1", loc("a", 1, 0))})
+		if len(res.Losses) == 0 {
+			continue
+		}
+		if _, ok := find(next, "r1"); ok || res.Retreats[0].After != 0 || res.Retreats[0].Fallen != 1 {
+			t.Errorf("seed %d: %+v, want r1 destroyed by the volley", sd, res)
+		}
+		return
 	}
-	s.Elements = append(s.Elements, force("b1", "blue", 5, loc("a", 4, 0)))
-	_, _, _, res = rules.Resolve(s, 2, 10, []rules.Order{order("b1", obj)})
-	want := []rules.Capture{{At: obj, Faction: "blue", From: "red"}}
-	if !reflect.DeepEqual(res.Captures, want) || !reflect.DeepEqual(res.Losses, []rules.Loss{{ID: "r1", Faction: "red"}}) {
-		t.Errorf("resolution = %+v, want blue to take the objective from red, and r1 lost", res)
-	}
-	_, _, _, res = rules.Resolve(s, 2, 10, nil)
-	if len(res.Captures) != 0 {
-		t.Errorf("captures = %+v on a round nothing changed hands", res.Captures)
-	}
+	t.Errorf("fifty seeds, and no volley hit a scout at health 1")
 }
 
 func TestCapture(t *testing.T) {
@@ -398,50 +457,49 @@ func TestCapture(t *testing.T) {
 		name    string
 		start   []rules.Element
 		holders map[string]string
-		orders  []rules.Order
+		rounds  [][]rules.Order
 		want    string
 	}{
 		{
-			name:   "a faction alone on an objective captures it",
-			start:  []rules.Element{force("r1", "red", 2, loc("a", 2, 0))},
-			orders: []rules.Order{order("r1", obj)},
+			name:   "one round alone on an objective does not take it",
+			start:  []rules.Element{squad("r1", "red", loc("a", 2, 0))},
+			rounds: [][]rules.Order{{order("r1", obj)}},
+			want:   "",
+		},
+		{
+			name:   "two rounds alone on an objective take it",
+			start:  []rules.Element{squad("r1", "red", loc("a", 2, 0))},
+			rounds: [][]rules.Order{{order("r1", obj)}, nil},
 			want:   "red",
 		},
 		{
-			name:    "a faction alone on an objective takes it from the holder",
-			start:   []rules.Element{force("b1", "blue", 2, obj)},
+			name:    "two rounds alone take it from its holder",
+			start:   []rules.Element{squad("b1", "blue", obj)},
 			holders: map[string]string{"a:3,0": "red"},
+			rounds:  [][]rules.Order{nil, nil},
 			want:    "blue",
 		},
 		{
-			name: "a tied engagement on an objective leaves its holder",
+			name:   "an empty round resets the count",
+			start:  []rules.Element{squad("r1", "red", loc("a", 2, 0))},
+			rounds: [][]rules.Order{{order("r1", obj)}, {order("r1", loc("a", 2, 0))}, {order("r1", obj)}},
+			want:   "",
+		},
+		{
+			name: "a fight resets the count, and leaves the holder",
 			start: []rules.Element{
-				force("r1", "red", 2, obj), force("b1", "blue", 2, loc("a", 4, 0)),
+				squad("r1", "red", obj), squad("b1", "blue", loc("a", 4, 0)),
 			},
 			holders: map[string]string{"a:3,0": "red"},
-			orders:  []rules.Order{order("b1", obj)},
+			rounds:  [][]rules.Order{{order("b1", obj)}, nil},
 			want:    "red",
-		},
-		{
-			name: "the survivor of an engagement on an objective captures it",
-			start: []rules.Element{
-				force("r1", "red", 2, obj), force("b1", "blue", 3, loc("a", 4, 0)),
-			},
-			holders: map[string]string{"a:3,0": "red"},
-			orders:  []rules.Order{order("b1", obj)},
-			want:    "blue",
 		},
 		{
 			name:    "the holder persists when the objective is empty",
-			start:   []rules.Element{force("r1", "red", 2, obj)},
+			start:   []rules.Element{squad("r1", "red", obj)},
 			holders: map[string]string{"a:3,0": "red"},
-			orders:  []rules.Order{order("r1", loc("a", 3, 1))},
+			rounds:  [][]rules.Order{{order("r1", loc("a", 3, 1))}, nil},
 			want:    "red",
-		},
-		{
-			name:  "an objective no one has stood on stays unheld",
-			start: []rules.Element{force("r1", "red", 2, loc("a", 0, 0))},
-			want:  "",
 		},
 	}
 	for _, tt := range tests {
@@ -450,30 +508,58 @@ func TestCapture(t *testing.T) {
 			if tt.holders != nil {
 				s.Holders = tt.holders
 			}
-			next, _, _, _ := rules.Resolve(s, 1, 10, tt.orders)
-			if got := next.Holders[obj.Key()]; got != tt.want {
+			for i, orders := range tt.rounds {
+				s, _, _, _ = rules.Resolve(s, seed, i+1, 10, orders)
+			}
+			if got := s.Holders[obj.Key()]; got != tt.want {
 				t.Errorf("holder = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
+// The resolution records a faction's count toward an objective, then the
+// capture with the faction it was taken from, and nothing once it is held.
+func TestResolutionRecordsProgressAndCaptures(t *testing.T) {
+	obj := loc("a", 3, 0)
+	s := state(squad("b1", "blue", loc("a", 2, 0)))
+	s.Holders[obj.Key()] = "red"
+	s, _, _, res := rules.Resolve(s, seed, 1, 10, []rules.Order{order("b1", obj)})
+	if want := []rules.Advance{{At: obj, Faction: "blue", Rounds: 1}}; !reflect.DeepEqual(res.Progress, want) || len(res.Captures) != 0 {
+		t.Errorf("round 1: %+v, want blue one round toward %s", res, obj.Key())
+	}
+	if want := (rules.Progress{Faction: "blue", Rounds: 1}); s.Progress[obj.Key()] != want {
+		t.Errorf("round 1: state progress %+v, want %+v", s.Progress, want)
+	}
+	s, _, _, res = rules.Resolve(s, seed, 2, 10, nil)
+	if want := []rules.Capture{{At: obj, Faction: "blue", From: "red"}}; !reflect.DeepEqual(res.Captures, want) || len(res.Progress) != 0 {
+		t.Errorf("round 2: %+v, want blue to take %s from red", res, obj.Key())
+	}
+	if len(s.Progress) != 0 {
+		t.Errorf("round 2: state progress %+v, want none once held", s.Progress)
+	}
+	_, _, _, res = rules.Resolve(s, seed, 3, 10, nil)
+	if len(res.Captures) != 0 || len(res.Progress) != 0 {
+		t.Errorf("round 3: %+v on a round nothing changed", res)
+	}
+}
+
 func TestResolveDoesNotMutateItsInput(t *testing.T) {
+	c := loc("a", 3, 0)
 	s := state(
-		force("r1", "red", 5, loc("a", 3, 1)),
-		force("b1", "blue", 3, loc("a", 4, 0)),
+		engaged(squad("r1", "red", c)),
+		engaged(squad("b1", "blue", c)),
 		scout("r2", "red", loc("a", 0, 0)),
 	)
 	s.Holders["b:5,5"] = "blue"
+	s.Progress["a:3,0"] = rules.Progress{Faction: "red", Rounds: 1}
 	orders := []rules.Order{
-		order("r1", loc("a", 3, 0)),
-		order("b1", loc("a", 3, 0)),
 		order("r2", loc("a", 1, 0), loc("a", 1, 1)),
 	}
 	before := deepCopy(s)
 	ordersBefore := slices.Clone(orders)
 
-	next, _, _, _ := rules.Resolve(s, 1, 10, orders)
+	next, _, _, _ := rules.Resolve(s, seed, 1, 10, orders)
 	if !reflect.DeepEqual(s, before) {
 		t.Errorf("input state changed:\n got %+v\nwant %+v", s, before)
 	}
@@ -483,7 +569,8 @@ func TestResolveDoesNotMutateItsInput(t *testing.T) {
 
 	// The next state shares nothing the caller can change through it.
 	next.Holders["a:3,0"] = "blue"
-	next.Elements[0].Strength = 99
+	next.Progress["b:5,5"] = rules.Progress{Faction: "red", Rounds: 1}
+	next.Elements[0].Health[0] = 99
 	next.Map.Sectors[0].Objectives[0] = rules.Point{X: 0, Y: 5}
 	if !reflect.DeepEqual(s, before) {
 		t.Errorf("changing the next state changed the input")
@@ -499,11 +586,13 @@ func deepCopy(s rules.State) rules.State {
 		sec.Gates = slices.Clone(sec.Gates)
 		out.Map.Sectors = append(out.Map.Sectors, sec)
 	}
-	out.Elements = slices.Clone(s.Elements)
-	out.Holders = map[string]string{}
-	for k, v := range s.Holders {
-		out.Holders[k] = v
+	out.Elements = nil
+	for _, e := range s.Elements {
+		e.Health = slices.Clone(e.Health)
+		out.Elements = append(out.Elements, e)
 	}
+	out.Holders = maps.Clone(s.Holders)
+	out.Progress = maps.Clone(s.Progress)
 	return out
 }
 
@@ -512,14 +601,14 @@ func deepCopy(s rules.State) rules.State {
 func TestIdleExerciseRunsToTheLimitAsADraw(t *testing.T) {
 	const limit = 5
 	s := state(
-		force("b1", "blue", 3, loc("b", 0, 5)),
-		force("r1", "red", 3, loc("a", 0, 0)),
+		squad("b1", "blue", loc("b", 0, 5)),
+		squad("r1", "red", loc("a", 0, 0)),
 	)
 	if v := rules.Judge(s, 0, limit); v.Over {
 		t.Fatalf("round 0: %+v, want not over", v)
 	}
 	for round := 1; round <= limit; round++ {
-		next, obs, v, _ := rules.Resolve(s, round, limit, nil)
+		next, obs, v, _ := rules.Resolve(s, seed, round, limit, nil)
 		if !reflect.DeepEqual(next.Elements, s.Elements) {
 			t.Fatalf("round %d: elements changed to %+v", round, next.Elements)
 		}

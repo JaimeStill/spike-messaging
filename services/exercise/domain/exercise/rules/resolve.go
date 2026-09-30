@@ -3,27 +3,49 @@ package rules
 import (
 	"cmp"
 	"maps"
+	"math/rand/v2"
 	"slices"
+)
+
+// The constants of a fight and of a capture.
+const (
+	// HitChance is the percentage chance that an operator's shot hits.
+	HitChance = 50
+	// MinDamage and MaxDamage bound the health a hit takes, inclusive.
+	MinDamage = 20
+	MaxDamage = 60
+	// CaptureRounds is the rounds in a row a faction ends alone on an
+	// objective to take it.
+	CaptureRounds = 2
 )
 
 // Order is a faction's command to one element for one round: the cells it
 // enters, in order. An order with no steps holds the element in place.
+// Retreat marks the one order that moves an engaged element: one step out
+// of its fight.
 type Order struct {
 	Element string     `json:"element"`
 	Steps   []Location `json:"steps"`
+	Retreat bool       `json:"retreat,omitempty"`
 }
 
-// Resolve resolves round of s under orders: it moves, engages, and
-// captures, then observes the next state for each faction and judges it
-// against limit, the exercise's round limit. It returns the next state, the
-// observations indexed like s.Factions, the verdict, and the round's
-// [Resolution]. Resolve does not change s or orders; the next state shares
-// no slice or map with s, and its elements are sorted by ID.
-func Resolve(s State, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
+// Resolve resolves round of s under orders: it moves, fires each retreat's
+// volley, fights, and captures, then observes the next state for each
+// faction and judges it against limit, the exercise's round limit. Every
+// random draw comes from seed and round alone, so a round resolves the same
+// way each time it is resolved. It returns the next state, the observations
+// indexed like s.Factions, the verdict, and the round's [Resolution].
+// Resolve does not change s or orders; the next state shares no slice or
+// map with s, and its elements are sorted by ID.
+func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
+	rng := rand.New(rand.NewPCG(uint64(seed), uint64(round)))
 	next = s.clone()
-	move(&next, orders)
-	res.Engagements, res.Losses = engage(&next)
-	res.Captures = capture(&next)
+	retreats := move(&next, orders)
+	res.Retreats = volley(&next, retreats, rng)
+	res.Engagements = fight(&next, rng)
+	res.Losses = bury(&next)
+	settle(&next, retreats)
+	res.Captures, res.Progress = capture(&next)
 	return next, Observe(next, round), Judge(next, round, limit), res
 }
 
@@ -48,13 +70,28 @@ func contested(es []Element) map[string]bool {
 }
 
 // Resolution is what a round's resolution did, as the umpire records it:
-// each engagement, each objective that changed hands, and each element
-// destroyed. Every list is empty, not nil, for a round where nothing
-// happened.
+// each retreat and the volley it drew, each fight, each element destroyed,
+// each objective that changed hands, and each objective a faction is
+// taking. Every list is empty, not nil, for a round where nothing happened.
 type Resolution struct {
+	Retreats    []Retreat    `json:"retreats"`
 	Engagements []Engagement `json:"engagements"`
-	Captures    []Capture    `json:"captures"`
 	Losses      []Loss       `json:"losses"`
+	Captures    []Capture    `json:"captures"`
+	Progress    []Advance    `json:"progress"`
+}
+
+// Retreat is an element that left its fight, and the volley the enemy it
+// left fired at it: its strength before and after, and the operators the
+// volley felled. After is 0 when the volley destroyed it.
+type Retreat struct {
+	ID      string   `json:"id"`
+	Faction string   `json:"faction"`
+	From    Location `json:"from"`
+	To      Location `json:"to"`
+	Before  int      `json:"before"`
+	After   int      `json:"after"`
+	Fallen  int      `json:"fallen"`
 }
 
 // Engagement is one cell's fight in a round: every element in the cell, of
@@ -65,12 +102,14 @@ type Engagement struct {
 }
 
 // Engaged is one element of an [Engagement]: its strength before and after
-// the round's losses. After is 0 when the element was destroyed.
+// the round's fire, and the operators it lost. After is 0 when the element
+// was destroyed.
 type Engaged struct {
 	ID      string `json:"id"`
 	Faction string `json:"faction"`
 	Before  int    `json:"before"`
 	After   int    `json:"after"`
+	Fallen  int    `json:"fallen"`
 }
 
 // Capture is an objective that changed hands. Faction holds it now, and From
@@ -81,15 +120,25 @@ type Capture struct {
 	From    string   `json:"from"`
 }
 
-// Loss is an element destroyed in an engagement.
+// Advance is an objective a faction is taking but does not hold yet: the
+// rounds in a row it has ended alone on it, fewer than [CaptureRounds].
+type Advance struct {
+	At      Location `json:"at"`
+	Faction string   `json:"faction"`
+	Rounds  int      `json:"rounds"`
+}
+
+// Loss is an element destroyed by a volley or in a fight.
 type Loss struct {
 	ID      string `json:"id"`
 	Faction string `json:"faction"`
 }
 
-// move applies every order at once. It refuses the orders the rules refuse
-// and every order of an element pinned in a fight.
-func move(s *State, orders []Order) {
+// move applies every order at once. It refuses the orders the rules refuse,
+// every order of a recovering element, and every order of an element pinned
+// in a fight but the one-step retreat. It returns the elements that
+// retreated, by ID, with the cell each left.
+func move(s *State, orders []Order) map[string]Location {
 	byID := make(map[string]Order, len(orders))
 	for _, o := range orders {
 		byID[o.Element] = o
@@ -98,10 +147,15 @@ func move(s *State, orders []Order) {
 	final := make([]Location, len(s.Elements))
 	for i, e := range s.Elements {
 		final[i] = e.At
-		if o, ok := byID[e.ID]; ok && !pinned[e.At.Key()] {
-			if to, ok := s.Map.walk(e, o.Steps); ok {
-				final[i] = to
-			}
+		o, ok := byID[e.ID]
+		switch {
+		case !ok, e.Status == StatusRecovering:
+			continue
+		case pinned[e.At.Key()] && (!o.Retreat || len(o.Steps) != 1):
+			continue
+		}
+		if to, ok := s.Map.walk(e, o.Steps); ok {
+			final[i] = to
 		}
 	}
 	for refused := true; refused; {
@@ -111,15 +165,20 @@ func move(s *State, orders []Order) {
 			ends[e.Faction+"@"+final[i].Key()]++
 		}
 		for i, e := range s.Elements {
-			if final[i] != e.At && ends[e.Faction+"@"+final[i].Key()] > 1 {
+			if final[i] != e.At && !pinned[final[i].Key()] && ends[e.Faction+"@"+final[i].Key()] > 1 {
 				final[i] = e.At
 				refused = true
 			}
 		}
 	}
-	for i := range s.Elements {
+	retreats := make(map[string]Location)
+	for i, e := range s.Elements {
+		if final[i] != e.At && pinned[e.At.Key()] {
+			retreats[e.ID] = e.At
+		}
 		s.Elements[i].At = final[i]
 	}
+	return retreats
 }
 
 // walk returns where e ends after steps, or false when the rules refuse the
@@ -152,77 +211,170 @@ func (m Map) walk(e Element, steps []Location) (Location, bool) {
 	return at, true
 }
 
-// engage fights out every cell that holds both factions' elements for one
-// round, by attrition: each faction loses half the enemy's total strength
-// in the cell, rounded up, and both losses apply at once. It leaves s's
-// elements sorted by ID, and returns each cell's engagement, in cell order,
-// and the elements destroyed, in ID order.
-func engage(s *State) ([]Engagement, []Loss) {
-	cells := make(map[string][]Element)
-	for _, e := range s.Elements {
-		cells[e.At.Key()] = append(cells[e.At.Key()], e)
+// operator is one living operator: the element it belongs to, by index into
+// the state's elements, and its place in the element's health.
+type operator struct{ element, slot int }
+
+// shoot has each shooter fire once at a random target, and returns the
+// damage each target takes, keyed by operator. It draws in shooter order,
+// the hit first and then, on a hit, the target and the damage.
+func shoot(shooters, targets []operator, rng *rand.Rand) map[operator]int {
+	damage := make(map[operator]int)
+	if len(targets) == 0 {
+		return damage
 	}
-	engagements, losses := []Engagement{}, []Loss{}
-	var live []Element
-	for _, key := range sortedKeys(cells) {
-		here := cells[key]
-		var mine, theirs []Element
-		var own, enemy int
-		for _, e := range here {
-			if e.Faction == s.Factions[0] {
-				mine, own = append(mine, e), own+e.Strength
-			} else {
-				theirs, enemy = append(theirs, e), enemy+e.Strength
-			}
-		}
-		if len(mine) == 0 || len(theirs) == 0 {
-			live = append(live, here...)
+	for range shooters {
+		if rng.IntN(100) >= HitChance {
 			continue
 		}
-		survivors := append(absorb(mine, (enemy+1)/2), absorb(theirs, (own+1)/2)...)
-		after := make(map[string]int, len(survivors))
-		for _, e := range survivors {
-			after[e.ID] = e.Strength
-		}
-		g := Engagement{At: here[0].At}
-		slices.SortFunc(here, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
-		for _, e := range here {
-			g.Elements = append(g.Elements, Engaged{ID: e.ID, Faction: e.Faction, Before: e.Strength, After: after[e.ID]})
-			if after[e.ID] == 0 {
-				losses = append(losses, Loss{ID: e.ID, Faction: e.Faction})
-			}
-		}
-		engagements = append(engagements, g)
-		live = append(live, survivors...)
+		t := targets[rng.IntN(len(targets))]
+		damage[t] += MinDamage + rng.IntN(MaxDamage-MinDamage+1)
 	}
-	slices.SortFunc(live, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
-	slices.SortFunc(losses, func(a, b Loss) int { return cmp.Compare(a.ID, b.ID) })
-	s.Elements = live
-	return engagements, losses
+	return damage
 }
 
-// absorb takes loss from es, weakest element first, and returns the
-// elements that survive it.
-func absorb(es []Element, loss int) []Element {
-	slices.SortFunc(es, func(a, b Element) int {
-		return cmp.Or(cmp.Compare(a.Strength, b.Strength), cmp.Compare(a.ID, b.ID))
-	})
-	var out []Element
-	for _, e := range es {
-		take := min(loss, e.Strength)
-		e.Strength -= take
-		loss -= take
-		if e.Strength > 0 {
-			out = append(out, e)
+// operators returns the living operators of the elements at the given
+// indexes, in element ID order and then in the order each fields them. An
+// operator a volley felled this round is no longer living.
+func operators(es []Element, at []int) []operator {
+	at = slices.Clone(at)
+	slices.SortFunc(at, func(a, b int) int { return cmp.Compare(es[a].ID, es[b].ID) })
+	var out []operator
+	for _, i := range at {
+		for slot, h := range es[i].Health {
+			if h > 0 {
+				out = append(out, operator{i, slot})
+			}
 		}
 	}
 	return out
 }
 
-// capture gives each objective held by exactly one faction's elements to
-// that faction, and returns each objective that changed hands, in the map's
+// wound applies damage to the operators it keys. An operator reduced to 0
+// or below keeps its slot at 0 until [bury] removes it.
+func wound(es []Element, damage map[operator]int) {
+	for op, d := range damage {
+		es[op.element].Health[op.slot] = max(es[op.element].Health[op.slot]-d, 0)
+	}
+}
+
+// volley has the enemy that stays in each cell a retreat left fire once at
+// the retreating element, which does not fire back. Retreats resolve in ID
+// order, and a volley falls on the retreating element's operators alone.
+func volley(s *State, retreats map[string]Location, rng *rand.Rand) []Retreat {
+	out := []Retreat{}
+	for _, id := range sortedKeys(retreats) {
+		from := retreats[id]
+		i := slices.IndexFunc(s.Elements, func(e Element) bool { return e.ID == id })
+		e := s.Elements[i]
+		var enemy []int
+		for j, o := range s.Elements {
+			if o.Faction != e.Faction && o.At == from {
+				enemy = append(enemy, j)
+			}
+		}
+		before, alive := sum(e.Health), living(e.Health)
+		wound(s.Elements, shoot(operators(s.Elements, enemy), operators(s.Elements, []int{i}), rng))
+		h := s.Elements[i].Health
+		out = append(out, Retreat{
+			ID: id, Faction: e.Faction, From: from, To: e.At,
+			Before: before, After: sum(h), Fallen: alive - living(h),
+		})
+	}
+	return out
+}
+
+// fight has every living operator in each cell that holds both factions'
+// elements fire once at a random living enemy operator there, all at once:
+// every target is chosen, and every hit lands, before anyone falls. Cells
+// fight in key order, and each faction's shooters in element ID order.
+func fight(s *State, rng *rand.Rand) []Engagement {
+	cells := make(map[string][]int)
+	for i, e := range s.Elements {
+		cells[e.At.Key()] = append(cells[e.At.Key()], i)
+	}
+	out := []Engagement{}
+	for _, key := range sortedKeys(cells) {
+		var sides [2][]int
+		for _, i := range cells[key] {
+			if s.Elements[i].Faction == s.Factions[0] {
+				sides[0] = append(sides[0], i)
+			} else {
+				sides[1] = append(sides[1], i)
+			}
+		}
+		if len(sides[0]) == 0 || len(sides[1]) == 0 {
+			continue
+		}
+		here := slices.Clone(cells[key])
+		slices.SortFunc(here, func(a, b int) int { return cmp.Compare(s.Elements[a].ID, s.Elements[b].ID) })
+		before := make(map[int][2]int, len(here))
+		for _, i := range here {
+			before[i] = [2]int{sum(s.Elements[i].Health), living(s.Elements[i].Health)}
+		}
+		ops := [2][]operator{operators(s.Elements, sides[0]), operators(s.Elements, sides[1])}
+		damage := [2]map[operator]int{shoot(ops[0], ops[1], rng), shoot(ops[1], ops[0], rng)}
+		wound(s.Elements, damage[0])
+		wound(s.Elements, damage[1])
+		g := Engagement{At: s.Elements[here[0]].At}
+		for _, i := range here {
+			e := s.Elements[i]
+			g.Elements = append(g.Elements, Engaged{
+				ID: e.ID, Faction: e.Faction,
+				Before: before[i][0], After: sum(e.Health), Fallen: before[i][1] - living(e.Health),
+			})
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// bury removes every fallen operator, and every element with none left,
+// and sets each survivor's strength to its health. It leaves s's elements
+// sorted by ID, and returns the elements destroyed, in ID order.
+func bury(s *State) []Loss {
+	losses := []Loss{}
+	var live []Element
+	for _, e := range s.Elements {
+		e.Health = slices.DeleteFunc(e.Health, func(h int) bool { return h <= 0 })
+		e.Strength = sum(e.Health)
+		if len(e.Health) == 0 {
+			losses = append(losses, Loss{ID: e.ID, Faction: e.Faction})
+			continue
+		}
+		live = append(live, e)
+	}
+	slices.SortFunc(live, func(a, b Element) int { return cmp.Compare(a.ID, b.ID) })
+	slices.SortFunc(losses, func(a, b Loss) int { return cmp.Compare(a.ID, b.ID) })
+	s.Elements = live
+	return losses
+}
+
+// settle sets each element's status for the next round: recovering when it
+// retreated this round, engaged when its cell holds the other faction's
+// elements, and ready otherwise.
+func settle(s *State, retreats map[string]Location) {
+	fights := contested(s.Elements)
+	for i, e := range s.Elements {
+		switch _, retreated := retreats[e.ID]; {
+		case retreated:
+			s.Elements[i].Status = StatusRecovering
+		case fights[e.At.Key()]:
+			s.Elements[i].Status = StatusEngaged
+		default:
+			s.Elements[i].Status = StatusReady
+		}
+	}
+}
+
+// capture counts, for each objective, the rounds in a row one faction has
+// ended alone on it, and gives the objective to a faction whose count
+// reaches [CaptureRounds]. A round that ends with both factions on the
+// objective, or with neither, resets its count, and a faction that holds
+// the objective keeps no count on it. It returns each objective that
+// changed hands and each count still short of a capture, both in the map's
 // objective order.
-func capture(s *State) []Capture {
+func capture(s *State) ([]Capture, []Advance) {
 	on := make(map[string]map[string]bool)
 	for _, e := range s.Elements {
 		k := e.At.Key()
@@ -231,18 +383,55 @@ func capture(s *State) []Capture {
 		}
 		on[k][e.Faction] = true
 	}
-	captures := []Capture{}
+	captures, progress := []Capture{}, []Advance{}
 	for _, o := range s.Map.objectives() {
-		if fs := on[o.Key()]; len(fs) == 1 {
-			for f := range fs {
-				if from := s.Holders[o.Key()]; from != f {
-					captures = append(captures, Capture{At: o, Faction: f, From: from})
-				}
-				s.Holders[o.Key()] = f
-			}
+		k := o.Key()
+		fs := on[k]
+		if len(fs) != 1 {
+			delete(s.Progress, k)
+			continue
+		}
+		f := slices.Collect(maps.Keys(fs))[0]
+		from := s.Holders[k]
+		if from == f {
+			delete(s.Progress, k)
+			continue
+		}
+		p := s.Progress[k]
+		if p.Faction != f {
+			p = Progress{Faction: f}
+		}
+		p.Rounds++
+		if p.Rounds < CaptureRounds {
+			s.Progress[k] = p
+			progress = append(progress, Advance{At: o, Faction: f, Rounds: p.Rounds})
+			continue
+		}
+		delete(s.Progress, k)
+		s.Holders[k] = f
+		captures = append(captures, Capture{At: o, Faction: f, From: from})
+	}
+	return captures, progress
+}
+
+// sum returns the total of hs.
+func sum(hs []int) int {
+	n := 0
+	for _, h := range hs {
+		n += h
+	}
+	return n
+}
+
+// living returns how many of hs are above 0.
+func living(hs []int) int {
+	n := 0
+	for _, h := range hs {
+		if h > 0 {
+			n++
 		}
 	}
-	return captures
+	return n
 }
 
 // sortedKeys returns m's keys in ascending order.
