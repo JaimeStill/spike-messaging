@@ -71,11 +71,11 @@ func (s *Service) Open(ctx context.Context, c Open, claim Claim) error {
 }
 
 // Assign sets the targets a faction's directives name, each with its rule:
-// an element's target, or none, which holds it. Each directive carries its faction's whole
-// target state, so Assign applies the newest whenever it arrives, even one
-// decided on a round before the last the operation acted on, as after an
-// outage; it skips only a directive older than the last it applied, and
-// any for a closed operation.
+// an element's target, or none, which holds it. Each directive carries its
+// faction's whole target state, so Assign applies the newest whenever it
+// arrives, even one decided on a round before the last the operation acted
+// on, as after an outage; it skips only a directive older than the last it
+// applied, and any for a closed operation.
 //
 // A directive decided on the round the operation last acted on, which
 // changes its plan, raises [OrdersIssued] again for the round those orders
@@ -123,10 +123,9 @@ func (s *Service) Assign(ctx context.Context, c Assign, claim Claim) error {
 
 // Maneuver takes a faction's observation of a round: it records the
 // faction's live elements, drops the targets and rules of those destroyed,
-// and raises
-// [OrdersIssued] for the next round, the steps that carry each element
-// toward its target. It raises the event even when no element moves, and
-// raises none for a round past the exercise's round limit. It skips an
+// and raises [OrdersIssued] for the next round, the steps that carry each
+// element toward its target. It raises the event even when no element moves,
+// and raises none for a round past the exercise's round limit. It skips an
 // observation of a round the operation has already acted on, and any for a
 // closed operation.
 func (s *Service) Maneuver(ctx context.Context, c Maneuver, claim Claim) error {

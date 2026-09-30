@@ -31,8 +31,8 @@ const (
 	// elements: it is pinned in the fight there, and only a retreat moves
 	// it.
 	StatusEngaged Status = "engaged"
-	// StatusRecovering is an element that retreated in the last round: its next
-	// order is refused.
+	// StatusRecovering is an element that retreated in the last round: its
+	// next order is refused.
 	StatusRecovering Status = "recovering"
 )
 

@@ -21,9 +21,10 @@ var (
 	RoundObserved = event.Define[ObservedData]("exercise.round.observed")
 	// RoundResolved reports what a round's resolution did, as the umpire
 	// records it: its retreats, its engagements, the elements destroyed, the
-	// objectives that changed hands, and the objectives being taken. Each resolved round raises one, before its
-	// observations. It reveals every faction's elements, so it is for an
-	// observer of the whole exercise, not for a faction's services.
+	// objectives that changed hands, and the objectives being taken. Each
+	// resolved round raises one, before its observations. It reveals every
+	// faction's elements, so it is for an observer of the whole exercise, not
+	// for a faction's services.
 	RoundResolved = event.Define[ResolvedData]("exercise.round.resolved")
 	// ObjectiveLost alerts a faction that it lost an objective it held: the
 	// objective and the faction that took it. Each capture from a holder

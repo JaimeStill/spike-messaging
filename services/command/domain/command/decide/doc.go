@@ -47,7 +47,7 @@
 // An element is engaged when the assessment gives it that status and a
 // contact was seen in its cell this round. A retreat draws fire only from
 // the enemy elements that pursue it, and costs the element the next round,
-// so only a losing fight is left; a scout, which never seeks a fight,
+// so a squad leaves only a losing fight; a scout, which never seeks a fight,
 // leaves any. An element that at least matches the enemy in its cell
 // pursues, so an enemy that retreats from it does not escape unhurt.
 //

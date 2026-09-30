@@ -479,7 +479,7 @@ func (n *narrator) advance(round int) {
 	}
 }
 
-// finish narrates every block not yet narrated, and the late changes left.
+// finish narrates what remains, under the narrator's lock.
 func (n *narrator) finish() {
 	n.mu.Lock()
 	defer n.mu.Unlock()

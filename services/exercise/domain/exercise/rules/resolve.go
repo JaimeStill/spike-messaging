@@ -31,12 +31,13 @@ type Order struct {
 	Pursue  bool       `json:"pursue,omitempty"`
 }
 
-// Resolve resolves round of s under orders: it moves, fires each retreat's
-// volley, fights, and captures, then observes the next state for each
-// faction and judges it against limit, the exercise's round limit. Every
-// random draw comes from seed and round alone, so a round resolves the same
-// way each time it is resolved. It returns the next state, the observations
-// indexed like s.Factions, the verdict, and the round's [Resolution].
+// Resolve resolves round of s under orders: it moves, exchanges fire between
+// each retreat and its pursuers, fights, and captures, then observes the
+// next state for each faction and judges it against limit, the exercise's
+// round limit. Every random draw comes from seed and round alone, so a round
+// resolves the same way each time it is resolved. It returns the next state,
+// the observations indexed like s.Factions, the verdict, and the round's
+// [Resolution].
 // Resolve does not change s or orders; the next state shares no slice or
 // map with s, and its elements are sorted by ID.
 func Resolve(s State, seed int64, round, limit int, orders []Order) (next State, obs [2]Observation, v Verdict, res Resolution) {
@@ -137,7 +138,7 @@ type Advance struct {
 	Rounds  int      `json:"rounds"`
 }
 
-// Loss is an element destroyed by a volley or in a fight.
+// Loss is an element destroyed in a retreat's pursuit or in a fight.
 type Loss struct {
 	ID      string `json:"id"`
 	Faction string `json:"faction"`
@@ -244,7 +245,7 @@ func shoot(shooters, targets []operator, rng *rand.Rand) map[operator]int {
 
 // operators returns the living operators of the elements at the given
 // indexes, in element ID order and then in the order each fields them. An
-// operator a volley felled this round is no longer living.
+// operator felled earlier this round, in a pursuit, is no longer living.
 func operators(es []Element, at []int) []operator {
 	at = slices.Clone(at)
 	slices.SortFunc(at, func(a, b int) int { return cmp.Compare(es[a].ID, es[b].ID) })
@@ -267,7 +268,7 @@ func wound(es []Element, damage map[operator]int) {
 	}
 }
 
-// volley plays out each retreat's exchange. Each element of the other
+// volley plays out the pursuit of each retreat. Each element of the other
 // faction that stays in the cell a retreat left, and whose order pursues,
 // fires once with all its operators at the retreating element, and the
 // retreating element's operators fire back once at the pursuers' operators,

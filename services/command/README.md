@@ -39,6 +39,7 @@ payload into its command's input, its own reading of the payload:
 Every command claims its event through the inbox, so a redelivery changes nothing. An input for
 a direction not open yet, as when an assessment is handled before its start, is redelivered after
 250ms rather than refused.
+
 `Decide` skips an assessment of a round earlier than the one it last decided on, and decides
 again on an assessment of that round: intelligence revises one when the faction loses an
 objective.
@@ -76,12 +77,13 @@ and the cells its elements have ever had in sight; any other open cell is unexpl
 8. **Hold.** Otherwise it stands where it is.
 
 The service emits `command.directive.issued`, whose subject is the exercise's ID:
-`{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where `rule` is `retreat`,
-`pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a hold's target is null. A
-retreat, a pursue, an engage, and a reinforce have a contact: the enemy the element leaves, fights,
-or heads for, the strongest in the cell when a fight holds several. The service emits the event only
-when a decision changes an element's target or rule. The event lists every live element, so it
-carries the faction's whole target state. The operations service reads the element and the target.
+`{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where `rule` is
+`retreat`, `pursue`, `engage`, `reinforce`, `secure`, `search`, `rescout`, or `hold`, and a hold's
+target is null. A retreat, a pursue, an engage, and a reinforce have a contact: the enemy the
+element leaves, fights, or heads for, the strongest in the cell when a fight holds several. The
+service emits the event only when a decision changes an element's target or rule. The event lists
+every live element, so it carries the faction's whole target state. The operations service reads
+each directive's element, rule, and target.
 
 The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer
 logs each delivery with its outcome.
