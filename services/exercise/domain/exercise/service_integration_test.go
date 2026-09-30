@@ -240,9 +240,9 @@ func TestIdleExerciseRunsToADraw(t *testing.T) {
 	}
 
 	es := outboxRows(t, db)
-	want := []string{"exercise.started"}
-	for range 4 {
-		want = append(want, "exercise.round.observed", "exercise.round.observed")
+	want := []string{"exercise.started", "exercise.round.observed", "exercise.round.observed"}
+	for range 3 {
+		want = append(want, "exercise.round.resolved", "exercise.round.observed", "exercise.round.observed")
 	}
 	want = append(want, "exercise.concluded")
 	if got := types(es); !slices.Equal(got, want) {
@@ -253,17 +253,31 @@ func TestIdleExerciseRunsToADraw(t *testing.T) {
 			t.Errorf("event %d subject = %q, want %s", i, e.Subject, ex.ID)
 		}
 	}
-	for i := 1; i < 9; i++ {
-		var d exercise.ObservedData
-		if err := json.Unmarshal(es[i].Data, &d); err != nil {
-			t.Fatal(err)
-		}
-		if wantRound, wantFaction := (i-1)/2, ex.Factions[(i-1)%2]; d.Round != wantRound || d.Faction != wantFaction {
-			t.Errorf("observed %d = round %d of %s, want round %d of %s", i, d.Round, d.Faction, wantRound, wantFaction)
+	var observed, resolved int
+	for _, e := range es {
+		switch e.Type {
+		case "exercise.round.observed":
+			var d exercise.ObservedData
+			if err := json.Unmarshal(e.Data, &d); err != nil {
+				t.Fatal(err)
+			}
+			if wantRound, wantFaction := observed/2, ex.Factions[observed%2]; d.Round != wantRound || d.Faction != wantFaction {
+				t.Errorf("observed %d = round %d of %s, want round %d of %s", observed, d.Round, d.Faction, wantRound, wantFaction)
+			}
+			observed++
+		case "exercise.round.resolved":
+			resolved++
+			var d exercise.ResolvedData
+			if err := json.Unmarshal(e.Data, &d); err != nil {
+				t.Fatal(err)
+			}
+			if d.Exercise != ex.ID || d.Round != resolved || d.Engagements == nil || d.Captures == nil || d.Losses == nil {
+				t.Errorf("resolved %d = %+v, want round %d with empty lists", resolved, d, resolved)
+			}
 		}
 	}
 	var c exercise.ConcludedData
-	if err := json.Unmarshal(es[9].Data, &c); err != nil {
+	if err := json.Unmarshal(es[len(es)-1].Data, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c != (exercise.ConcludedData{Exercise: ex.ID, Round: 3, Winner: "", Reason: "limit"}) {

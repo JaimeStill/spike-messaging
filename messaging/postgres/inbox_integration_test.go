@@ -3,10 +3,12 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -216,4 +218,83 @@ func TestConsumeClaimsUnderTheSubscription(t *testing.T) {
 	if !claim(t, db, "another", e, false) {
 		t.Error("the claim was not bound to its own consumer")
 	}
+}
+
+// The runtime logs the traffic it carries: the relay each event it
+// publishes, and a consumer each delivery with its outcome, so a delivery
+// of an event the inbox already holds is logged as a repeat.
+func TestRuntimeLogsTheTraffic(t *testing.T) {
+	db := migrated(t)
+	b := memory.New()
+	var log lockedBuffer
+	cfg := messaging.Config{Source: "/test"}
+	if err := cfg.Finalize(""); err != nil { // the relay's default poll
+		t.Fatal(err)
+	}
+	rt, err := messaging.New(cfg, b, postgres.Outbox(), postgres.Inbox(), slog.New(slog.NewTextHandler(&log, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := make(chan event.Event, 2)
+	sub := messaging.Subscription{Name: "billing", Types: []string{"lab.demo.tick"}}
+	consumer, err := rt.Consume(sub, time.Second, func(ctx context.Context, _ struct{}, claim messaging.Claim) error {
+		_, err := sqlate.Transact(ctx, db, func(tx *sqlate.Tx) (bool, error) { return claim(ctx, tx) })
+		handled <- event.Event{}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []*reactor.Reactor[event.Event]{consumer, rt.Relay(db, time.Second)} {
+		if err := r.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { stop(r) })
+	}
+
+	// The inbox already holds 2, as it would once a delivery of 2 had
+	// committed, so its delivery is a repeat.
+	claim(t, db, sub.Name, tick("2"), false)
+	emit(t, db, tick("1"), tick("2"))
+	await(t, handled)
+	await(t, handled)
+	eventually(t, "the repeat's log line", func() bool { return strings.Contains(log.String(), "outcome=repeat") })
+	for _, want := range []string{
+		`msg="event published" type=lab.demo.tick event=1`,
+		`msg="event published" type=lab.demo.tick event=2`,
+		`msg="event consumed" consumer=billing type=lab.demo.tick event=1 subject="" outcome=handled`,
+		`msg="event consumed" consumer=billing type=lab.demo.tick event=2 subject="" outcome=repeat`,
+	} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the log lacks %s:\n%s", want, log.String())
+		}
+	}
+}
+
+// await waits for a delivery on ch, within the failsafe.
+func await(t *testing.T, ch <-chan event.Event) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(failsafe):
+		t.Fatal("timed out waiting for a delivery")
+	}
+}
+
+// lockedBuffer serializes the reactors' writes and the test's read.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

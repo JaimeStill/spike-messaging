@@ -1,0 +1,101 @@
+# command
+
+The command service decides for each faction of the spike's exercise (`context/exercise.md`): it
+turns each faction's assessments into directives. It was generated from
+[go-web-sdk-template](https://github.com/standards-lab/go-web-sdk-template) `template/v0.9.0`.
+
+## Running
+
+The service runs on the host against the repository's compose stack: Postgres, which holds the
+`command` database, and NATS with JetStream. From the repository root:
+
+```sh
+mise run up                 # start Postgres and NATS
+mise run command-serve      # run the service on 127.0.0.1:8083
+```
+
+## API
+
+Mounted under `/api/command`:
+
+| Route | Action |
+|-------|--------|
+| `GET /{exercise}` | Each faction's direction: its status, the last round it decided on, and the decision standing for each live element, with its rule, its target, and for an engage its contact |
+
+`/healthz` and `/readyz` are the probes. Readiness reports the database, the broker, the schema
+service, and each reactor. The commands have no route: their inputs arrive as events.
+
+## Events
+
+The service consumes three event types, each through a subscription of its own, and decodes each
+payload into its command's input, its own reading of the payload:
+
+| Subscription | Event | Command |
+|--------------|-------|---------|
+| `command-started` | `exercise.started` | `Open` both factions' directions over the map |
+| `command-assessed` | `intelligence.assessment.issued` | `Decide`: decide on the faction's assessment |
+| `command-concluded` | `exercise.concluded` | `Close` the exercise's directions |
+
+Every command claims its event through the inbox, so a redelivery changes nothing. An input for
+a direction not open yet, as when an assessment is handled before its start, is redelivered after
+250ms rather than refused.
+
+`Decide` applies three rules to each live element, in order, by path distance over open cells and
+gates:
+
+1. **Engage.** A force heads for the nearest known contact weaker than itself within 3 steps, at
+   the cell it was last seen in.
+2. **Secure.** Otherwise the element heads for the nearest reachable objective that its faction
+   isn't known to hold and that no other element is heading for. An element keeps the objective
+   it was securing while that objective is still one to secure.
+3. **Hold.** Otherwise it stands where it is.
+
+The service emits `command.directive.issued`, whose subject is the exercise's ID:
+`{exercise, faction, round, directives: [{element, rule, contact, target}]}`, where a hold's
+target is null and only an engage has a contact. The service emits the event only when a decision
+changes an element's target. The event lists every live element, so it carries the faction's whole
+target state. The operations service reads the element and the target.
+
+The messaging runtime logs the traffic: the relay logs each event it publishes, and each consumer
+logs each delivery with its outcome.
+
+## Composition
+
+`internal/app` builds one layer per file, and the lifecycle coordinator starts them in stage
+order:
+
+| Stage | Service |
+|-------|---------|
+| 0 | `database`, and `broker`, which connects and provisions the shared stream at start |
+| 1 | `schema`: go-database's admin service migrates the `messaging` set, then `command` |
+| 2 | `messaging` and `command` verify their statements |
+| 3 | `relay`, which publishes the outbox |
+| 4 | `started`, `assessed`, and `concluded`, the consumers |
+| root | `server` |
+
+The drain runs in reverse. The consumers raise the service's directives, so they sit above the
+relay: the drain stops them first, and the relay's last pass publishes what they committed. The
+broker and database close last.
+
+## Configuration
+
+Configuration is layered: `config.json`, `config.<COMMAND_ENV>.json`, and the secrets files,
+with `COMMAND_*` environment variables applied last. `command-serve` sets `COMMAND_ENV=local`, so
+`config.local.json` points the service at the compose stack. The service adds three blocks to the
+template's:
+
+- `database`: go-database's connection block.
+- `messaging`: `messaging.Config`, the service's CloudEvents `source` and the relay's
+  `relay_poll`.
+- `nats`: `nats.Config`, the NATS URL, the connection's name, and the stream and prefix it shares
+  with the other exercise services, with the stream's `max_age`, which each service must set
+  alike.
+
+## Testing
+
+From the repository root, `mise run test` runs the unit tier and `mise run integration` runs the
+integration tier across every module. For this service, the integration tier covers two things:
+
+- the domain's commands, on a scratch database;
+- the built service, against the compose stack, on a scratch database and stream of its own,
+  driven through the events it consumes.

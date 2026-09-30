@@ -110,3 +110,29 @@ func TestOwnOrders(t *testing.T) {
 		t.Fatalf("ownOrders = %+v, want %+v", got, want)
 	}
 }
+
+// A round's resolution becomes one resolved event about the exercise, its
+// lists flattened beside the exercise and the round.
+func TestRaiseResolved(t *testing.T) {
+	at := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
+	res := rules.Resolution{
+		Engagements: []rules.Engagement{{At: at, Elements: []rules.Engaged{
+			{ID: "b1", Faction: "blue", Before: 2, After: 0}, {ID: "r1", Faction: "red", Before: 4, After: 3},
+		}}},
+		Captures: []rules.Capture{{At: at, Faction: "red", From: "blue"}},
+		Losses:   []rules.Loss{{ID: "b1", Faction: "blue"}},
+	}
+	q := &event.Queue{}
+	raiseResolved(q, "ex-1", 7, res)
+	es := q.Events()
+	if len(es) != 1 || es[0].Type != "exercise.round.resolved" || es[0].Subject != "ex-1" {
+		t.Fatalf("raised %+v", es)
+	}
+	want := `{"exercise":"ex-1","round":7,"engagements":[{"at":{"sector":"a","x":3,"y":0},"elements":[` +
+		`{"id":"b1","faction":"blue","before":2,"after":0},{"id":"r1","faction":"red","before":4,"after":3}]}],` +
+		`"captures":[{"at":{"sector":"a","x":3,"y":0},"faction":"red","from":"blue"}],` +
+		`"losses":[{"id":"b1","faction":"blue"}]}`
+	if string(es[0].Data) != want {
+		t.Errorf("data = %s\nwant   %s", es[0].Data, want)
+	}
+}

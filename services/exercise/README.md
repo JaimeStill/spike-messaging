@@ -20,14 +20,15 @@ mise run exercise-serve   # run the service on 127.0.0.1:8081
 databases when the volume is first initialized. The service migrates only its own schema, at
 startup.
 
-`fixtures/theater.json` is a larger exercise: three sectors joined by gates, walls and obstacle
-fields, five objectives, and six elements a side, each faction starting in its home sector. With
-exercise, intelligence, and operations running, `mise run demo-theater` creates and starts it,
-directs both factions through courier's `directives` scenario, and narrates both factions'
-assessments through courier's `assessments --summary`, a block per faction per round.
-`mise run demo-theater-check` then reconciles every assessment of the run against this service's
-history, the umpire's record, under the suppression rules, and reports what each faction wrongly
-believes at the end.
+`fixtures/skirmish.json` is the demonstration: a 9×5 field that both sides start in, a 5×3 annex
+reached by a gate from the middle of each long edge, three objectives, and three elements a side,
+laid out so neither side is favored, over 20 rounds of 1s. `fixtures/theater.json` is a larger
+exercise: three sectors joined by gates, walls and obstacle fields, five objectives, and six
+elements a side. With all four exercise services running, `mise run demo-theater` creates and starts
+the skirmish, or the theater with `FIXTURE=theater`, and narrates it through courier's `theater`
+scenario, which calls elements squads. `mise run demo-theater-check` then reconciles every
+assessment of the run against this service's history, the umpire's record, under the suppression
+rules, and reports what each faction wrongly believes at the end.
 
 ## API
 
@@ -51,6 +52,10 @@ Each event is written in the transaction of the command that makes it true, and 
 the exercise's ID:
 
 - `exercise.started`: the public settings, including the map but not the elements.
+- `exercise.round.resolved`: one per resolved round, before its observations: the umpire's record
+  of the round's engagements, with every element's strength before and after, the objectives
+  that changed hands, and the elements destroyed. It shows both factions, so it is for an
+  observer of the whole exercise, such as courier's theater narration; no service consumes it.
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 

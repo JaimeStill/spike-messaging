@@ -5,6 +5,7 @@ use (
 	./courier
 	./messaging/nats
 	./messaging/postgres
+	./services/command
 	./services/exercise
 	./services/intelligence
 	./services/operations

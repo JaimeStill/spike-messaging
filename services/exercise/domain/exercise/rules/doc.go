@@ -24,14 +24,16 @@
 //     that would end on the cell where another element of its faction ends
 //     is refused too, repeatedly until no two elements of one faction share
 //     a cell. Only the final cells matter, so elements that pass through or
-//     swap with each other do not meet.
+//     swap with each other do not meet. An element that starts the round in
+//     a cell holding the other faction's elements is pinned in the fight
+//     there: its order is refused, and it stays.
 //  2. Engage. In each cell holding both factions' elements, each faction's
-//     strength is summed. A tie destroys every element in the cell.
-//     Otherwise the weaker faction's elements are destroyed, and the
-//     stronger loses the weaker's total. The loss is taken from the
-//     stronger faction's weakest element first (lowest strength, then
-//     lowest ID); an element reduced to zero is removed, and the rest of
-//     the loss carries to the next element.
+//     strength is summed, and each faction loses half the other's total,
+//     rounded up, both at once: a fight is attrition, and lasts as many
+//     rounds as both factions stay in the cell. A faction's loss is taken
+//     from its weakest element first (lowest strength, then lowest ID); an
+//     element reduced to zero is removed, and the rest of the loss carries
+//     to the next element.
 //  3. Capture. An objective whose cell holds elements of exactly one
 //     faction becomes that faction's. Any other objective keeps its holder,
 //     even when no element stands on it.

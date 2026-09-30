@@ -194,9 +194,9 @@ func TestManeuverIssuesOrdersTowardTargets(t *testing.T) {
 	}
 }
 
-// An observation or a directive decided on a round before the last one
-// acted on changes nothing, and a directive that leaves the plan as it was
-// re-issues nothing.
+// An observation of a round before the last one acted on changes nothing,
+// and so does a directive older than the last one applied; a directive
+// that leaves the plan as it was re-issues nothing.
 func TestStaleInputsAreSkipped(t *testing.T) {
 	svc, db := setup(t)
 	id := open(t, svc)
@@ -206,15 +206,55 @@ func TestStaleInputsAreSkipped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := svc.Assign(ctx, assign(id, 1, map[string]*route.Location{"r1": nil}), nil); err != nil {
+		t.Fatal(err)
+	}
 	target := loc(4, 0)
 	if err := svc.Assign(ctx, assign(id, 0, map[string]*route.Location{"r2": &target}), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Assign(ctx, assign(id, 1, map[string]*route.Location{"r1": nil}), nil); err != nil {
-		t.Fatal(err)
-	}
 	if got := ordersRows(t, db); len(got) != 1 || got[0].Round != 2 {
 		t.Errorf("outbox holds %+v, want round 2's orders alone", got)
+	}
+	ops, err := svc.Find(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		if op.Faction == "red" && (len(op.Targets) != 0 || op.DirectiveRound != 1) {
+			t.Errorf("red's operation = %+v, want no target and directive round 1", op)
+		}
+	}
+}
+
+// A directive that arrives after the operation has acted on a later
+// round, as when command catches up after an outage, still sets the
+// targets: command sends nothing more while its decisions stand, so
+// skipping it would lose them. It re-issues nothing, since the orders out
+// are for a later round, and the next observation plans with its targets.
+func TestALateDirectiveStillTakesEffect(t *testing.T) {
+	svc, db := setup(t)
+	id := open(t, svc)
+	ctx := t.Context()
+	for _, round := range []int{0, 1} {
+		if err := svc.Maneuver(ctx, red(id, round, loc(0, 0), loc(1, 0)), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := loc(4, 0)
+	if err := svc.Assign(ctx, assign(id, 0, map[string]*route.Location{"r2": &target}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := ordersRows(t, db); len(got) != 2 {
+		t.Fatalf("outbox holds %+v, want rounds 1 and 2's orders alone", got)
+	}
+	if err := svc.Maneuver(ctx, red(id, 2, loc(0, 0), loc(1, 0)), nil); err != nil {
+		t.Fatal(err)
+	}
+	got := ordersRows(t, db)
+	want := []route.Order{{Element: "r2", Steps: steps(loc(2, 0), loc(3, 0))}}
+	if len(got) != 3 || got[2].Round != 3 || !sameOrders(got[2].Orders, want) {
+		t.Errorf("outbox holds %+v, want round 3's orders toward the late directive's target", got)
 	}
 }
 
@@ -406,7 +446,7 @@ func TestMigrationsUpAndDown(t *testing.T) {
 	if err := m.Up(t.Context()); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	if err := m.Down(t.Context(), 1); err != nil {
+	if err := m.Down(t.Context(), 2); err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	r, err := db.QueryContext(t.Context(), `SELECT to_regclass('operation') IS NOT NULL`)

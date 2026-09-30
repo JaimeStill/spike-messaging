@@ -6,7 +6,7 @@ golangci-lint = "2.13.2"
 # MODULES lists every module in go.work, as package patterns: ./... at the root lists only the
 # root module's packages. A module that imports a workspace sibling carries no require line for
 # it, so go mod tidy cannot run there; its go.mod is edited by hand.
-MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/exercise/... ./services/intelligence/... ./services/operations/..."
+MODULES = "./... ./courier/... ./messaging/nats/... ./messaging/postgres/... ./services/command/... ./services/exercise/... ./services/intelligence/... ./services/operations/..."
 MESSAGING_DSN = "postgres://app:app@127.0.0.1:5435/app?sslmode=disable"
 MESSAGING_NATS_URL = "nats://127.0.0.1:4225"
 
@@ -32,11 +32,17 @@ run = "GOWORK=off go mod tidy"
 
 [tasks.lint]
 description = "Run golangci-lint, including the integration-tagged files, and sqlint in each module with SQL"
-run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/exercise && go tool sqlint) && (cd services/intelligence && go tool sqlint) && (cd services/operations && go tool sqlint)"
+run = "golangci-lint run --build-tags integration $MODULES && (cd messaging/postgres && go tool sqlint) && (cd services/command && go tool sqlint) && (cd services/exercise && go tool sqlint) && (cd services/intelligence && go tool sqlint) && (cd services/operations && go tool sqlint)"
 
 [tasks.integration]
 description = "Run tests, including those against the compose stack's Postgres and NATS"
 run = "go test -race -tags integration -count=1 $MODULES"
+
+[tasks."command-serve"]
+description = "Run the command service locally against the compose stack"
+dir = "services/command"
+env = { COMMAND_ENV = "local" }
+run = "go run ./cmd/server"
 
 [tasks."exercise-serve"]
 description = "Run the exercise service locally against the compose stack"
@@ -93,26 +99,23 @@ echo "split-check: courier/scenario reaches neither nats.go nor the nats provide
 '''
 
 [tasks."demo-theater"]
-description = "Play the theater exercise on the running services: both factions directed, their assessments narrated"
+description = "Play an exercise on the running services and narrate it: the skirmish, or the fixture FIXTURE names (theater for the larger map)"
 run = '''
 set -eu
-for port in 8081 8082 8084; do
-  curl -sf -o /dev/null "localhost:$port/readyz" || { echo "no service is ready on :$port; run exercise-serve, intelligence-serve, and operations-serve first"; exit 1; }
+fixture="services/exercise/fixtures/${FIXTURE:-skirmish}.json"
+[ -f "$fixture" ] || { echo "no fixture at $fixture"; exit 1; }
+for port in 8081 8082 8083 8084; do
+  curl -sf -o /dev/null "localhost:$port/readyz" || { echo "no service is ready on :$port; run exercise-serve, intelligence-serve, command-serve, and operations-serve first"; exit 1; }
 done
 out=$(mktemp -d)
 go build -o "$out/courier" ./courier/cmd/courier
-id=$(curl -sf -XPOST localhost:8081/api/exercises -d @services/exercise/fixtures/theater.json | jq -r .id)
-echo "theater $id; the directives runs log to $out"
-# Every run joins the stream before the start, so none misses round 0.
-"$out/courier" --broker nats scenario directives --exercise "$id" --faction red --wait 5m > "$out/red.log" 2>&1 &
-"$out/courier" --broker nats scenario directives --exercise "$id" --faction blue --wait 5m > "$out/blue.log" 2>&1 &
-"$out/courier" --broker nats scenario assessments --exercise "$id" --summary --wait 5m &
+id=$(curl -sf -XPOST localhost:8081/api/exercises -d @"$fixture" | jq -r .id)
+# The narration joins the stream before the start, so it reads from round 0.
+"$out/courier" --broker nats scenario theater --exercise "$id" --wait 5m &
+narration=$!
 sleep 2
 curl -sf -o /dev/null -XPOST "localhost:8081/api/exercises/$id/start"
-sleep 1
-for f in red blue; do echo "$f's directives:"; grep "heads for\|holds" "$out/$f.log" || echo "  none yet; see $out/$f.log"; done
-wait
-echo "check it against the umpire: mise run demo-theater-check $id"
+wait "$narration"
 '''
 
 [tasks."demo-theater-check"]

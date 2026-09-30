@@ -88,7 +88,7 @@ func TestResolveJudgesAfterCapture(t *testing.T) {
 		force("b1", "blue", 2, loc("a", 0, 5)),
 	)
 	s.Holders["b:5,5"] = "red"
-	_, _, v := rules.Resolve(s, 1, 10, []rules.Order{order("r1", loc("a", 3, 0))})
+	_, _, v, _ := rules.Resolve(s, 1, 10, []rules.Order{order("r1", loc("a", 3, 0))})
 	if want := (rules.Verdict{Over: true, Winner: "red", Reason: "objectives"}); v != want {
 		t.Errorf("verdict = %+v, want %+v", v, want)
 	}

@@ -23,7 +23,8 @@ import (
 // subscribes under, so the stream's consumers show which are courier's.
 const AssessmentsDurable = "courier-assessments-"
 
-// assessmentType is the event the assessments scenario narrates.
+// assessmentType is the event the assessments scenario narrates, along with
+// directiveType, the directives command decides on each assessment.
 const assessmentType = "intelligence.assessment.issued"
 
 // The scenario's own reading of intelligence's assessment: the services
@@ -59,23 +60,22 @@ type (
 	}
 )
 
-// assessmentsScenario stands in for the command service as a reader: it
-// joins the exercise services' stream and narrates the assessments the
-// intelligence service issues for one exercise, a faction's or both, until
-// the exercise concludes and the assessment of its last round has arrived.
+// assessmentsScenario joins the exercise services' stream and narrates the
+// assessments the intelligence service issues for one exercise, a
+// faction's or both, and the directives the command service decides on
+// them, until the exercise concludes and the assessment of its last round
+// has arrived.
 func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 	var exercise, faction, stream, prefix string
-	var summary bool
 	maxAge := 24 * time.Hour
 	wait := 2 * time.Minute
 	return Scenario{
 		Name:    "assessments",
-		Summary: "Stand in for command as a reader: narrate the assessments issued for an exercise until it concludes",
+		Summary: "Narrate the assessments issued for an exercise, and the directives decided on them, until it concludes",
 		Needs:   needs,
 		Flags: func(fs *pflag.FlagSet) {
 			fs.StringVar(&exercise, "exercise", "", "the ID of the started exercise to follow (required)")
 			fs.StringVar(&faction, "faction", "", "the faction whose assessments to narrate (default: both)")
-			fs.BoolVar(&summary, "summary", false, "narrate by round, both factions together, with what changed and quiet rounds collapsed")
 			fs.StringVar(&stream, "stream", "exercise", "the stream the exercise services share")
 			fs.StringVar(&prefix, "prefix", "exercise", "the subject prefix of the services' stream")
 			fs.DurationVar(&maxAge, "max-age", maxAge, "the stream's max_age, as the services configure it: the last broker to provision the stream sets it")
@@ -95,9 +95,9 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 			c := newCoordinator(defaultDrain)
 			var l lease
 			w := &assessmentWatch{
-				exercise: exercise, faction: faction, summary: summary,
-				last: map[string]int{}, prev: map[string]map[string]bool{}, prevOwn: map[string]map[string]bool{},
-				book:  newRoundBook(faction),
+				exercise: exercise, faction: faction, standing: standing{},
+				factions: onlyIf(faction),
+				last:     map[string]int{}, prev: map[string]map[string]bool{}, prevOwn: map[string]map[string]bool{},
 				first: newSignal(), concluded: newSignal(), done: newSignal(),
 			}
 			who := faction
@@ -118,7 +118,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 						l.release = release
 						src, err := b.Subscribe(messaging.Subscription{
 							Name:  AssessmentsDurable + strings.ReplaceAll(uuid.NewV7().String(), "-", ""),
-							Types: []string{startedType, assessmentType, concludedType},
+							Types: []string{startedType, assessmentType, directiveType, concludedType},
 						})
 						if err != nil {
 							return err
@@ -132,7 +132,7 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 					},
 				},
 				{
-					Intent: "Narrate each assessment as it arrives, until the exercise concludes and its last round is assessed",
+					Intent: "Narrate each assessment and directive as it arrives, until the exercise concludes and its last round is assessed",
 					Action: func(ctx context.Context, _ *Reporter) error {
 						wctx, cancel := context.WithTimeout(ctx, wait)
 						defer cancel()
@@ -173,16 +173,16 @@ func assessmentsScenario(joins Joins, needs func() []Need) Scenario {
 // contacts and to know when the last round has been assessed.
 type assessmentWatch struct {
 	exercise, faction      string
-	summary                bool
 	first, concluded, done *signal
 	rep                    *Reporter
 
-	mu      sync.Mutex
-	last    map[string]int             // the round of each faction's last narrated assessment
-	prev    map[string]map[string]bool // the contacts of each faction's last narrated assessment
-	prevOwn map[string]map[string]bool // the own elements of each faction's last narrated assessment
-	book    *roundBook                 // the summary's rounds, when summary is set
-	end     concludedData
+	mu       sync.Mutex
+	last     map[string]int             // the round of each faction's last narrated assessment
+	prev     map[string]map[string]bool // the contacts of each faction's last narrated assessment
+	prevOwn  map[string]map[string]bool // the own elements of each faction's last narrated assessment
+	factions []string                   // the factions narrated: the start's, or --faction's
+	standing standing                   // each faction's last directive, by element
+	end      concludedData
 }
 
 // handle reads one event of the stream, ignoring every other exercise's,
@@ -206,8 +206,8 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			return event.Permanent(err)
 		}
-		if len(w.book.factions) == 0 {
-			w.book.factions = d.Factions
+		if len(w.factions) == 0 {
+			w.factions = d.Factions
 		}
 	case assessmentType:
 		var d assessmentData
@@ -221,48 +221,45 @@ func (w *assessmentWatch) handle(_ context.Context, e event.Event) error {
 			return nil
 		}
 		w.last[d.Faction] = d.Round
-		if w.summary {
-			w.book.add(d)
-		} else {
-			w.narrate(d)
-		}
+		w.narrate(d)
 		w.first.fire()
+	case directiveType:
+		var d directiveData
+		if err := json.Unmarshal(e.Data, &d); err != nil {
+			return event.Permanent(err)
+		}
+		if w.faction != "" && d.Faction != w.faction {
+			return nil
+		}
+		if lines := w.standing.changes(d); len(lines) > 0 {
+			w.rep.Note("round %d %s directs: %s", d.Round, d.Faction, strings.Join(lines, " · "))
+		}
 	case concludedType:
 		if err := json.Unmarshal(e.Data, &w.end); err != nil {
 			return event.Permanent(err)
 		}
-		if len(w.book.factions) == 0 {
-			// The start aged out of the stream: narrate the factions seen.
+		if len(w.factions) == 0 {
+			// The start aged out of the stream: wait for the factions whose
+			// assessments were narrated.
 			for f := range w.last {
-				w.book.factions = append(w.book.factions, f)
+				w.factions = append(w.factions, f)
 			}
-			slices.Sort(w.book.factions)
+			slices.Sort(w.factions)
 		}
 		w.concluded.fire()
-	}
-	if w.summary {
-		w.book.flush(w.rep.Note, w.last)
 	}
 	w.check()
 	return nil
 }
 
 // check fires done once the exercise has concluded and each faction's last
-// narrated assessment is of the concluded round or later, or, for the
-// summary, once the concluded round is narrated. The factions are those the
-// start named, or the one --faction names.
+// narrated assessment is of the concluded round or later. The factions are
+// those the start named, or the one --faction names.
 func (w *assessmentWatch) check() {
 	if !w.concluded.isFired() {
 		return
 	}
-	if w.summary {
-		if w.book.begun && w.book.next > w.end.Round {
-			w.book.end(w.rep.Note)
-			w.done.fire()
-		}
-		return
-	}
-	for _, f := range w.book.factions {
+	for _, f := range w.factions {
 		if r, ok := w.last[f]; !ok || r < w.end.Round {
 			return
 		}
@@ -342,4 +339,12 @@ func orNone(parts []string, sep string) string {
 		return "none"
 	}
 	return strings.Join(parts, sep)
+}
+
+// onlyIf returns a list of f alone, or none when f is empty.
+func onlyIf(f string) []string {
+	if f == "" {
+		return nil
+	}
+	return []string{f}
 }

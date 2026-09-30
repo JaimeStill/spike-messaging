@@ -134,8 +134,11 @@ here, this note is the spike's own.
   timeout. `Runtime.Consume[T]`, a generic method, builds a consuming reactor: it decodes each
   event's data into the consumer's own type, refusing data that does not decode with
   `event.Permanent`, hands the consumer a claim bound over the inbox under the subscription's
-  name, and logs every permanent refusal as `event refused` with the consumer and the event's
-  id. `messaging.Claim` is an alias, and so is each domain's `Claim`, so a command's method value
+  name. It logs every delivery with the consumer, the event's type, id, and subject, and its
+  outcome: `event consumed` at info when handled, a repeat the inbox caught, or retried, and
+  `event refused` at warn for a permanent refusal. `Runtime.Relay` logs each event it publishes
+  as `event published`. So each service's log is its own record of the broker traffic, apart
+  from any narration. `messaging.Claim` is an alias, and so is each domain's `Claim`, so a command's method value
   is a consumer. The migration set and statement verification stay with the engine
   (`postgres.Migrations`, `postgres.Verify`). The registration stays at the call site
   (`core/lifecycle.Register`), each at the stage the root chooses.
@@ -268,6 +271,11 @@ The evidence from operations (`services/operations/internal/app`):
   build today only through `go.work`.
 - How trace context propagates as the CloudEvents `traceparent` extension alongside
   go-observability.
+- A consumer that skips stale input must not lose state it will never be sent again. command
+  issues a directive only when a target changes, so operations must apply the newest directive
+  even behind its last observed round, and skips only an older directive; each directive carries
+  the faction's whole target state for that. Whether go-messaging should name this pattern, a
+  change-only event that carries its full state, for other services to follow.
 
 ## The CLI layout
 
