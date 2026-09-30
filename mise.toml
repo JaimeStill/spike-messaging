@@ -82,7 +82,7 @@ description = "Stop the compose stack and delete its volume"
 run = "docker compose down -v"
 
 [tasks.split-check]
-description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, that courier's scenarios reach no NATS package, and that each service's domain reaches no messaging package and no service reaches another"
+description = "Check that the root module reaches nothing outside the standard library, sqlate's engine-agnostic packages, and go-core, that courier's scenarios reach no NATS package, and that each service's domain reaches no messaging package or provider and no service reaches another"
 run = '''
 allowed='^github.com/standards-lab/(sqlate(/(header|query|sqltest|migrate))?|go-core(/.*)?)$'
 # A package outside the standard library has a dot in its first path element.
@@ -117,6 +117,14 @@ for dir in services/*/; do
   if [ -n "$found" ]; then
     echo "$svc's domain reaches spike packages outside core:"; echo "$found"; exit 1
   fi
+  # Nor does it reach a provider outside the spike: the NATS client, a Postgres driver, or an
+  # engine's own packages.
+  found=$(echo "$deps" | awk '{print $1}' \
+    | grep -E '^(github.com/nats-io/|github.com/jackc/|github.com/standards-lab/sqlate/postgres(/|$)|github.com/standards-lab/go-database(/|$))' \
+    | sort -u || true)
+  if [ -n "$found" ]; then
+    echo "$svc's domain reaches a provider:"; echo "$found"; exit 1
+  fi
   deps=$(cd "$dir" && go list -deps -test -tags integration ./...) || exit 1
   found=$(echo "$deps" | awk '{print $1}' | grep '^github.com/JaimeStill/spike-messaging/services/' \
     | grep -Ev "^$mod(/|$)" | sort -u || true)
@@ -124,7 +132,7 @@ for dir in services/*/; do
     echo "$svc reaches another service:"; echo "$found"; exit 1
   fi
 done
-echo "split-check: each service's domain reaches no messaging package, and no service reaches another"
+echo "split-check: each service's domain reaches no messaging package or provider, and no service reaches another"
 '''
 
 [tasks."demo-theater"]
