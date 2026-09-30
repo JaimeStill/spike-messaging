@@ -19,7 +19,7 @@ It reports every inconsistency and exits 1 on any, then reports each
 faction's stale beliefs at the end, what it last saw of an objective against
 who truly holds it, and the verdict.
 
-Usage: theater_check.py [exercise-id]   (default: the latest theater)
+Usage: theater_check.py [exercise-id]   (default: the latest exercise)
 It reads exercise's API on EXERCISE_URL (default http://localhost:8081), the
 intelligence database through the compose stack's Postgres, and
 contact_rounds from INTELLIGENCE_CONTACT_ROUNDS (default 3).
@@ -69,9 +69,9 @@ def main():
         except ValueError:
             sys.exit(f"{sys.argv[1]!r} is not an exercise ID")
     else:
-        rows = psql("exercise", "select id from exercise where name = 'theater' order by created_at desc limit 1")
+        rows = psql("exercise", "select id from exercise order by created_at desc limit 1")
         if not rows:
-            sys.exit("no theater exercise found; run mise run demo-theater first")
+            sys.exit("no exercise found; run mise run demo-theater first")
         ex = rows[0]
     history = {h["round"]: h["state"] for h in get(ex + "/history")}
     summary = get(ex)

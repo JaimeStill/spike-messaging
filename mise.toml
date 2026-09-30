@@ -112,9 +112,10 @@ go build -o "$out/courier" ./courier/cmd/courier
 id=$(curl -sf -XPOST localhost:8081/api/exercises -d @"$fixture" | jq -r .id)
 # The narration joins the stream before the start, so it reads from round 0.
 "$out/courier" --broker nats scenario theater --exercise "$id" --wait 5m &
+narration=$!
 sleep 2
 curl -sf -o /dev/null -XPOST "localhost:8081/api/exercises/$id/start"
-wait
+wait "$narration"
 '''
 
 [tasks."demo-theater-check"]

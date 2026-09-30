@@ -165,7 +165,7 @@ func TestNarratorTellsWhatChanges(t *testing.T) {
 		// observed→assessed: red 0 (8ms), red 1 (10ms), red 3 (11ms), blue 3
 		// (11ms); assessed→directed: 10ms and 15ms; directed→ordered, to the
 		// next round's first orders after it: 10ms and 15ms.
-		"chain p50   observed→assessed 11ms · assessed→directed 15ms · directed→ordered 15ms",
+		"chain p50   observed→assessed 11ms · assessed→directed 15ms (rounds with a directive) · directed→ordered 15ms",
 	} {
 		if !strings.Contains(final, w) {
 			t.Errorf("final conditions lack %q:\n%s", w, final)

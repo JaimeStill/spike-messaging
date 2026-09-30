@@ -556,7 +556,7 @@ func (n *narrator) final() []string {
 	out = append(out, fmt.Sprintf("events      %d on the stream: %s", total, strings.Join(kinds, " · ")))
 	out = append(out, "chain p50   "+strings.Join([]string{
 		"observed→assessed " + p50(n.hops(observedType, assessmentType, 0)),
-		"assessed→directed " + p50(n.hops(assessmentType, directiveType, 0)),
+		"assessed→directed " + p50(n.hops(assessmentType, directiveType, 0)) + " (rounds with a directive)",
 		"directed→ordered " + p50(n.hops(directiveType, ordersType, 1)),
 	}, " · "))
 	return out
@@ -564,7 +564,9 @@ func (n *narrator) final() []string {
 
 // hops returns, for each faction and round with an event of type from, the
 // time from it to the first later event of type to for the same faction on
-// the round shift rounds on.
+// the round shift rounds on. A round with no event of type to counts for
+// nothing, so assessed→directed measures only rounds that led to a
+// directive.
 func (n *narrator) hops(from, to string, shift int) []time.Duration {
 	var out []time.Duration
 	for k, starts := range n.times[from] {

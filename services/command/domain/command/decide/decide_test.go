@@ -121,8 +121,8 @@ func TestEngagesTheNearestWeakerContact(t *testing.T) {
 	check(t, decide.Decide(open(5, 5), "red", a, nil), "r1 engage b1 a:2,0")
 }
 
-// Weaker means strictly weaker: a tie destroys both, so a force does not
-// seek one. A contact four steps off is out of reach.
+// Weaker means strictly weaker: an even fight wears both sides down alike,
+// so a force does not seek one. A contact four steps off is out of reach.
 func TestEngagesOnlyAWeakerContactInReach(t *testing.T) {
 	a := decide.Assessment{
 		Own: []decide.Element{force("r1", 2, loc("a", 0, 0))},
