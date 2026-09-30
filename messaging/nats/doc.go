@@ -22,7 +22,8 @@
 //
 // A subscription's source binds its consumer when it starts receiving: a
 // durable named for the subscription, filtered to its types, delivering the
-// stream from its beginning. A binding whose configuration differs from the
+// stream from its beginning, or under [messaging.StartNew] from the
+// consumer's creation, which is that first Receive. A binding whose configuration differs from the
 // consumer's fails Receive. The source pulls one message at a time, and the
 // next only once the handler's outcome is settled, so members of a Name
 // share the work. The handler's deadline is the delivery's receipt plus the
