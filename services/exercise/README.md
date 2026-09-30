@@ -73,6 +73,9 @@ the exercise's ID:
   and every objective with its holder. It is the resolution the history records for the round.
   It shows both factions, so it is for an observer of the whole exercise, such as courier's
   theater narration; no service consumes it.
+- `exercise.objective.lost`: one per objective taken from the faction holding it, after the
+  round's resolution: `{exercise, faction, round, at, holder}`, where `faction` lost the objective
+  and `holder` took it. It alerts the loser, though none of its elements sees the objective.
 - `exercise.round.observed`: one per faction per round, round 0 at the start.
 - `exercise.concluded`: the verdict, or a stop.
 

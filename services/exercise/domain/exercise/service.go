@@ -258,7 +258,8 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 // exercise then advances to the round, with its next round due one interval
 // from the database's clock, or concludes when the round's verdict is over.
 // Its history records the round with its resolution. ResolveDue raises
-// [RoundResolved] with the round's resolution, then [RoundObserved] for each
+// [RoundResolved] with the round's resolution, then [ObjectiveLost] for
+// each objective taken from its holder, then [RoundObserved] for each
 // faction's observation of the round, then [Concluded] if the exercise
 // concluded.
 func (s *Service) ResolveDue(ctx context.Context) (int, error) {
@@ -314,6 +315,7 @@ func (s *Service) resolve(ctx context.Context, id string) (bool, error) {
 			return false, err
 		}
 		raiseResolved(q, id, round, res)
+		raiseLost(q, id, round, res.Captures)
 		raiseObserved(q, id, obs)
 		if v.Over {
 			raiseConcluded(q, id, round, v)

@@ -151,3 +151,20 @@ func TestRaiseResolved(t *testing.T) {
 		t.Errorf("data = %s\nwant   %s", es[0].Data, want)
 	}
 }
+
+// Each capture that takes an objective from its holder alerts the loser;
+// a capture of an unheld objective alerts no one.
+func TestRaiseLost(t *testing.T) {
+	a := rules.Location{Sector: "a", Point: rules.Point{X: 3, Y: 0}}
+	b := rules.Location{Sector: "b", Point: rules.Point{X: 5, Y: 5}}
+	q := &event.Queue{}
+	raiseLost(q, "ex-1", 4, []rules.Capture{{At: a, Faction: "red"}, {At: b, Faction: "blue", From: "red"}})
+	es := q.Events()
+	if len(es) != 1 || es[0].Type != "exercise.objective.lost" || es[0].Subject != "ex-1" {
+		t.Fatalf("raised %+v", es)
+	}
+	want := LostData{Exercise: "ex-1", Faction: "red", Round: 4, At: b, Holder: "blue"}
+	if got := decode[LostData](t, es[0]); got != want {
+		t.Errorf("data = %+v, want %+v", got, want)
+	}
+}

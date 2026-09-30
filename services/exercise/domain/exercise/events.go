@@ -25,6 +25,11 @@ var (
 	// observations. It reveals every faction's elements, so it is for an
 	// observer of the whole exercise, not for a faction's services.
 	RoundResolved = event.Define[ResolvedData]("exercise.round.resolved")
+	// ObjectiveLost alerts a faction that it lost an objective it held: the
+	// objective and the faction that took it. Each capture from a holder
+	// raises one, after the round's resolution and before its observations,
+	// so the loser learns of it though none of its elements sees it.
+	ObjectiveLost = event.Define[LostData]("exercise.objective.lost")
 	// Concluded reports an exercise that ended, by its verdict or by a stop,
 	// so a consumer closes what it holds of it.
 	Concluded = event.Define[ConcludedData]("exercise.concluded")
@@ -62,6 +67,16 @@ type ResolvedData struct {
 	Exercise string `json:"exercise"`
 	Round    int    `json:"round"`
 	rules.Resolution
+}
+
+// LostData is the event entity of [ObjectiveLost]: the faction that lost
+// the objective at At in the round, and Holder, the faction that took it.
+type LostData struct {
+	Exercise string         `json:"exercise"`
+	Faction  string         `json:"faction"`
+	Round    int            `json:"round"`
+	At       rules.Location `json:"at"`
+	Holder   string         `json:"holder"`
 }
 
 // ConcludedData is the event entity of [Concluded]: the last round, the
@@ -126,6 +141,16 @@ func raiseObserved(q *event.Queue, id string, obs [2]rules.Observation) {
 // raiseResolved raises the resolved event for round of exercise id.
 func raiseResolved(q *event.Queue, id string, round int, res rules.Resolution) {
 	RoundResolved.Raise(q, id, ResolvedData{Exercise: id, Round: round, Resolution: res})
+}
+
+// raiseLost raises a lost event for each capture of round that took an
+// objective from the faction holding it, in the captures' order.
+func raiseLost(q *event.Queue, id string, round int, captures []rules.Capture) {
+	for _, c := range captures {
+		if c.From != "" {
+			ObjectiveLost.Raise(q, id, LostData{Exercise: id, Faction: c.From, Round: round, At: c.At, Holder: c.Faction})
+		}
+	}
 }
 
 // raiseConcluded raises the concluded event for exercise id, ended after
