@@ -201,13 +201,13 @@ func (s *Service) Stop(ctx context.Context, id string) (Exercise, error) {
 // resolution leaves. It skips an order for an exercise that concluded or
 // stopped, or for a round already resolved: the order is late, not wrong, so
 // the command records nothing and succeeds, and the claim holds, so a
-// redelivery is a repeat. The late faction's elements stood still. It
+// redelivery is a repeat. The late faction's elements stand still. It
 // refuses the following with an error that [event.IsPermanent] reports,
 // because no redelivery could succeed:
 //
 //   - an exercise that does not exist ([ErrNotFound]);
-//   - a faction that is not one of the exercise's two, or a round past the
-//     round limit ([ErrValidation]).
+//   - a faction that is not one of the exercise's two, a round below 1, or
+//     a round past the round limit ([ErrValidation]).
 //
 // A refusal rolls back the claim with the rest of the transaction.
 // RecordOrders raises nothing.
@@ -233,6 +233,9 @@ func (s *Service) RecordOrders(ctx context.Context, cmd RecordOrders, claim Clai
 		case !slices.Contains(ex.Factions[:], cmd.Faction):
 			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: faction %q is not in exercise %s",
 				ErrValidation, cmd.Faction, ex.ID))
+		case cmd.Round < 1:
+			return struct{}{}, event.Permanent(fmt.Errorf("record orders: %w: round %d is not a round of exercise %s",
+				ErrValidation, cmd.Round, ex.ID))
 		case ex.Status == StatusConcluded || ex.Status == StatusStopped || cmd.Round <= ex.Round:
 			return struct{}{}, nil
 		case cmd.Round > ex.RoundLimit:

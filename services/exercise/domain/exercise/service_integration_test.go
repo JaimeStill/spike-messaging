@@ -344,13 +344,6 @@ func TestRecordOrdersSkipsAPastRound(t *testing.T) {
 	ex := started(t, svc, func(c *exercise.CreateExercise) { c.RoundLimit = 10 })
 	move := []rules.Order{{Element: "r1", Steps: []rules.Location{loc(1, 0)}}}
 
-	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 0, Orders: move}, nil); err != nil {
-		t.Fatalf("orders for round 0 = %v, want a skip", err)
-	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM exercise_orders`); n != 0 {
-		t.Fatalf("the skipped orders left %d rows", n)
-	}
-
 	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: move}, nil); err != nil {
 		t.Fatalf("orders for round 1: %v", err)
 	}
@@ -360,8 +353,16 @@ func TestRecordOrdersSkipsAPastRound(t *testing.T) {
 		t.Fatalf("after round 1, r1 is at %+v in round %d", element(t, ex, "r1").At, ex.Round)
 	}
 
-	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: move}, nil); err != nil {
+	// A recorded order would replace round 1's row, so the skip shows in its
+	// orders, not in a count.
+	stored := `SELECT orders::text FROM exercise_orders WHERE round = 1`
+	before := scalar[string](t, db, stored)
+	back := []rules.Order{{Element: "r1", Steps: []rules.Location{loc(0, 0)}}}
+	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: back}, nil); err != nil {
 		t.Fatalf("orders for the resolved round 1 = %v, want a skip", err)
+	}
+	if after := scalar[string](t, db, stored); after != before {
+		t.Fatalf("the skipped orders replaced round 1's orders %s with %s", before, after)
 	}
 }
 
@@ -402,6 +403,8 @@ func TestRecordOrdersRefusals(t *testing.T) {
 		{"not a uuid", exercise.RecordOrders{Exercise: "nope", Faction: "red", Round: 1}, exercise.ErrNotFound},
 		{"unknown faction", exercise.RecordOrders{Exercise: ex.ID, Faction: "green", Round: 1}, exercise.ErrValidation},
 		{"past the round limit", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: ex.RoundLimit + 1}, exercise.ErrValidation},
+		{"round 0", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 0}, exercise.ErrValidation},
+		{"a negative round", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: -1}, exercise.ErrValidation},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
