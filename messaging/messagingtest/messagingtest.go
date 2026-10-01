@@ -210,8 +210,8 @@ func testSingleTypeFilter(t *testing.T, b messaging.Broker) {
 	}
 }
 
-// A new Name starts at the beginning of the stream, so events published
-// before anything subscribed still reach it.
+// A new Name under StartAll, the zero value, starts at the beginning of the
+// stream, so events published before anything subscribed still reach it.
 func testStartsAtStreamBeginning(t *testing.T, b messaging.Broker) {
 	publish(t, b, ev("early-1", "t"), ev("early-2", "t"))
 	var d deliveries
@@ -407,21 +407,31 @@ func testAckWaitRedelivers(t *testing.T, b messaging.Broker) {
 	}
 }
 
+// A durable resumes where it left off under either start position: the
+// start position places only a new consumer, so a StartNew durable still
+// receives what was published while it had no member.
 func testDurableResumes(t *testing.T, b messaging.Broker) {
-	sub := messaging.Subscription{Name: "durable"}
-	var first deliveries
-	m1 := member(t, b, sub, first.record("1"))
-	publish(t, b, ev("e1", "t"))
-	eventually(t, first.has("e1"), "the first member to handle e1")
-	if err := stop(m1); err != nil {
-		t.Fatalf("Shutdown: %v", err)
-	}
-	publish(t, b, ev("e2", "t"), ev("e3", "t"))
-	var second deliveries
-	member(t, b, sub, second.record("2"))
-	eventually(t, second.has("e3"), "the second member to catch up")
-	if got, want := second.seen(), []string{"e2", "e3"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("the resumed member got %v, want %v", got, want)
+	for _, c := range []struct {
+		name  string
+		start messaging.Start
+	}{{"all", messaging.StartAll}, {"new", messaging.StartNew}} {
+		name := c.name
+		sub := messaging.Subscription{Name: "durable-" + name, Start: c.start}
+		e := func(n int) event.Event { return ev(fmt.Sprintf("%s-e%d", name, n), "t") }
+		var first deliveries
+		m1 := member(t, b, sub, first.record("1"))
+		publish(t, b, e(1))
+		eventually(t, first.has(e(1).ID), "the first member to handle e1")
+		if err := stop(m1); err != nil {
+			t.Fatalf("%s: Shutdown: %v", name, err)
+		}
+		publish(t, b, e(2), e(3))
+		var second deliveries
+		member(t, b, sub, second.record("2"))
+		eventually(t, second.has(e(3).ID), "the second member to catch up")
+		if got, want := second.seen(), []string{e(2).ID, e(3).ID}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: the resumed member got %v, want %v", name, got, want)
+		}
 	}
 }
 
