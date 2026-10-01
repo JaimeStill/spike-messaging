@@ -23,18 +23,18 @@
 // A subscription's source binds its consumer when it starts receiving: a
 // durable named for the subscription, filtered to its types, delivering the
 // stream from its beginning, or under [messaging.StartNew] from the
-// consumer's creation, which is that first Receive. A binding whose configuration differs from the
-// consumer's fails Receive. The source pulls one message at a time, and the
-// next only once the handler's outcome is settled, so members of a Name
-// share the work. The handler's deadline is the delivery's receipt plus the
-// subscription's AckWait; the consumer's own AckWait is longer by
-// [AckMargin], so an outcome settled before the deadline reaches the server
-// before it redelivers on a fast enough link, and an outcome that misses the
-// deadline is dropped unsent. A handler that returns nil acknowledges the
-// message and waits for the server to confirm it, so a drained handler's
-// acknowledgement holds. Any other error naks it with the subscription's
-// RetryDelay. An error marked by [event.Permanent], or a message that cannot
-// decode, terminates it.
+// consumer's creation, which is that first Receive. A binding whose
+// configuration differs from the consumer's fails Receive. The source pulls
+// one message at a time, and the next only once the handler's outcome is
+// settled, so members of a Name share the work. The handler's deadline is the
+// delivery's receipt plus the subscription's AckWait; the consumer's own
+// AckWait is longer by [AckMargin], so an outcome settled before the deadline
+// reaches the server before it redelivers on a fast enough link, and an
+// outcome that misses the deadline is dropped unsent. A handler that returns
+// nil acknowledges the message and waits for the server to confirm it, so a
+// drained handler's acknowledgement holds. Any other error naks it with the
+// subscription's RetryDelay. An error marked by [event.Permanent], or a
+// message that cannot decode, terminates it.
 //
 // [Broker.Conn] is the native handle, for uses beyond the standard tier such
 // as request and reply. It belongs in the composition root.
