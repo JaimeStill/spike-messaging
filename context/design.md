@@ -163,6 +163,24 @@ here, this note is the spike's own.
   prefix, duplicates, `max_age`), each with `Merge` and `Finalize` in go-core's config
   conventions. Rejected: one block holding both, which puts NATS's settings into the agnostic
   package.
+- **A subscription carries a start position.** `Subscription.Start` is `StartAll`, the zero
+  value, at the stream's beginning, or `StartNew`, at the consumer's creation, which a provider
+  may put as late as the source's first `Receive`; nats creates there, memory at `Subscribe`. It
+  places only a new consumer, and is binding configuration, so a mismatch under an existing Name
+  fails the bind. The conformance suite holds both providers to it (`StartNewSkipsEarlier`, and
+  `DurableResumes` under both positions). Every service binds `StartNew`, so a first boot skips
+  the events the stream retains; courier keeps `StartAll`, since the theater reads from round
+  0. Rejected: accepting the replay, which made operations issue orders for every retained
+  exercise.
+- **An input that can arrive before its start is bounded.** Each service subscription whose
+  handler can fail with `ErrNotOpen` sets `MaxDeliver` 240 at its 250ms retry delay, about a
+  minute, so an input for an exercise never opened stops. The bound applies to every failure, and
+  exhausting it is silent, so a database outage longer than a minute drops input. Rejected: a
+  finite default in `messaging`, which changes the rule for every consumer.
+- **exercise skips a late order.** An order for a round already resolved, or for an exercise that
+  ended, is late, not wrong: `RecordOrders` records nothing and succeeds, so the claim holds.
+  A round below 1, an unknown exercise or faction, and a round past the limit stay permanent
+  refusals.
 - **A reactor's grace is half the drain timeout,** `reactor.GraceWithin(drain)`, so a handler it
   cancels is reported before the coordinator's deadline drops the report.
 
@@ -237,11 +255,23 @@ four-method `Component` caught that at compile time.
 
 - Whether go-core's `lifecycle` should gain the component interface ("Lifecycle registration");
   `core/lifecycle` is the candidate, used by every root.
-- How the relay and a nats source report the errors they survive. A database error only makes
-  the relay not ready, and a handler error, such as a broker that is down, reaches nothing; a
-  source's failing pulls only make it not ready. Both need an error hook or the observability
-  layer. `Runtime.Consume` logs each permanent refusal, and `core/logging.Throttle` logs a
-  persisting failure once per interval, as stopgaps.
+- How the relay, a nats source, and a bounded consumer report the errors they survive. A database
+  error only makes the relay not ready, and a handler error, such as a broker that is down, reaches
+  nothing; a source's failing pulls only make it not ready. Both need an error hook or the
+  observability layer. `Runtime.Consume` logs each permanent refusal, and `core/logging.Throttle`
+  logs a persisting failure once per interval, as stopgaps. A subscription bounded by `MaxDeliver`
+  cannot tell an early input from a failure, and drops either silently at the bound; telling them
+  apart needs the error hook, a delivery count in the contract, or a dead-letter path.
+- Changing a durable's binding configuration (`Start`, `MaxDeliver`, `AckWait`, the types, and
+  `AckMargin`) fails the bind on a stream where the durable exists, so every such change is a
+  recreation today (`mise run reset` locally). go-messaging needs a migration path for consumer
+  configuration across a rolling deploy.
+- A first boot does not play an exercise already under way: its inputs find nothing open and are
+  dropped at the bound. Each subscription creates its consumer separately, so an
+  `exercise.started` published in the milliseconds between two creations can reach one consumer
+  and not another.
+- The `*-started` subscriptions set no retry delay or bound, so a database outage redelivers
+  `exercise.started` in a tight, unbounded loop.
 - A row that can never be published needs a quarantine or dead-letter mark. A corrupt row ends
   the relay on every start, and a handler that always fails holds the outbox back behind its row.
 - Retention: published outbox rows and inbox rows are never purged.

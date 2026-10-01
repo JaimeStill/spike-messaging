@@ -1,84 +1,97 @@
-# reset · cleanup
+# reset · final-validation
 
 - **Status:** closeout
 - **Session:** start
-- **Branch:** cleanup
+- **Branch:** final-validation
 
 ## Disposition
 
-- **Integrated:**
-  - `cleanup.md` is deleted; its inputs are built:
-    - courier's payloads, mirrors, keys, and theater split;
-    - the leftovers from hiding the objectives;
-    - operations' parallel maps and `directive_round`;
-    - intelligence's `storedPicture`.
-  - The rule names are documented under "Rule names" in command's `decide/doc.go`.
-- **Add or sharpen:**
-  - `design.md`:
-    - `CheckName` replaces `IsToken`, and a new entry holds the rules every provider shares
-      (the defaults, `Encode`, `Subscription.Normalize`, the engine check).
-    - The `Runtime` entry takes the drain timeout once, validates, and exports only `Recorder`;
-      the relay's poll is required.
-    - A new entry names the composition root, `internal/app` with `internal/config`, and states
-      evidence 6 as `split-check` holds it.
-    - Lifecycle registration: the step-by-step evidence is condensed.
-      - The result is now `Component` (three methods), `Monitored` (adds `Err`), and `Register`
-        for the database, the broker, and the reactors.
-      - The trade-off: `Register` finds `Err` by type assertion.
-    - Open questions:
-      - The import check is settled and removed.
-      - The relay's timeout: `Runtime` cannot set it.
-      - The change-only pattern notes the round interval as an implicit barrier.
-      - courier's inconsistent waits and its unread `sequence` are recorded.
-  - `exercise.md`:
-    - The replay is the rounds, the final conditions, and a consistent check; event totals vary
-      with timing.
-    - command secures and rescouts a discovered objective, and the `directive_round` sentence
-      is gone.
-    - The rule names point to `decide/doc.go`.
-    - courier reads the rules block from exercise's API, so it mirrors no rule.
-  - `README.md`:
-    - `split-check` covers evidence 6, and `messaging` holds the shared rules and takes the drain
-      timeout.
-    - The path is **the final validation** alone.
-- **Validated:**
-  - **Baseline.** On main, seed 7 ran twice with identical narration apart from latency and
-    IDs.
-  - **Checkpoint A** (stages 1–14):
-    - The full task set passed: build, vet, test, lint with sqlint, split-check, and
-      integration.
-    - Seed 7's narration and check matched main's; the check was consistent.
-    - The API carried the rules block.
-    - No intelligence picture held a `grid` key, and operations had no `directive_round`.
-  - **Final** (stages 15–17):
-    - `go fix` was a no-op, and the full task set passed.
-    - Seeds 7 and 11 each ran twice, consistent:
-      - Seed 7 matched main.
-      - Seed 11's two runs matched each other.
-      - One of five seed-7 runs counted 78 `operations.orders.issued` against 79, with identical
-        narration: operations' re-issue race. The architect accepted it.
-  - **Branch review** (the reviewer on Opus; the session verified the findings). Eight findings;
-    six fixed as checkpoint adjusts, and the full task set passed again:
-    - The directives stand-in sends `sequence` 1, which operations requires.
-    - `split-check` fails a domain that reaches a third-party provider.
-    - The composition-root docs name `internal/config`.
-    - `rules.Kinds` lists the kinds once, with a test.
-    - A test pins `Emit`'s zero result.
-    - The nits.
+- **The question:** can one broker-agnostic event and reactor contract, built on CloudEvents with
+  outbox emission, run a service's reactors on NATS JetStream and on an in-memory provider, with
+  no broker import outside the composition root and the provider?
+- **The answer: yes.**
+  - Four services play a 30-round, two-faction exercise on JetStream through the agnostic
+    contract.
+  - The same contract passes the conformance suite on the in-memory provider.
+  - Each of the eight items of evidence holds. `README.md`, "The answer", cites the test or the
+    validate task behind each. Two of them are proven by tests and not on the running services:
+    - Evidence 2: a stop between commit and publish loses no event.
+    - Evidence 3: a redelivery is handled once.
 
-    The two context findings went into `design.md` and `exercise.md`.
-  - **Delegation.** The executor (Opus) ran stages 9, 11, and 13–16; the editor (Sonnet) ran
-    stage 17. The session read every diff.
+    A kill on the running services landing inside that window depends on timing, and none did.
+  - Evidence 7's composite Postgres and blob case waits on go-storage.
+- **What go-messaging's API gains:**
+  - `Subscription.Start`, a start position that is binding configuration.
+  - A finite `MaxDeliver` for inputs that can arrive before their start. It bounds every failure
+    and drops silently, so it needs an error hook or a dead-letter path.
+
+  `design.md`'s decisions and open questions are the input for standards-lab/org's
+  `goals.v1.messaging`.
+- **Integrated:**
+  - The final validation is built.
+  - `README.md`: "The final validation" is replaced by "The answer", and the path is complete.
+  - `exercise.md`: "Smoothed in the final validation" is deleted. Each of its items is either
+    settled or moved to `design.md`'s open questions.
+- **Add or sharpen:**
+  - `design.md`, new decisions:
+    - the start position;
+    - the bound on early inputs and its cost;
+    - exercise skips late orders.
+  - `design.md`, open questions:
+    - The error-hook question now covers a bounded consumer.
+    - New: a durable's binding configuration needs recreation to change.
+    - New: a first boot does not play an exercise already under way, and per-consumer creation
+      has a window.
+    - New: the `*-started` subscriptions retry in a tight, unbounded loop.
+  - `exercise.md`:
+    - Evidence 4, 5, and the principle now cite `validate-replicas` and `validate-outages`, the
+      NATS outage included.
+    - It records what the final validation settled.
+    - The tasks list includes the validate tasks.
+  - `README.md`: the `messaging` capability names the start position.
+- **Validated:**
+  - **Checkpoint A** (stages 1–5):
+    - From a fresh stack, seed 7 ran three times. Every run concluded with blue holding every
+      objective after round 22, and `demo-theater-check` found each consistent.
+    - operations booted against a stream of 469 retained messages with its consumers and
+      database deleted. It consumed and published nothing. The other services' restarts consumed
+      nothing either.
+    - No service logged `event refused`.
+    - The full task set passed: build, vet, test, lint, split-check, and integration.
+  - **Checkpoint B** (stage 6):
+
+    | Run | Result | Detail |
+    |---|---|---|
+    | `SEED=7 validate-replicas` | 14/0 | split 22/23 by round 10; drain 108ms |
+    | `SEED=11 validate-replicas` | 14/0 | split 22/24 by round 10; a draw at the limit |
+    | `SEED=7 validate-outages` | 57/0 | operations, command (SIGKILL), intelligence, exercise, and nats each converged |
+  - **Final:**
+    - The editor pass ran (stage 8).
+    - The full task set passed.
+    - The question's answer was stated against evidence 1–8.
+  - **Branch review** (the reviewer on Opus; the session verified every finding): 11 findings, no
+    blocking bug. Fixed as checkpoint adjusts, after which the full task set and both validate
+    tasks passed again (14/0 and 57/0):
+    - `DurableResumes` runs under both start positions.
+    - `RecordOrders` refuses a round below 1 before it skips a late order, and its test compares
+      the stored orders.
+    - The READMEs and the subscriptions' comments state the bound's cost, the first boot, and the
+      binding break.
+    - The scripts refuse occupied ports before resetting the stack, which a guard run confirmed.
+      Their `set -e` exits now report the summary, and the drain bound allows the exit poll.
+    - The doc nits.
+
+    The context finding went into the notes. The tight retry loop, which predates the branch, is a
+    new open question.
+  - **Delegation:**
+    - The executor (Opus) ran stages 1 and 6.
+    - The session ran stages 2–5 and every adjust.
+    - The editor (Sonnet) ran stage 8, and the session fixed its rewrap.
+    - The session read every diff.
 
 ## Next-focus
 
-A `start` session for the path's last step: **the final validation** (`README.md`).
-
-- Gather the evidence the README lists, each item on the running services where it can be:
-  - two replicas in one delivery group share the work;
-  - a shutdown drains in-flight handling;
-  - a stop between commit and publish loses no event;
-  - a redelivery is handled once;
-  - outages converge;
-  - `split-check` holds evidence 6.
-- The close states the spike's answer for standards-lab/org's `goals.v1.messaging`.
+The spike is complete; nothing further runs here. A `plan` session in standards-lab/org reads this
+closeout for `goals.v1.messaging`. It decides with the architect what go-messaging and go-core
+take from it, using `README.md`'s answer and `design.md`'s decisions and open questions. It then
+confirms this repository is pushed, archives it, and keeps the catalog entry as the pointer.

@@ -124,8 +124,9 @@ it. Each README states its API, stages, and events.
 ## Evidence
 
 - **Evidence 3:** every reactor claims the events it consumes, so a redelivery changes nothing.
-- **Evidence 4 and 5:** operations runs as two replicas in one delivery group. Stopping one
-  mid-exercise drains it, and the other carries both factions.
+- **Evidence 4 and 5:** `validate-replicas` runs operations as two replicas in one delivery group.
+  Both take deliveries; stopping one at round 10 drains it, and exercise records both factions'
+  orders from the other alone.
 - **Evidence 6:** the import check requires three things:
   - no service module imports another's
   - no domain package imports `messaging`
@@ -134,24 +135,22 @@ it. Each README states its API, stages, and events.
   it true. Whether that command writes SQL alone or orchestrates phased SQL and blob writes makes
   no difference to the layer. The blob case waits on go-storage.
 - **Evidence 8** stays proven by courier's `request` scenario. The services use no native feature.
-- **The principle.** Each outage has its own visible effect while every other service's API keeps
-  serving:
+- **The principle.** `validate-outages` stops each service, and NATS, mid-exercise. Each outage
+  has its own visible effect while every other service's API keeps serving:
   - With operations down, the elements stand still and exercise keeps resolving.
   - With command down, operations keeps pursuing the standing directives.
   - With intelligence down, decisions stop changing.
-  - With exercise down, the world pauses.
+  - With exercise down, the world pauses, and resumes at the next round.
+  - With NATS down, every service stays live and reports not ready, and exercise keeps resolving.
 
-  On its return, each service skips its stale backlog, and the exercise converges.
-- **Smoothed in the final validation.** operations surfaced these, and the end-to-end run must
-  settle them:
-  - A new consumer's durable starts at the beginning of the shared stream, so a service's first
-    boot replays every retained exercise: operations issued orders for all of them, which
-    exercise refused.
-  - Orders issued after an exercise's last round, before its conclusion is handled, are refused.
-  - An input for an exercise never opened is redelivered without bound, in operations,
-    intelligence, and command. The runtime's traffic log now shows each retry.
-  - Every broker on the stream sets its configuration, so each service, and courier's
-    `--max-age`, must set `max_age` alike.
+  On its return, the exercise converges: it concludes, and `theater-check` finds it consistent. A
+  stale input is not an error: operations acts on a backlog of observations, and exercise skips
+  the orders that are late, recording nothing.
+- **What the final validation settled.** A service's first boot skips the events the stream
+  already retains, because every durable binds `StartNew` (`design.md`). exercise skips a late
+  order, so orders after an early conclusion pass quietly. An input for an exercise never opened
+  stops after `MaxDeliver`. Every broker on the stream must still set `max_age` alike, an open
+  question in `design.md`.
 
 ## Where the services live
 
@@ -164,7 +163,9 @@ it. Each README states its API, stages, and events.
   and the service owns everything in it: go-database's schema service migrates the messaging set
   and the service's own at startup.
 - **Tasks.** The mise tasks are named `<category>-<action>`, such as `exercise-serve`,
-  `demo-theater`, and `demo-theater-check`. `demo-theater` plays `fixtures/skirmish.json`, or the
+  `demo-theater`, `demo-theater-check`, `validate-replicas`, and `validate-outages`. The validate
+  tasks reset the compose stack, run the services from built binaries, and print one PASS or FAIL
+  line per assertion (`scripts/validate/`). `demo-theater` plays `fixtures/skirmish.json`, or the
   fixture `FIXTURE` names, with the seed `SEED` gives, and narrates it through courier's `theater`
   scenario.
 - **Pacing.** Each service's `config.local.json` polls the outbox every 50ms, so a round's four
