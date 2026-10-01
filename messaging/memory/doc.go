@@ -3,7 +3,8 @@
 //
 // A [Broker] keeps one append-only log of encoded events, as a JetStream
 // stream would, and a durable consumer for each subscription Name that
-// starts at the log's beginning. Publish encodes an event to binary content
+// starts at the log's beginning, or at its end under [messaging.StartNew],
+// once Subscribe creates it. Publish encodes an event to binary content
 // mode and each delivery decodes it, so the codec a real binding uses is
 // exercised on every message. Like a stream with a deduplication window, the
 // broker drops a publish of a source and id it has seen within

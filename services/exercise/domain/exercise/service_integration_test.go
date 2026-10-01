@@ -337,20 +337,12 @@ func TestStartConcludesAnExerciseAlreadyOver(t *testing.T) {
 	}
 }
 
-// An order for a round already resolved is refused permanently and stored
-// nowhere; an order for the next round is applied when it resolves.
-func TestRecordOrdersRefusesAPastRound(t *testing.T) {
+// An order for a round already resolved is skipped and stored nowhere; an
+// order for the next round is applied when it resolves.
+func TestRecordOrdersSkipsAPastRound(t *testing.T) {
 	svc, db := setup(t)
 	ex := started(t, svc, func(c *exercise.CreateExercise) { c.RoundLimit = 10 })
 	move := []rules.Order{{Element: "r1", Steps: []rules.Location{loc(1, 0)}}}
-
-	err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 0, Orders: move}, nil)
-	if !event.IsPermanent(err) || !errors.Is(err, exercise.ErrConflict) {
-		t.Fatalf("orders for round 0 = %v, want a permanent conflict", err)
-	}
-	if n := scalar[int](t, db, `SELECT count(*) FROM exercise_orders`); n != 0 {
-		t.Fatalf("the refused orders left %d rows", n)
-	}
 
 	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: move}, nil); err != nil {
 		t.Fatalf("orders for round 1: %v", err)
@@ -361,9 +353,40 @@ func TestRecordOrdersRefusesAPastRound(t *testing.T) {
 		t.Fatalf("after round 1, r1 is at %+v in round %d", element(t, ex, "r1").At, ex.Round)
 	}
 
-	err = svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: move}, nil)
-	if !event.IsPermanent(err) {
-		t.Fatalf("orders for the resolved round 1 = %v, want permanent", err)
+	// A recorded order would replace round 1's row, so the skip shows in its
+	// orders, not in a count.
+	stored := `SELECT orders::text FROM exercise_orders WHERE round = 1`
+	before := scalar[string](t, db, stored)
+	back := []rules.Order{{Element: "r1", Steps: []rules.Location{loc(0, 0)}}}
+	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: back}, nil); err != nil {
+		t.Fatalf("orders for the resolved round 1 = %v, want a skip", err)
+	}
+	if after := scalar[string](t, db, stored); after != before {
+		t.Fatalf("the skipped orders replaced round 1's orders %s with %s", before, after)
+	}
+}
+
+// An order for an exercise that stopped is skipped, and its claim holds, so
+// a redelivery is a repeat.
+func TestRecordOrdersSkipsAnEndedExercise(t *testing.T) {
+	svc, db := setup(t)
+	ex := started(t, svc, nil)
+	if _, err := svc.Stop(t.Context(), ex.ID); err != nil {
+		t.Fatal(err)
+	}
+	issued := event.Event{ID: "orders-late", Source: "/operations", Type: "operations.orders.issued"}
+	claim := func(ctx context.Context, tx *sqlate.Tx) (bool, error) {
+		return in.Claim(ctx, tx, "exercise-orders", issued)
+	}
+	move := []rules.Order{{Element: "r1", Steps: []rules.Location{loc(1, 0)}}}
+	if err := svc.RecordOrders(t.Context(), exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 1, Orders: move}, claim); err != nil {
+		t.Fatalf("orders for a stopped exercise = %v, want a skip", err)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM exercise_orders`); n != 0 {
+		t.Fatalf("the skipped orders left %d rows", n)
+	}
+	if n := scalar[int](t, db, `SELECT count(*) FROM messaging_inbox WHERE id = 'orders-late'`); n != 1 {
+		t.Fatalf("the skip left %d claims, want 1", n)
 	}
 }
 
@@ -371,10 +394,6 @@ func TestRecordOrdersRefusesAPastRound(t *testing.T) {
 func TestRecordOrdersRefusals(t *testing.T) {
 	svc, _ := setup(t)
 	ex := started(t, svc, nil)
-	stopped := started(t, svc, nil)
-	if _, err := svc.Stop(t.Context(), stopped.ID); err != nil {
-		t.Fatal(err)
-	}
 	cases := []struct {
 		name string
 		cmd  exercise.RecordOrders
@@ -383,8 +402,9 @@ func TestRecordOrdersRefusals(t *testing.T) {
 		{"unknown exercise", exercise.RecordOrders{Exercise: "019300f0-0000-7000-8000-000000000000", Faction: "red", Round: 1}, exercise.ErrNotFound},
 		{"not a uuid", exercise.RecordOrders{Exercise: "nope", Faction: "red", Round: 1}, exercise.ErrNotFound},
 		{"unknown faction", exercise.RecordOrders{Exercise: ex.ID, Faction: "green", Round: 1}, exercise.ErrValidation},
-		{"stopped exercise", exercise.RecordOrders{Exercise: stopped.ID, Faction: "red", Round: 1}, exercise.ErrConflict},
 		{"past the round limit", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: ex.RoundLimit + 1}, exercise.ErrValidation},
+		{"round 0", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: 0}, exercise.ErrValidation},
+		{"a negative round", exercise.RecordOrders{Exercise: ex.ID, Faction: "red", Round: -1}, exercise.ErrValidation},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

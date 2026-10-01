@@ -22,10 +22,10 @@ var ErrValidation = errors.New("invalid command")
 // finds it.
 var ErrNotFound = fmt.Errorf("direction not found: %w", sql.ErrNoRows)
 
-// ErrNotOpen reports an input for a faction's direction that is not open
-// yet, as when a round's assessment is handled before the start that opens
-// it. It is not permanent: the broker redelivers the input, and the start
-// has opened the direction by then.
+// ErrNotOpen reports an input for a faction's direction that is not open yet,
+// as when a round's assessment is handled before the start that opens it. It
+// is not permanent: the broker redelivers the input, as many times as its
+// subscription allows, and the start has opened the direction by then.
 var ErrNotOpen = errors.New("the direction is not open yet")
 
 // Status is where a faction's direction is in its life.

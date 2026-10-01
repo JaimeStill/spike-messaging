@@ -41,11 +41,12 @@ type Broker interface {
 	// of the durable consumer sub.Name names.
 	//
 	// The first subscription under a Name creates its consumer, which starts
-	// at the beginning of the stream, so it receives every event, including
-	// those published before it subscribed. A later subscription under the
-	// same Name binds that consumer and must match its configuration; a
-	// mismatch fails Subscribe, or the source's Receive when the provider
-	// binds there.
+	// where sub.Start says: under [StartAll], at the beginning of the stream,
+	// so it receives every event, including those published before it
+	// subscribed; under [StartNew], at its own creation. A later subscription
+	// under the same Name binds that consumer and must match its
+	// configuration; a mismatch fails Subscribe, or the source's Receive when
+	// the provider binds there.
 	//
 	// A member claims one delivery at a time, and the next only once the
 	// handler's outcome is settled, so members of one Name share the work
@@ -56,6 +57,22 @@ type Broker interface {
 	// delivered again. A handler error never ends the source.
 	Subscribe(sub Subscription) (reactor.Source[event.Event], error)
 }
+
+// Start is where a new durable consumer begins in the stream.
+type Start int
+
+const (
+	// StartAll begins at the stream's beginning, so the consumer receives
+	// every event the stream retains, including those published before it
+	// was created.
+	StartAll Start = iota
+	// StartNew begins at the consumer's creation, so the consumer receives
+	// only the events published after it. A provider may create the consumer
+	// as late as the source's first Receive, so an event published between
+	// Subscribe and that Receive may be skipped; a caller that must not miss
+	// one uses StartAll.
+	StartNew
+)
 
 // Subscription describes a durable consumer of events.
 type Subscription struct {
@@ -75,6 +92,11 @@ type Subscription struct {
 	// RetryDelay is how long an event whose handler returned an error waits
 	// before it is redelivered; 0 redelivers it at once.
 	RetryDelay time.Duration
+	// Start is where the Name's consumer begins when this subscription
+	// creates it; the zero value is [StartAll]. It is part of the consumer's
+	// configuration, so a later subscription under the Name must match it,
+	// even though it moves nothing once the consumer exists.
+	Start Start
 }
 
 // Validate reports every way sub is unusable.
@@ -96,6 +118,9 @@ func (sub Subscription) Validate() error {
 	}
 	if sub.RetryDelay < 0 {
 		errs = append(errs, errors.New("retry delay must not be negative"))
+	}
+	if sub.Start != StartAll && sub.Start != StartNew {
+		errs = append(errs, fmt.Errorf("start %d is not a start position", sub.Start))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("messaging: subscription: %w", errors.Join(errs...))

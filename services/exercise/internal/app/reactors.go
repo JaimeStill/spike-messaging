@@ -35,10 +35,13 @@ const relayStage = ordersStage + 1
 
 // ordersSubscription names the durable consumer and delivery group through
 // which the orders reactor receives the operations service's orders. Its
-// Name is also the consumer the inbox records the reactor's claims under.
+// Name is also the consumer the inbox records the reactor's claims under. It
+// starts at its consumer's creation, so a first boot skips the orders the
+// stream already retains.
 var ordersSubscription = messaging.Subscription{
 	Name:  "exercise-orders",
 	Types: []string{"operations.orders.issued"},
+	Start: messaging.StartNew,
 }
 
 // Reactors composes the application's event-driven entry points: components
@@ -86,8 +89,8 @@ func newReactors(
 
 	// The consuming reactor decodes each event's data into the domain's
 	// RecordOrders command and binds the claim to the event, so the domain
-	// never sees the event and a redelivery changes nothing. A refusal is
-	// permanent, and the runtime logs it.
+	// never sees the event and a redelivery changes nothing. A late order is
+	// skipped; a refusal is permanent, and the runtime logs it.
 	orders, err := infra.Messaging.Consume(ordersSubscription, dom.Exercise.RecordOrders)
 	if err != nil {
 		return nil, err

@@ -69,8 +69,9 @@ func (b *Broker) Publish(_ context.Context, e event.Event) error {
 }
 
 // Subscribe returns a source on the durable consumer that sub names,
-// creating it on first use. Sources under one Name share its position and
-// split its work. A later subscription under an existing Name must match
+// creating it on first use, at the log's beginning or, under
+// [messaging.StartNew], at its end. Sources under one Name share its position
+// and split its work. A later subscription under an existing Name must match
 // the first, as binding to a JetStream durable must.
 func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Event], error) {
 	if err := sub.Validate(); err != nil {
@@ -82,6 +83,9 @@ func (b *Broker) Subscribe(sub messaging.Subscription) (reactor.Source[event.Eve
 	c, ok := b.consumers[sub.Name]
 	if !ok {
 		c = newConsumer(sub)
+		if sub.Start == messaging.StartNew {
+			c.cursor = len(b.log)
+		}
 		b.consumers[sub.Name] = c
 	} else if !reflect.DeepEqual(c.sub, sub) {
 		return nil, fmt.Errorf("memory: subscription %q exists with a different configuration", sub.Name)

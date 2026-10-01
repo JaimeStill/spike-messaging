@@ -55,8 +55,9 @@
 // binds over its inbox, and runs the claim first in the command's
 // transaction, so a redelivery changes nothing. The command reads the
 // exercise under a shared lock, so it waits for a resolution in flight. It
-// refuses input that no redelivery could fix, such as an order for a round
-// already resolved, with an error that [event.IsPermanent] reports. A
+// skips a late order, one for a round already resolved or an exercise that
+// ended, and refuses input that no redelivery could fix, such as an order
+// for an unknown faction, with an error that [event.IsPermanent] reports. A
 // faction's orders for a round replace any it recorded before. Resolution
 // ignores an order for an element of the other faction.
 package exercise

@@ -31,12 +31,11 @@ module with no provider, and each service apart from the others.
   under.
 - **`core/lifecycle`** and **`core/logging`**: one-call registration of a component on go-core's
   coordinator, and the throttle that logs a repeating failure once per interval.
-- **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and
-  delivery groups, with the rules every provider shares, and the `Runtime`, a service's
-  messaging built from its config and drain timeout over an injected broker and engine, with its
-  relay and its consuming reactors. The runtime logs the
-  traffic it carries: each event the relay publishes, and each delivery a consumer handles, with
-  its outcome.
+- **`messaging`**: the standard tier's broker operations, which are publish, subscribe, and delivery
+  groups, with a subscription's start position and the rules every provider shares, and the
+  `Runtime`, a service's messaging built from its config and drain timeout over an injected broker
+  and engine, with its relay and its consuming reactors. The runtime logs the traffic it carries:
+  each event the relay publishes, and each delivery a consumer handles, with its outcome.
 - **`messaging/outbox` and `messaging/inbox`**: the engine-agnostic sink and relay, and the
   inbox's claim, each over an `Engine` of statements that an engine's module supplies.
   `messaging/postgres` is the Postgres engine: both packages' statements and the `messaging`
@@ -58,11 +57,8 @@ module with no provider, and each service apart from the others.
 
 ## Path
 
-The steps in dependency order. Each is one `start` session, and each session may revise the steps
-after it:
-
-1. **the final validation**: two replicas, drain, outages, and convergence, with the import check
-   `split-check` already holds. Its close states the answer.
+Complete. The final validation closed with the answer below; the served project's `plan` session
+takes it from here.
 
 ## Notes
 
@@ -70,17 +66,39 @@ after it:
   questions it settles.
 - `exercise.md`: the final demonstration, its guidelines, rules, and services.
 
-## The final validation
+## The answer
 
-The final step's validation answers the question with this evidence:
+**Yes.** Four services play a 30-round, two-faction exercise on NATS JetStream through the
+broker-agnostic contract, and the same contract passes the conformance suite on the in-memory
+provider. Each item of evidence, and where it stands:
 
-1. The conformance suite passes on both providers.
-2. A stop between commit and publish loses no event.
-3. A redelivered event is handled once.
-4. Two replicas in one delivery group share the work.
-5. A shutdown drains in-flight handling through the coordinator.
-6. An import check finds no provider import outside the composition root and the provider, and
-   no `messaging` import in a domain package; `mise run split-check` holds it.
-7. An event is emitted only in the transaction of the command that makes it true. The composite
-   Postgres and blob case waits on go-storage.
-8. The native request-and-reply use stays inside the `nats` provider and the composition root.
+1. **The conformance suite passes on both providers**: `messagingtest.Run` on memory and, under
+   integration, on the compose NATS, including `StartNewSkipsEarlier` and `DurableResumes` under
+   both start positions.
+2. **A stop between commit and publish loses no event**:
+   `TestStopBetweenCommitAndPublishLosesNoEvent` and `TestPublishedButUnmarkedIsRepublished` in
+   `messaging/postgres`. On the running services, `validate-outages` kills command and asserts its
+   outbox empties after the restart; no kill has yet landed inside the window, which only timing
+   reaches.
+3. **A redelivered event is handled once**: `TestClaimIsFirstOnce`, `TestClaimAcrossAckWait`, and
+   each service's `TestAClaimedRepeatChangesNothing`. The running services report the repeats
+   they see, and none has occurred in a run.
+4. **Two replicas in one delivery group share the work**: `validate-replicas`, two operations
+   replicas splitting the deliveries by round 10.
+5. **A shutdown drains in-flight handling through the coordinator**: `validate-replicas` and
+   `validate-outages`; every SIGTERM drains in about 110ms, and the surviving replica carries both
+   factions.
+6. **No provider import outside the composition root and the provider**: `mise run split-check`.
+7. **An event is emitted only in its command's transaction**: `Recorder.Emit` over the outbox
+   sink. The composite Postgres and blob case waits on go-storage.
+8. **The native request and reply stays inside the provider and the root**: courier's `request`
+   scenario, with `split-check` holding `courier/scenario` off NATS.
+
+Beyond the list, `validate-outages` stops each service and NATS in turn mid-exercise: each outage
+has its own visible effect while the others keep serving, and every run converges with a
+consistent `theater-check`.
+
+What go-messaging's API takes from the spike, beyond what `design.md` already records:
+`Subscription.Start`, a start position that is binding configuration, and a finite `MaxDeliver`
+for inputs that can arrive early, whose cost, dropping input on any longer failure, needs an
+error hook or a dead-letter path (`design.md`, open questions).

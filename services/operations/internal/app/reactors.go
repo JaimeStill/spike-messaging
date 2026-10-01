@@ -28,22 +28,38 @@ const consumeStage = relayStage + 1
 // another subscription and is handled well within that time.
 const retryDelay = 250 * time.Millisecond
 
+// maxDeliver bounds the deliveries of an input that may arrive before its
+// start: at retryDelay, about a minute of redeliveries. An input for an
+// operation that never opens, such as one for an exercise that began before
+// the service's first boot, then stops rather than retrying without end. The
+// bound applies to every failure, so an outage of the service's database
+// longer than it drops the input.
+const maxDeliver = 240
+
 // The subscriptions, one per event type the service consumes. Each is a
 // durable consumer and delivery group, and its Name is also the consumer the
 // inbox records its claims under. A replica joins each group, so replicas
-// share every kind of input.
+// share every kind of input. Each starts at its consumer's creation, so a
+// first boot skips the events the stream already retains, and an exercise
+// already under way then is not played: its inputs find no open operation
+// and stop at maxDeliver. Start and MaxDeliver are part of the consumer's
+// configuration, so changing either fails the bind on a stream where the
+// durable exists; recreate it, as mise run reset does.
 var (
 	startedSubscription = messaging.Subscription{
-		Name: "operations-started", Types: []string{"exercise.started"},
+		Name: "operations-started", Types: []string{"exercise.started"}, Start: messaging.StartNew,
 	}
 	directivesSubscription = messaging.Subscription{
 		Name: "operations-directives", Types: []string{"command.directive.issued"}, RetryDelay: retryDelay,
+		MaxDeliver: maxDeliver, Start: messaging.StartNew,
 	}
 	observedSubscription = messaging.Subscription{
 		Name: "operations-observed", Types: []string{"exercise.round.observed"}, RetryDelay: retryDelay,
+		MaxDeliver: maxDeliver, Start: messaging.StartNew,
 	}
 	concludedSubscription = messaging.Subscription{
 		Name: "operations-concluded", Types: []string{"exercise.concluded"}, RetryDelay: retryDelay,
+		MaxDeliver: maxDeliver, Start: messaging.StartNew,
 	}
 )
 

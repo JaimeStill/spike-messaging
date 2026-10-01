@@ -206,9 +206,13 @@ func (b *Broker) consumerConfig(sub messaging.Subscription) jetstream.ConsumerCo
 	if maxDeliver == 0 {
 		maxDeliver = -1
 	}
+	deliver := jetstream.DeliverAllPolicy
+	if sub.Start == messaging.StartNew {
+		deliver = jetstream.DeliverNewPolicy
+	}
 	cfg := jetstream.ConsumerConfig{
 		Durable:       sub.Name,
-		DeliverPolicy: jetstream.DeliverAllPolicy,
+		DeliverPolicy: deliver,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       sub.AckWait + AckMargin,
 		MaxDeliver:    maxDeliver,

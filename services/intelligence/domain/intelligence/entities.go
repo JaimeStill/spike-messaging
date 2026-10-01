@@ -24,8 +24,8 @@ var ErrNotFound = fmt.Errorf("assessment not found: %w", sql.ErrNoRows)
 
 // ErrNotOpen reports an input for a faction's assessment that is not open
 // yet, as when a round's observation is handled before the start that opens
-// it. It is not permanent: the broker redelivers the input, and the start
-// has opened the assessment by then.
+// it. It is not permanent: the broker redelivers the input, as many times as
+// its subscription allows, and the start has opened the assessment by then.
 var ErrNotOpen = errors.New("the assessment is not open yet")
 
 // Status is where a faction's assessment is in its life.

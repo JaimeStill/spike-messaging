@@ -36,9 +36,15 @@ payload into its command's input, its own reading of the payload:
 | `command-assessed` | `intelligence.assessment.issued` | `Decide`: decide on the faction's assessment |
 | `command-concluded` | `exercise.concluded` | `Close` the exercise's directions |
 
-Every command claims its event through the inbox, so a redelivery changes nothing. An input for
-a direction not open yet, as when an assessment is handled before its start, is redelivered after
-250ms rather than refused.
+Every command claims its event through the inbox, so a redelivery changes nothing. An input for a
+direction not open yet, as when an assessment is handled before its start, is redelivered every
+250ms rather than refused, for up to 240 deliveries, about a minute, and then dropped silently. The
+bound applies to every failure, so an outage of the service's database longer than a minute drops
+its inputs too. Every subscription starts at its consumer's creation, so a first boot skips the
+events the stream already retains, and an exercise already under way then is not played: its inputs
+find no open direction and are dropped at the bound. The start position and the bound are part of
+the consumer's configuration, so a stream whose durables an earlier version created fails the bind
+at startup; `mise run reset` recreates them.
 
 Intelligence numbers each faction's assessments in an exercise with a `revision`, from 1 up.
 `Decide` skips an assessment whose revision is no higher than the last one it decided on, so an

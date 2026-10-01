@@ -4,13 +4,13 @@
 // composition root would.
 //
 // The cases prove what a service relies on: an event survives the broker
-// intact, the type filter and delivery groups route it, the handler's return
-// decides its outcome, AckWait bounds a handler and redelivers the event, a
-// durable keeps its position across members, and a drained handler's
-// acknowledgement holds. The broker deduplicates on the event's source and id and
-// rejects a type that breaks [messaging.CheckType]. A case that proves an
-// absence, such as no redelivery after a terminate, watches a short quiet
-// window.
+// intact, the type filter and delivery groups route it, a new Name starts
+// where its subscription says, the handler's return decides its outcome,
+// AckWait bounds a handler and redelivers the event, a durable keeps its
+// position across members, and a drained handler's acknowledgement holds.
+// The broker deduplicates on the event's source and id and rejects a type
+// that breaks [messaging.CheckType]. A case that proves an absence, such as
+// no redelivery after a terminate, watches a short quiet window.
 package messagingtest
 
 import (
@@ -45,6 +45,7 @@ func Run(t *testing.T, newBroker func(t *testing.T) messaging.Broker) {
 		{"TypeFilter", testTypeFilter},
 		{"SingleTypeFilter", testSingleTypeFilter},
 		{"StartsAtStreamBeginning", testStartsAtStreamBeginning},
+		{"StartNewSkipsEarlier", testStartNewSkipsEarlier},
 		{"NamesEachReceiveAll", testNamesEachReceiveAll},
 		{"GroupSplitsWork", testGroupSplitsWork},
 		{"ErrorRedelivers", testErrorRedelivers},
@@ -209,8 +210,8 @@ func testSingleTypeFilter(t *testing.T, b messaging.Broker) {
 	}
 }
 
-// A new Name starts at the beginning of the stream, so events published
-// before anything subscribed still reach it.
+// A new Name under StartAll, the zero value, starts at the beginning of the
+// stream, so events published before anything subscribed still reach it.
 func testStartsAtStreamBeginning(t *testing.T, b messaging.Broker) {
 	publish(t, b, ev("early-1", "t"), ev("early-2", "t"))
 	var d deliveries
@@ -218,6 +219,22 @@ func testStartsAtStreamBeginning(t *testing.T, b messaging.Broker) {
 	publish(t, b, ev("after", "t"))
 	eventually(t, d.has("after"), "the event published after subscribing")
 	if got, want := d.seen(), []string{"early-1", "early-2", "after"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("delivered %v, want %v", got, want)
+	}
+}
+
+// A new Name under StartNew receives only the events published after its
+// consumer is created. A provider may create it as late as the source's
+// first Receive, so the case publishes the later events only once the member
+// is ready, which is after that Receive has created the consumer.
+func testStartNewSkipsEarlier(t *testing.T, b messaging.Broker) {
+	publish(t, b, ev("early-1", "t"), ev("early-2", "t"))
+	var d deliveries
+	member(t, b, messaging.Subscription{Name: "fresh", Start: messaging.StartNew}, d.record("m"))
+	publish(t, b, ev("after-1", "t"), ev("after-2", "t"))
+	eventually(t, d.has("after-2"), "the events published after subscribing")
+	time.Sleep(quiet)
+	if got, want := d.seen(), []string{"after-1", "after-2"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
 }
@@ -390,21 +407,31 @@ func testAckWaitRedelivers(t *testing.T, b messaging.Broker) {
 	}
 }
 
+// A durable resumes where it left off under either start position: the
+// start position places only a new consumer, so a StartNew durable still
+// receives what was published while it had no member.
 func testDurableResumes(t *testing.T, b messaging.Broker) {
-	sub := messaging.Subscription{Name: "durable"}
-	var first deliveries
-	m1 := member(t, b, sub, first.record("1"))
-	publish(t, b, ev("e1", "t"))
-	eventually(t, first.has("e1"), "the first member to handle e1")
-	if err := stop(m1); err != nil {
-		t.Fatalf("Shutdown: %v", err)
-	}
-	publish(t, b, ev("e2", "t"), ev("e3", "t"))
-	var second deliveries
-	member(t, b, sub, second.record("2"))
-	eventually(t, second.has("e3"), "the second member to catch up")
-	if got, want := second.seen(), []string{"e2", "e3"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("the resumed member got %v, want %v", got, want)
+	for _, c := range []struct {
+		name  string
+		start messaging.Start
+	}{{"all", messaging.StartAll}, {"new", messaging.StartNew}} {
+		name := c.name
+		sub := messaging.Subscription{Name: "durable-" + name, Start: c.start}
+		e := func(n int) event.Event { return ev(fmt.Sprintf("%s-e%d", name, n), "t") }
+		var first deliveries
+		m1 := member(t, b, sub, first.record("1"))
+		publish(t, b, e(1))
+		eventually(t, first.has(e(1).ID), "the first member to handle e1")
+		if err := stop(m1); err != nil {
+			t.Fatalf("%s: Shutdown: %v", name, err)
+		}
+		publish(t, b, e(2), e(3))
+		var second deliveries
+		member(t, b, sub, second.record("2"))
+		eventually(t, second.has(e(3).ID), "the second member to catch up")
+		if got, want := second.seen(), []string{e(2).ID, e(3).ID}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: the resumed member got %v, want %v", name, got, want)
+		}
 	}
 }
 
@@ -499,16 +526,21 @@ func testBindingMustMatch(t *testing.T, b messaging.Broker) {
 	member(t, b, sub, d.record("1"))
 	member(t, b, sub, d.record("2"))
 
-	other := sub
-	other.MaxDeliver = 5
-	src, err := b.Subscribe(other)
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), failsafe)
-	defer cancel()
-	if err := src.Receive(ctx, func(context.Context, event.Event) error { return nil }); err == nil {
-		t.Error("a different configuration under an existing Name bound the consumer")
+	maxDeliver := sub
+	maxDeliver.MaxDeliver = 5
+	start := sub
+	start.Start = messaging.StartNew
+	for what, other := range map[string]messaging.Subscription{"MaxDeliver": maxDeliver, "Start": start} {
+		src, err := b.Subscribe(other)
+		if err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), failsafe)
+		err = src.Receive(ctx, func(context.Context, event.Event) error { return nil })
+		cancel()
+		if err == nil {
+			t.Errorf("a different %s under an existing Name bound the consumer", what)
+		}
 	}
 }
 
