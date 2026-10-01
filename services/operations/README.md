@@ -38,11 +38,15 @@ payload into its command's input, its own reading of the payload:
 | `operations-observed` | `exercise.round.observed` | `Maneuver`: record the elements and issue the next round's orders |
 | `operations-concluded` | `exercise.concluded` | `Close` the exercise's operations |
 
-Every command claims its event through the inbox, so a redelivery changes nothing. An input for
-an operation not open yet, as when a round's observation is handled before its start, is
-redelivered every 250ms rather than refused, for up to 240 deliveries, about a minute. Every
-subscription starts at its consumer's creation, so a first boot skips the exercises the stream
-already retains.
+Every command claims its event through the inbox, so a redelivery changes nothing. An input for an
+operation not open yet, as when a round's observation is handled before its start, is redelivered
+every 250ms rather than refused, for up to 240 deliveries, about a minute, and then dropped
+silently. The bound applies to every failure, so an outage of the service's database longer than a
+minute drops its inputs too. Every subscription starts at its consumer's creation, so a first boot
+skips the events the stream already retains, and an exercise already under way then is not played:
+its inputs find no open operation and are dropped at the bound. The start position and the bound are
+part of the consumer's configuration, so a stream whose durables an earlier version created fails
+the bind at startup; `mise run reset` recreates them.
 
 The service emits `operations.orders.issued`, whose subject is the exercise's ID:
 `{exercise, faction, round, orders: [{element, steps: [{sector, x, y}], retreat?, pursue?}]}`, where

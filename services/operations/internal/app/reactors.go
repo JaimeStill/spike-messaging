@@ -40,7 +40,11 @@ const maxDeliver = 240
 // durable consumer and delivery group, and its Name is also the consumer the
 // inbox records its claims under. A replica joins each group, so replicas
 // share every kind of input. Each starts at its consumer's creation, so a
-// first boot skips the exercises the stream already retains.
+// first boot skips the events the stream already retains, and an exercise
+// already under way then is not played: its inputs find no open operation
+// and stop at maxDeliver. Start and MaxDeliver are part of the consumer's
+// configuration, so changing either fails the bind on a stream where the
+// durable exists; recreate it, as mise run reset does.
 var (
 	startedSubscription = messaging.Subscription{
 		Name: "operations-started", Types: []string{"exercise.started"}, Start: messaging.StartNew,
