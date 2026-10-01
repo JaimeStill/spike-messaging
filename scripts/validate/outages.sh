@@ -19,11 +19,11 @@ SERVICES="exercise intelligence command operations"
 signal() { [ "$1" = command ] && echo KILL || echo TERM; }
 
 down() {
-  if [ "$1" = nats ]; then docker compose stop nats >/dev/null 2>&1; else stop_svc "$1" "$(signal "$1")"; fi
+  if [ "$1" = nats ]; then docker compose stop nats >/dev/null; else stop_svc "$1" "$(signal "$1")"; fi
 }
 
 up() {
-  if [ "$1" = nats ]; then docker compose start nats >/dev/null 2>&1; else start_svc "$1" "$1"; fi
+  if [ "$1" = nats ]; then docker compose start nats >/dev/null; else start_svc "$1" "$1"; fi
   # shellcheck disable=SC2046
   wait_ready $(for s in $SERVICES; do echo "${PORT[$s]}"; done)
 }
@@ -105,6 +105,7 @@ outage() {
   done
 }
 
+ports_free 8081 8082 8083 8084
 build
 fresh_stack
 for s in $SERVICES; do start_svc "$s" "$s"; done

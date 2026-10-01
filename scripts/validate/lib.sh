@@ -39,8 +39,18 @@ build() {
   go build -o "$run/bin/courier" ./courier/cmd/courier
 }
 
+# ports_free fails the run when a server already answers on a port the run uses, as a *-serve
+# task left running would: the run's own server could not bind, and wait_ready would see the
+# other one.
+ports_free() {
+  local port
+  for port in "$@"; do
+    [ "$(code "$port" /healthz)" = 000 ] || { echo "a server already answers on :$port; stop it first"; exit 1; }
+  done
+}
+
 # fresh_stack is mise run reset then mise run up: every run starts from empty databases and an
-# empty stream, so no earlier exercise is replayed.
+# empty stream, so no earlier exercise is replayed. It deletes the stack's volumes.
 fresh_stack() {
   docker compose down -v
   docker compose up -d --wait
@@ -79,7 +89,7 @@ since_start() {
 stop_svc() {
   local instance=$1 sig=$2 pid=${PIDS[$1]} start=$SECONDS t0
   t0=$(date +%s%3N)
-  kill "-$sig" "$pid"
+  kill "-$sig" "$pid" 2>/dev/null || fail "$instance was running when signalled"
   while alive "$pid"; do
     if [ $((SECONDS - start)) -ge 20 ]; then
       fail "$instance exits within 20s of SIG$sig"
@@ -117,12 +127,16 @@ trap stop_all EXIT
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 2 "localhost:$1$2" || true; }
 
 wait_ready() {
-  local port start=$SECONDS
+  local port start=$SECONDS instance
   for port in "$@"; do
     until [ "$(code "$port" /readyz)" = 200 ]; do
       [ $((SECONDS - start)) -ge 60 ] && { echo "no service is ready on :$port within 60s"; exit 1; }
       sleep 0.2
     done
+  done
+  # A server that failed to start exits; the one answering must be the run's own.
+  for instance in "${!PIDS[@]}"; do
+    alive "${PIDS[$instance]}" || { echo "$instance exited (see $run/$instance.log)"; exit 1; }
   done
 }
 

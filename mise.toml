@@ -171,9 +171,9 @@ go build -o "$out/courier" ./courier/cmd/courier
 '''
 
 [tasks."validate-replicas"]
-description = "On a fresh stack, run two operations replicas in one delivery group, stop one mid-exercise, and check that it drains and the other carries both factions: SEED replays a seed (default 7)"
+description = "Reset the compose stack, deleting its volumes, then run two operations replicas in one delivery group, stop one mid-exercise, and check that it drains and the other carries both factions: SEED replays a seed (default 7)"
 run = "bash scripts/validate/replicas.sh"
 
 [tasks."validate-outages"]
-description = "On a fresh stack, stop each service and NATS in turn mid-exercise, and check that the others keep serving and the exercise converges: TARGETS names a subset, and SEED replays a seed (default 7)"
+description = "Reset the compose stack, deleting its volumes, then stop each service and NATS in turn mid-exercise, and check that the others keep serving and the exercise converges: TARGETS names a subset, and SEED replays a seed (default 7)"
 run = "bash scripts/validate/outages.sh"

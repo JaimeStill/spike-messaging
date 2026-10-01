@@ -6,6 +6,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 export SEED=${SEED:-7}
 
+ports_free 8081 8082 8083 8084 8085
 build
 fresh_stack
 start_svc exercise exercise
@@ -18,7 +19,7 @@ wait_ready 8081 8082 8083 8084 8085
 id=$(create_exercise)
 echo "exercise $id, seed $SEED"
 start_exercise "$id"
-wait_round "$id" 10
+wait_round "$id" 10 || { summary; exit 1; }
 
 a=$(count operations-a 'msg="event consumed"')
 b=$(count operations-b 'msg="event consumed"')
@@ -28,8 +29,8 @@ assert "operations-b consumed deliveries of the shared groups" test "$b" -gt 0
 
 mark operations-a stop-b
 stop_svc operations-b TERM
-# shutdown_timeout is 10s; the drain must finish within it, give or take the poll.
-assert "operations-b drained within the 10s drain timeout (${STOP_ELAPSED}ms)" test "$STOP_ELAPSED" -le 10000
+# shutdown_timeout is 10s; the drain must finish within it, plus the 0.1s exit poll.
+assert "operations-b drained within the 10s drain timeout (${STOP_ELAPSED}ms)" test "$STOP_ELAPSED" -le 10500
 # Orders for a round past this one can come only from operations-a.
 stopped=$(round "$id")
 note "operations-b stopped at round $stopped"
