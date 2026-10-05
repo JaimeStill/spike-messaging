@@ -2,12 +2,9 @@
 [project]
 kind = "code"
 
-# Remote platform and the command that publishes a finished branch.
+# Remote platform, the command that publishes a finished branch, and the command that merges it
+# once its checks pass.
 [remote]
 platform = "github"
 publish = "gh pr create"
-
-# The experiment serves the Standards Lab workspace coordinator, standards-lab/org, keyed `org`
-# in references.toml. A plan session there reads this spike's result.
-[experiment]
-serves = "org"
+merge = "gh pr checks --watch && gh pr merge --merge --delete-branch"
